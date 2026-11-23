@@ -294,7 +294,7 @@ component JobView inherits VerticalLayout {
         position: Printer.interruption-position;
         since: Printer.paused-since;
     }
-    if Printer.has-spoolman && !Printer.has-mmu: SpoolStrip { }
+    if Printer.has-spoolman && Printer.spool-at-extruder: SpoolStrip { }
     if Printer.has-mmu: MmuStrip { }
     // Free room stays at the bottom.
     Rectangle { vertical-stretch: 1; }

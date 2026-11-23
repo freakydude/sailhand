@@ -7,13 +7,13 @@ use crate::console_view::ConsoleView;
 use crate::files_view::{FileState, FilesView};
 use crate::history_view::HistoryView;
 use crate::items::{
-    compared_tool_items, connection_name, fan_item, fans_part_fan_first, float_model, head_item, head_nozzles,
-    heater_item, heaters_by_head, host_interface_item, keeping_parts, led_effect_item, led_item, no_head_selected,
-    power_item, replace_rows, selected_head, sensor_item, split_tuning, spool_in_use_target, spool_tool, tuning_item,
-    update_item,
+    active_spool_note, compared_tool_items, connection_name, fan_item, fans_part_fan_first, float_model, head_item,
+    head_nozzles, heater_item, heaters_by_head, host_interface_item, keeping_parts, led_effect_item, led_item,
+    no_head_selected, power_item, replace_rows, selected_head, sensor_item, split_tuning, spool_in_use_target,
+    spool_tool, tuning_item, update_item,
 };
 use crate::macro_view::MacroView;
-use crate::mmu_view::{JobFile, MmuView};
+use crate::mmu_view::{JobFile, MmuView, SpoolContext};
 use crate::objects_view::ObjectsView;
 use crate::spool_view::{SpoolView, SpoolmanLine};
 use crate::status_view::StatusView;
@@ -23,6 +23,7 @@ use crate::{
 };
 use crate::{axes_view, bed_map, format, thumbnail, view};
 use chrono::Local;
+use sailhand_core::domain::active_spool::active_spool_mismatch;
 use sailhand_core::domain::filament::{self, FilamentHandling};
 use sailhand_core::domain::filament_match::{self, ToolMatch};
 use sailhand_core::domain::heads::{self, ChangerNote};
@@ -412,7 +413,7 @@ impl Presenter {
             heaters_by_head(&status.heaters, &head_nozzles)
                 .into_iter()
                 .map(|(heater, name)| {
-                    let mut item = heater_item(heater, lanes, watch.limits(heater));
+                    let mut item = heater_item(heater, lanes, status, watch.limits(heater));
                     if let Some(name) = name {
                         item.label = name.into();
                     }
@@ -485,8 +486,9 @@ impl Presenter {
     fn show_heads(&self, printer: &Printer, snapshot: &Snapshot, lanes: &[Lane]) {
         let status = &snapshot.status;
         let rows = heads::head_rows(&snapshot.tree, status, lanes);
+        let spool = self.spool_context(snapshot, lanes);
         let heads = rows.iter().enumerate().map(|(index, row)| {
-            let mut item = head_item(row, status);
+            let mut item = head_item(row, status, &spool.active);
             if let Some(shown) = self.heads.row_data(index) {
                 item.path = keeping_parts(item.path, &shown.path);
             }
@@ -720,7 +722,7 @@ impl Presenter {
         let status = &snapshot.status;
         let matches = self.job_matches(snapshot, lanes);
         let file = JobFile { name: format::job_name(&self.job_file(status)), matches: &matches };
-        self.mmu.show(printer, status, lanes, &file);
+        self.mmu.show(printer, status, lanes, &file, &self.spool_context(snapshot, lanes));
         if let Some(mmu) = status.happy_hare() {
             self.note_origin("MMU flow rate", mmu.flow_rate.map(|rate| rate.origin));
         }
@@ -825,6 +827,16 @@ impl Presenter {
 
     pub fn clear_messages(&self) {
         self.status.clear();
+    }
+
+    /// Whether Spoolman is configured and the spool Moonraker books on is not the one of the lane in use.
+    fn spool_context(&self, snapshot: &Snapshot, lanes: &[Lane]) -> SpoolContext {
+        let cache = self.cache.borrow();
+        let mismatch = active_spool_mismatch(&snapshot.status, lanes, &cache.spoolman);
+        SpoolContext {
+            spoolman_configured: snapshot.sources.moonraker.spoolman,
+            active: active_spool_note(mismatch, &cache.spoolman),
+        }
     }
 
     fn lanes(&self, snapshot: &Snapshot) -> Vec<Lane> {

@@ -33,9 +33,11 @@ impl Session<'_> {
                 return;
             }
         };
+        // Asked of the intent: resolved, a spool assignment is G-code like any other.
+        let spools_change = command.changes_spools();
         let mut targets_changed = false;
         for command in commands {
-            targets_changed |= self.dispatch(command, &status);
+            targets_changed |= self.dispatch(command, &status, spools_change);
         }
         if targets_changed {
             self.publish();
@@ -43,7 +45,7 @@ impl Session<'_> {
     }
 
     /// Sends one concrete command; true if it set a heater target, which the snapshot shows at once.
-    fn dispatch(&mut self, command: Command, status: &PrinterStatus) -> bool {
+    fn dispatch(&mut self, command: Command, status: &PrinterStatus, spools_change: bool) -> bool {
         if command.interrupts_print() && status.print_running() {
             self.refuse(command, CommandError::PrintRunning);
             return false;
@@ -67,7 +69,7 @@ impl Session<'_> {
             }
             _ => false,
         };
-        let spools_change = command.changes_spools();
+        let spools_change = spools_change || command.changes_spools();
         // Busy from the start: Moonraker's own `busy` and notifications only follow once it has begun.
         let update_manager_call = matches!(command, Command::RefreshUpdates | Command::Upgrade { .. });
         if update_manager_call {

@@ -14,6 +14,10 @@ const TOOL_OFFSETS: [[f64; 3]; 3] = [[0.0, 0.0, 0.0], [0.12, -0.05, 0.3], [-0.08
 /// `spool_id` of the macros at the start (Fluidd and Mainsail keep the Spoolman spool of a tool there).
 const START_SPOOL_IDS: [Option<u32>; 3] = [Some(1), Some(3), None];
 const SPOOL_ID_VARIABLE: &str = "spool_id";
+/// `active` of the macros: the user macro of the mounted tool sets it (Fluidd `SpoolSelectionDialog.vue` reads it to
+/// decide whether a spool chosen for the tool is also the active one). No plugin sets it; assumed user macro, as in
+/// Moonraker's docs "Setting the active spool from Klipper" (`SET_ACTIVE_SPOOL` in the tool change macro).
+const ACTIVE_VARIABLE: &str = "active";
 
 /// Which plugin runs the tool changer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +60,10 @@ pub(super) struct Toolchanger {
     /// `pending_speed` of the fan handling (`toolchanger.py` Z.796, 843): the speed `M106` set while no tool was
     /// active, handed to the fan of the next tool.
     pending_fan_speed: Option<f64>,
+    /// The macros set `active` and the active spool of Moonraker on a tool change (profile `macro_active_spool`).
+    macros_set_active_spool: bool,
+    /// The active spools the macros set since the session last asked.
+    active_spool_events: Vec<Option<u32>>,
 }
 
 /// Name of the fan of a head: a `fan_generic` object, never `[fan]` (`toolchanger.py` Z.800-801).
@@ -70,7 +78,10 @@ impl Toolchanger {
         let macro_variables = (0..tool_count)
             .map(|tool| {
                 let spool_id = START_SPOOL_IDS.get(tool).copied().flatten();
-                let variables = Map::from_iter([(SPOOL_ID_VARIABLE.to_owned(), json!(spool_id))]);
+                let mut variables = Map::from_iter([(SPOOL_ID_VARIABLE.to_owned(), json!(spool_id))]);
+                if profile.macro_active_spool {
+                    variables.insert(ACTIVE_VARIABLE.to_owned(), json!(tool == 0));
+                }
                 (tool_macro_name(tool), variables)
             })
             .collect();
@@ -90,6 +101,8 @@ impl Toolchanger {
             saved_variables: Map::new(),
             fan_speeds: vec![0.0; tool_count],
             pending_fan_speed: None,
+            macros_set_active_spool: profile.macro_active_spool && profile.spoolman,
+            active_spool_events: Vec::new(),
         }
     }
 
@@ -112,6 +125,8 @@ impl Toolchanger {
             saved_variables: Map::new(),
             fan_speeds: Vec::new(),
             pending_fan_speed: None,
+            macros_set_active_spool: false,
+            active_spool_events: Vec::new(),
         }
     }
 
@@ -165,8 +180,32 @@ impl Toolchanger {
             if let Some(tool) = tool {
                 self.active_extruder = tool;
             }
+            self.run_active_macros(tool);
         }
         Ok(())
+    }
+
+    /// The tool change macros of the user: `active` is true for the mounted head only and the active spool of
+    /// Moonraker becomes the `spool_id` of that head (`None` if it has none). Without a head nothing is reported.
+    fn run_active_macros(&mut self, tool: Option<usize>) {
+        let mounted = tool.map(tool_macro_name);
+        for (name, variables) in &mut self.macro_variables {
+            if let Some(active) = variables.get_mut(ACTIVE_VARIABLE) {
+                *active = json!(Some(name) == mounted.as_ref());
+            }
+        }
+        if let (true, Some(tool)) = (self.macros_set_active_spool, tool) {
+            let spool = self
+                .macro_variables
+                .get(&tool_macro_name(tool))
+                .and_then(|variables| variables[SPOOL_ID_VARIABLE].as_u64());
+            self.active_spool_events.push(spool.and_then(|id| u32::try_from(id).ok()));
+        }
+    }
+
+    /// The active spools the macros set since the last call, oldest first.
+    pub(super) fn take_active_spool_events(&mut self) -> Vec<Option<u32>> {
+        std::mem::take(&mut self.active_spool_events)
     }
 
     /// Whether the heads have their own fans, which replace `[fan]` (`toolchanger.py` Z.800-801).
@@ -438,10 +477,16 @@ impl Toolchanger {
         for (tool, (name, variables)) in self.macro_variables.iter().enumerate() {
             sections.insert(
                 format!("gcode_macro {name}"),
-                json!({
-                    "variable_spool_id": variables[SPOOL_ID_VARIABLE].as_u64().map_or("None".to_owned(), |id| id.to_string()),
-                    "gcode": format!("SELECT_TOOL T={tool}"),
-                }),
+                {
+                    let mut section = json!({
+                        "variable_spool_id": variables[SPOOL_ID_VARIABLE].as_u64().map_or("None".to_owned(), |id| id.to_string()),
+                        "gcode": format!("SELECT_TOOL T={tool}"),
+                    });
+                    if let Some(active) = variables.get(ACTIVE_VARIABLE).and_then(Value::as_bool) {
+                        section["variable_active"] = json!(if active { "True" } else { "False" });
+                    }
+                    section
+                },
             );
         }
         sections

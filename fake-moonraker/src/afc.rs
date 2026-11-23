@@ -25,6 +25,19 @@ const STATUS_LED_IN_TOOL: &str = "#0000ff";
 const STATUS_LED_READY: &str = "#00cc00";
 const STATUS_LED_NOT_READY: &str = "#ff0000";
 
+/// A log error (`AFC_error(msg, pause=False)`) reaches the console like Klipper's `respond_raw("!! ...")`; assumed.
+const ERROR_PREFIX: &str = "!! ";
+
+/// A lane loaded without Spoolman data: `AFC_spool._set_values` logs "Defaulting weight to 1000 upon load" and takes
+/// `default_material_type`, whose value (`PLA`) is assumed here.
+const DEFAULT_LANE_WEIGHT: f64 = 1000.0;
+const DEFAULT_MATERIAL_TYPE: &str = "PLA";
+/// The weight AFC takes off a lane in the toolhead (`AFC_lane.py` `update_remaining_weight`): the volume of the
+/// filament that passed (`filament_diameter` 1.75 mm) times `filament_density` (1.24 g/cm3). AFC does it every 10 s
+/// (`UPDATE_WEIGHT_DELAY`); the fake does it with each step of the print, by the same formula.
+const FILAMENT_DIAMETER: f64 = 1.75;
+const FILAMENT_DENSITY: f64 = 1.24;
+
 /// `AFC_hub` values of the Box Turtle template (`templates/AFC_Turtle_1.cfg`, section `[AFC_hub Turtle_1]`).
 const HUB_BOWDEN_LENGTH: f64 = 1725.0;
 
@@ -156,6 +169,20 @@ impl Lane {
         }
     }
 
+    /// Filament without Spoolman data in it, as after PREP without Spoolman (`AFC_spool._set_values`).
+    fn with_unknown_filament(mut self) -> Self {
+        self.loaded = true;
+        self.status = LANE_LOADED;
+        self.weight = DEFAULT_LANE_WEIGHT;
+        self.material = DEFAULT_MATERIAL_TYPE.to_owned();
+        self
+    }
+
+    /// A lane with filament at the start: the spool of Spoolman if there is Spoolman, else a filament of unknown kind.
+    fn with_start_filament(self, spoolman: bool, id: u32) -> Self {
+        if spoolman { self.with_spool(id) } else { self.with_unknown_filament() }
+    }
+
     /// Filament with a Spoolman spool in it, as after PREP and a Spoolman lookup.
     fn with_spool(mut self, id: u32) -> Self {
         self.loaded = true;
@@ -210,19 +237,30 @@ pub struct Afc {
     /// `AFC.error_state`; `current_state` is `Error` while it is set and `Idle` otherwise (`set_error_state`,
     /// `AFC_error.py` L154-160).
     error: bool,
+    /// Moonraker has the `spoolman` component, so AFC knows its server (`AFC.spoolman`, `AFC_utils.py` L444-454);
+    /// without it `SET_SPOOL_ID` does nothing and AFC never sets the active spool.
+    spoolman: bool,
+    /// The active spools AFC reported to Moonraker since the session last asked: the spool of the lane after a load
+    /// into the toolhead, none after an unload (`AFC_lane.py` L1527, L1546).
+    active_spool_events: Vec<Option<u32>>,
+    /// Console lines of the last commands (AFC's log errors), which the session sends.
+    console: Vec<String>,
 }
 
 impl Afc {
-    pub fn new(layout: AfcLayout) -> Self {
-        match layout {
-            AfcLayout::BoxTurtle => Self::box_turtle(),
-            AfcLayout::Toolchanger => Self::toolchanger(),
-        }
+    pub fn new(layout: AfcLayout, spoolman: bool) -> Self {
+        let mut afc = match layout {
+            AfcLayout::BoxTurtle => Self::box_turtle(spoolman),
+            AfcLayout::Toolchanger => Self::toolchanger(spoolman),
+        };
+        // The lane in the toolhead at the start is no event: Moonraker keeps its active spool across restarts.
+        afc.active_spool_events.clear();
+        afc
     }
 
     /// `AFC_BoxTurtle Turtle_1` with `AFC_stepper lane1` to `lane4`, one `AFC_hub Turtle_1` and `AFC_extruder
     /// extruder`; lane 2 is loaded in the toolhead.
-    fn box_turtle() -> Self {
+    fn box_turtle(spoolman: bool) -> Self {
         let lane = |number: usize| {
             Lane::new(
                 format!("lane{number}"),
@@ -234,9 +272,9 @@ impl Afc {
             )
         };
         let mut lanes = vec![
-            lane(1).with_spool(SPOOL_ON_FIRST_LANE),
-            lane(2).with_spool(SPOOL_ON_SECOND_LANE),
-            lane(3).with_spool(SPOOL_ON_THIRD_LANE),
+            lane(1).with_start_filament(spoolman, SPOOL_ON_FIRST_LANE),
+            lane(2).with_start_filament(spoolman, SPOOL_ON_SECOND_LANE),
+            lane(3).with_start_filament(spoolman, SPOOL_ON_THIRD_LANE),
             lane(4),
         ];
         lanes[1].tool_loaded = true;
@@ -253,14 +291,14 @@ impl Afc {
             buffer: Some(BUFFER_NAME),
             lane_loaded: Some("lane2".to_owned()),
         };
-        let mut afc = Self::assemble(AfcLayout::BoxTurtle, lanes, vec![head], Some(0));
+        let mut afc = Self::assemble(AfcLayout::BoxTurtle, lanes, vec![head], Some(0), spoolman);
         afc.buffer = Some(BUFFER_NAME);
         afc
     }
 
     /// `AFC_Toolchanger Tools` with `AFC_extruder e0` to `e3`, each with its own `AFC_lane` (the template
     /// `AFC_Hardware_U1.cfg`); the head `e1` is on the shuttle with its lane in the toolhead.
-    fn toolchanger() -> Self {
+    fn toolchanger(spoolman: bool) -> Self {
         let head = |number: usize| Head {
             name: format!("e{number}"),
             extruder_name: if number == 0 { "extruder".to_owned() } else { format!("extruder{number}") },
@@ -275,19 +313,30 @@ impl Afc {
             Lane::new(format!("e{number}"), 0, format!("T{number}"), DIRECT_HUB, number, DEFAULT_DIST_HUB)
         };
         let lanes = vec![
-            lane(0).with_spool(SPOOL_ON_FIRST_LANE),
-            lane(1).with_spool(SPOOL_ON_SECOND_LANE),
-            lane(2).with_spool(SPOOL_ON_THIRD_LANE),
+            lane(0).with_start_filament(spoolman, SPOOL_ON_FIRST_LANE),
+            lane(1).with_start_filament(spoolman, SPOOL_ON_SECOND_LANE),
+            lane(2).with_start_filament(spoolman, SPOOL_ON_THIRD_LANE),
             lane(3),
         ];
-        let mut afc = Self::assemble(AfcLayout::Toolchanger, lanes, (0..4).map(head).collect(), Some(1));
+        let mut afc = Self::assemble(AfcLayout::Toolchanger, lanes, (0..4).map(head).collect(), Some(1), spoolman);
         afc.load_into_tool(1);
         afc
     }
 
-    fn assemble(layout: AfcLayout, lanes: Vec<Lane>, heads: Vec<Head>, shuttle: Option<usize>) -> Self {
+    fn assemble(layout: AfcLayout, lanes: Vec<Lane>, heads: Vec<Head>, shuttle: Option<usize>, spoolman: bool) -> Self {
         let maps = lanes.iter().map(|lane| lane.map.clone()).collect();
-        Self { layout, lanes, heads, maps, shuttle, buffer: None, error: false }
+        Self {
+            layout,
+            lanes,
+            heads,
+            maps,
+            shuttle,
+            buffer: None,
+            error: false,
+            spoolman,
+            active_spool_events: Vec::new(),
+            console: Vec::new(),
+        }
     }
 
     /// The Klipper extruder of the head on the shuttle of a tool changer; `None` for the Box Turtle.
@@ -319,10 +368,23 @@ impl Afc {
         self.lane_index(name)
     }
 
-    /// The spool of the lane in the toolhead, which AFC makes the active one in Moonraker (`AFC_spool.py` L310-322,
-    /// `AFC_lane.py` L1527, L1546).
-    pub fn active_spool(&self) -> Option<u32> {
-        self.current().and_then(|lane| self.lanes[lane].spool_id)
+    /// The console lines of the last commands, oldest first.
+    pub fn take_console(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.console)
+    }
+
+    /// The active spool changes AFC reported since the last call, oldest first.
+    pub fn take_active_spool_events(&mut self) -> Vec<Option<u32>> {
+        std::mem::take(&mut self.active_spool_events)
+    }
+
+    /// AFC takes weight off the lane in the toolhead for the filament that passed (`update_remaining_weight`, never
+    /// below 0). `length` is in mm.
+    pub fn consume_filament(&mut self, length: f64) {
+        let Some(lane) = self.current() else { return };
+        let volume = std::f64::consts::PI * (FILAMENT_DIAMETER / 2.0).powi(2) * length;
+        let lane = &mut self.lanes[lane];
+        lane.weight = (lane.weight - volume * FILAMENT_DENSITY / 1000.0).max(0.0);
     }
 
     fn lane_index(&self, name: &str) -> Option<usize> {
@@ -548,6 +610,9 @@ impl Afc {
     /// `AFC_lane.set_tool_unloaded` (L1536-1547) after `TOOL_UNLOAD`: the lane is not in the toolhead and has no
     /// status; the filament sits at the hub.
     fn unload_from_tool(&mut self, lane: usize) {
+        if self.spoolman {
+            self.active_spool_events.push(None);
+        }
         let head = self.lanes[lane].head;
         self.lanes[lane].tool_loaded = false;
         self.lanes[lane].status = LANE_NONE;
@@ -557,6 +622,9 @@ impl Afc {
     /// `AFC_lane.set_tool_loaded` (L1510-1530): the lane is in the toolhead of its head, which a tool changer puts on
     /// the shuttle first (`TOOL_LOAD`, `cur_lane.tool_swap()`).
     fn load_into_tool(&mut self, lane: usize) {
+        if self.spoolman {
+            self.active_spool_events.push(self.lanes[lane].spool_id);
+        }
         let head = self.lanes[lane].head;
         if self.is_toolchanger() {
             self.shuttle = Some(head);
@@ -568,8 +636,15 @@ impl Afc {
     }
 
     /// `AFC_spool.cmd_SET_SPOOL_ID` (L325-370) with Spoolman: only the plain refusals are simulated; AFC logs them.
+    /// Without Spoolman (`afc.spoolman is None`) the command does nothing. The same id on the same lane is fetched
+    /// again and overwrites weight, material, colour and temperature; an id of another lane is refused with the log
+    /// error `SpoolId <id> already assigned to a lane, cannot assign to <lane>.`; a lane in the toolhead then makes
+    /// its spool the active one.
     fn set_spool_id(&mut self, lane: Option<&str>, spool_id: Option<&str>) -> Result<(), CommandError> {
         let lane = self.mux_lane(lane)?;
+        if !self.spoolman {
+            return Ok(());
+        }
         let text = spool_id.unwrap_or_default();
         if text.is_empty() {
             // An empty id takes the spool out of the lane (`set_spoolID`: `clear_values`).
@@ -579,10 +654,17 @@ impl Afc {
         let Ok(id) = text.parse::<u32>() else { return Ok(()) };
         let taken = self.lanes.iter().any(|other| other.spool_id == Some(id));
         if taken && self.lanes[lane].spool_id != Some(id) {
+            self.console.push(format!(
+                "{ERROR_PREFIX}SpoolId {id} already assigned to a lane, cannot assign to {}.",
+                self.lanes[lane].name
+            ));
             return Ok(());
         }
         let Some(spool) = spoolman::initial_spool(id) else { return Ok(()) };
         self.lanes[lane].take_spool(id, &spool);
+        if self.current() == Some(lane) {
+            self.active_spool_events.push(Some(id));
+        }
         Ok(())
     }
 
@@ -734,7 +816,7 @@ impl Afc {
             "current_state": if self.error { "Error" } else { "Idle" },
             "current_toolchange": 0,
             "number_of_toolchanges": 0,
-            "spoolman": SPOOLMAN_SERVER,
+            "spoolman": self.spoolman.then_some(SPOOLMAN_SERVER),
             "td1_present": false,
             "lane_data_enabled": false,
             "error_state": self.error,
@@ -968,7 +1050,7 @@ mod tests {
     use super::*;
 
     fn box_turtle() -> Afc {
-        Afc::new(AfcLayout::BoxTurtle)
+        Afc::new(AfcLayout::BoxTurtle, true)
     }
 
     fn lane(afc: &Afc, name: &str) -> Value {
@@ -1001,7 +1083,7 @@ mod tests {
         assert_eq!(lane(&afc, "lane3")["status"], "Tooled");
         assert_eq!(lane(&afc, "lane2")["tool_loaded"], false);
         assert_eq!(lane(&afc, "lane2")["status"], "None");
-        assert_eq!(afc.active_spool(), Some(3));
+        assert_eq!(afc.take_active_spool_events(), [None, Some(3)]);
     }
 
     #[test]
@@ -1080,7 +1162,7 @@ mod tests {
         afc.apply(AfcCommand::LaneUnload { lane: Some("lane1".into()) }, true, false).unwrap();
 
         assert_eq!(afc.status()["AFC"]["current_load"], Value::Null);
-        assert_eq!(afc.active_spool(), None);
+        assert_eq!(afc.take_active_spool_events(), [None]);
         assert_eq!(lane(&afc, "lane1")["load"], false);
         assert_eq!(lane(&afc, "lane1")["spool_id"], Value::Null);
         assert_eq!(lane(&afc, "lane2")["load"], true);
@@ -1094,7 +1176,7 @@ mod tests {
 
     #[test]
     fn the_tool_changer_moves_the_shuttle_with_the_tool_change() {
-        let mut afc = Afc::new(AfcLayout::Toolchanger);
+        let mut afc = Afc::new(AfcLayout::Toolchanger, true);
         assert_eq!(afc.shuttle_extruder(), Some("extruder1"));
 
         afc.change_tool_by_map(0, true).unwrap();
@@ -1166,7 +1248,7 @@ mod tests {
             run(&mut afc, AfcCommand::LaneReset { lane: None }),
             Err("No lane selected to reset, please provide a lane to reset.".into())
         );
-        let mut changer = Afc::new(AfcLayout::Toolchanger);
+        let mut changer = Afc::new(AfcLayout::Toolchanger, true);
         assert_eq!(run(&mut changer, reset("e0")), Err("Hub is already clear while trying to reset 'e0'".into()));
     }
 
@@ -1185,7 +1267,7 @@ mod tests {
 
     #[test]
     fn afc_unselect_tool_docks_the_head_of_the_tool_changer_only() {
-        let mut changer = Afc::new(AfcLayout::Toolchanger);
+        let mut changer = Afc::new(AfcLayout::Toolchanger, true);
         run(&mut changer, AfcCommand::UnselectTool).unwrap();
 
         let status = changer.status();
@@ -1197,5 +1279,68 @@ mod tests {
         let mut afc = box_turtle();
         run(&mut afc, AfcCommand::UnselectTool).unwrap();
         assert_eq!(afc.status()["AFC"]["current_load"], "lane2");
+    }
+
+    fn set_spool(afc: &mut Afc, lane: &str, id: &str) {
+        afc.apply(AfcCommand::SetSpoolId { lane: Some(lane.into()), spool_id: Some(id.into()) }, true, false).unwrap();
+    }
+
+    #[test]
+    fn the_lane_in_the_toolhead_loses_weight_by_the_volume_of_the_filament_and_never_goes_below_zero() {
+        let mut afc = box_turtle();
+        let before = lane(&afc, "lane2")["weight"].as_f64().unwrap();
+
+        // 1000 mm of 1.75 mm filament at 1.24 g/cm3 weigh 2.9824 g.
+        afc.consume_filament(1000.0);
+
+        let after = lane(&afc, "lane2")["weight"].as_f64().unwrap();
+        assert!((before - after - 2.9824).abs() < 0.001, "lost {}", before - after);
+        assert_eq!(lane(&afc, "lane1")["weight"], 812.0, "a lane outside the toolhead keeps its weight");
+
+        afc.consume_filament(1.0e9);
+        assert_eq!(lane(&afc, "lane2")["weight"], 0.0);
+    }
+
+    #[test]
+    fn the_same_spool_id_on_the_same_lane_is_fetched_again_and_resets_the_weight() {
+        let mut afc = box_turtle();
+        afc.consume_filament(100_000.0);
+        assert!(lane(&afc, "lane2")["weight"].as_f64().unwrap() < 613.1);
+        afc.take_active_spool_events();
+
+        set_spool(&mut afc, "lane2", "4");
+
+        assert_eq!(lane(&afc, "lane2")["weight"], 613.1);
+        // The lane is the one in the toolhead, so AFC makes the spool the active one again.
+        assert_eq!(afc.take_active_spool_events(), [Some(4)]);
+    }
+
+    #[test]
+    fn a_spool_of_another_lane_is_refused_with_a_log_error_and_no_effect() {
+        let mut afc = box_turtle();
+
+        set_spool(&mut afc, "lane4", "1");
+
+        assert_eq!(lane(&afc, "lane4")["spool_id"], Value::Null);
+        assert_eq!(afc.take_console(), ["!! SpoolId 1 already assigned to a lane, cannot assign to lane4."]);
+        assert!(afc.take_active_spool_events().is_empty());
+    }
+
+    #[test]
+    fn without_spoolman_the_lanes_default_to_1000_g_and_set_spool_id_does_nothing() {
+        let mut afc = Afc::new(AfcLayout::BoxTurtle, false);
+
+        assert_eq!(lane(&afc, "lane1")["weight"], 1000.0);
+        assert_eq!(lane(&afc, "lane1")["material"], DEFAULT_MATERIAL_TYPE);
+        assert_eq!(lane(&afc, "lane1")["spool_id"], Value::Null);
+        assert_eq!(afc.status()["AFC"]["spoolman"], Value::Null);
+
+        set_spool(&mut afc, "lane4", "6");
+        afc.change_tool_by_map(2, true).unwrap();
+        afc.consume_filament(10_000.0);
+
+        assert_eq!(lane(&afc, "lane4")["spool_id"], Value::Null);
+        assert!(lane(&afc, "lane3")["weight"].as_f64().unwrap() < 1000.0, "AFC counts its own weight");
+        assert!(afc.take_active_spool_events().is_empty());
     }
 }

@@ -1,0 +1,22 @@
+// Preview: dialog of a gate whose spool in Spoolman says otherwise than Happy Hare's copy (material and colour differ,
+// the temperature does not), with the notice that the gate in use is not the active spool of Moonraker. Open in the
+// Slint preview or render with scripts/ui-preview.sh.
+
+import { AppWindow } from "../app.slint";
+import { FilamentTab, MmuDialogs, Navigation, Page, Printer } from "../state.slint";
+import { Sample } from "sample.slint";
+
+export component FilamentMmuGateSpoolDiffersPreview inherits AppWindow {
+    init => {
+        Sample.mmu();
+        Navigation.page = Page.filament;
+        Navigation.filament-tab = FilamentTab.gates;
+        Printer.has-spoolman = true;
+        Printer.mmu-gates = [
+            { title: "Gate 0", index: 0, availability: "available", name: "Silk Green", material: "PLA", colors: { first: #e31f2b, count: 1 }, has-color: true, tools: "T0", selected: true, loaded: true, spool-text: "613 g", spool-low: false, spool-id: 18, temperature: 215, sets-filament: false, can-pick-spool: true, can-refresh-spool: true, spool-differs: true, spool-material: "PETG", spool-colors: { first: #2e9d4f, count: 1 }, material-differs: true, color-differs: true, active-spool-differs: true, active-spool-title: "Teal PETG", active-spool-colors: { first: #26a69a, count: 1 } },
+            { title: "Gate 1", index: 1, availability: "available", name: "Teal PETG", material: "PETG", colors: { first: #26a69a, count: 1 }, has-color: true, tools: "T1", selected: false, spool-text: "870 g", spool-low: false, spool-id: 7, temperature: 240, sets-filament: false, can-pick-spool: true, can-refresh-spool: true },
+            { title: "Gate 2", index: 2, availability: "empty", name: "", material: "", colors: { first: #000000, count: 0 }, has-color: false, tools: "T2", selected: false, spool-text: "", spool-low: false, spool-id: -1, sets-filament: true, can-pick-spool: true },
+        ];
+        MmuDialogs.gate-row = 0;
+    }
+}

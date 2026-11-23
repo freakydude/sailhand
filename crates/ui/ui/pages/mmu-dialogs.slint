@@ -6,6 +6,7 @@ import { StateIcons } from "../state-icons.slint";
 import { Icons } from "../icons.slint";
 import { Actions, Confirm, MmuDialogs, MmuGateItem, Printer, SpoolPicker, Severity } from "../state.slint";
 import { IconButton, IconLabel, TextWithValue } from "../components/controls.slint";
+import { ActiveSpoolNotice } from "../components/active-spool-notice.slint";
 import { FilamentColors, FilamentSwatch } from "../components/filament-swatch.slint";
 import { DialogHeader, DialogPanel, Scrim } from "../components/dialog.slint";
 import { GateAvailabilityLabel, MmuTexts } from "../components/mmu-tiles.slint";
@@ -62,11 +63,10 @@ component ColorSwatch inherits Rectangle {
 // keep it open. The dialog hangs from the top, so its actions stay in the same place with and without Spoolman.
 export component GateDialog inherits Scrim {
     property <MmuGateItem> item: Printer.mmu-gates[MmuDialogs.gate-row];
-    // A tile without a spool of Spoolman (no Spoolman at all, or a spool that is not kept there) has material, colour
-    // and nozzle temperature in Happy Hare's gate map or in the lane of AFC, and a tap sets them right away. With a
-    // spool they belong to Spoolman, for Happy Hare and AFC alike; with Happy Hare taking them from Spoolman (`pull`)
-    // they cannot be set here either.
-    property <bool> sets-filament: (!Printer.has-mmu || Printer.mmu-gate-map-local) && (!Printer.has-spoolman || root.item.spool-id < 0);
+    // Whether material, colour and nozzle temperature are set here, and a spool is picked or taken again, the core
+    // decides (`item.sets-filament`, `can-pick-spool`, `can-refresh-spool`): it follows Happy Hare's Spoolman mode and
+    // whether the lane has a spool.
+    property <bool> sets-filament: root.item.sets-filament;
     property <string> temperature-text: root.item.temperature > 0 ? Units.temperature(root.item.temperature, 0) : "";
     visible: MmuDialogs.gate-row >= 0 && MmuDialogs.gate-row < Printer.mmu-gates.length;
 
@@ -91,53 +91,100 @@ export component GateDialog inherits Scrim {
                 }
             }
 
+            // The copy of Happy Hare or AFC; where the lane's spool in Spoolman says otherwise, its values follow in
+            // a second row (the target against what the lane has), and the buttons stand beside both rows.
             HorizontalLayout {
                 spacing: Theme.spacing;
-                height: Theme.touch;
-                FilamentSwatch {
-                    cross-axis-self-alignment: center;
-                    width: 14px;
-                    height: 36px;
-                    radius: 4px;
-                    colors: root.item.availability == "available" || root.item.availability == "buffered" ? FilamentColors.generic(root.item.colors) : root.item.colors;
-                    empty: root.item.availability == "empty";
-                }
                 VerticalLayout {
                     horizontal-stretch: 1;
-                    alignment: center;
-                    Text {
-                        text: root.item.material == "" ? "-" : root.item.material;
-                        color: Theme.foreground;
-                        font-size: Theme.font-normal;
-                        font-weight: 700;
-                        overflow: elide;
+                    spacing: Theme.spacing;
+                    HorizontalLayout {
+                        spacing: Theme.spacing;
+                        height: Theme.touch;
+                        FilamentSwatch {
+                            cross-axis-self-alignment: center;
+                            width: 14px;
+                            height: 36px;
+                            radius: 4px;
+                            colors: root.item.availability == "available" || root.item.availability == "buffered" ? FilamentColors.generic(root.item.colors) : root.item.colors;
+                            empty: root.item.availability == "empty";
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            Text {
+                                text: root.item.material == "" ? "-" : root.item.material;
+                                color: Theme.foreground;
+                                font-size: Theme.font-normal;
+                                font-weight: 700;
+                                overflow: elide;
+                            }
+                            // With a spool its temperature comes from Spoolman and is only shown.
+                            TextWithValue {
+                                text: root.item.name;
+                                value: root.sets-filament || root.temperature-text == "" ? root.item.spool-text
+                                    : root.item.spool-text == "" ? root.temperature-text : root.item.spool-text + " · " + root.temperature-text;
+                                color: root.item.spool-low ? StateIcons.severity-color(Severity.attention) : Theme.muted;
+                            }
+                        }
+                        if root.sets-filament: IconButton {
+                            width: 152px;
+                            icon: Icons.thermal-nozzle;
+                            text: root.temperature-text == "" ? "- °C" : root.temperature-text;
+                            horizontal: true;
+                            clicked => {
+                                temperature-entry.title = @tr("Nozzle temperature · {}", root.item.title);
+                                temperature-entry.text = root.item.temperature > 0 ? root.item.temperature : "";
+                                temperature-entry.open = true;
+                            }
+                        }
                     }
-                    // With a spool its temperature comes from Spoolman and is only shown.
-                    TextWithValue {
-                        text: root.item.name;
-                        value: root.sets-filament || root.temperature-text == "" ? root.item.spool-text
-                            : root.item.spool-text == "" ? root.temperature-text : root.item.spool-text + " · " + root.temperature-text;
-                        color: root.item.spool-low ? StateIcons.severity-color(Severity.attention) : Theme.muted;
+                    // What the lane's spool says: values that differ from the copy above in the warning colour.
+                    if root.item.spool-differs: HorizontalLayout {
+                        spacing: Theme.spacing;
+                        height: Theme.touch;
+                        FilamentSwatch {
+                            cross-axis-self-alignment: center;
+                            width: 14px;
+                            height: 36px;
+                            radius: 4px;
+                            colors: FilamentColors.generic(root.item.spool-colors);
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            Text {
+                                text: root.item.spool-material != "" ? root.item.spool-material : root.item.material == "" ? "-" : root.item.material;
+                                color: root.item.material-differs ? StateIcons.severity-color(Severity.attention) : Theme.muted;
+                                font-size: Theme.font-normal;
+                                font-weight: 700;
+                                overflow: elide;
+                            }
+                            TextWithValue {
+                                text: @tr("Spoolman");
+                                value: root.item.temperature-differs ? root.item.spool-temperature : "";
+                                value-color: StateIcons.severity-color(Severity.attention);
+                            }
+                        }
                     }
                 }
-                if root.sets-filament: IconButton {
-                    width: 152px;
-                    icon: Icons.thermal-nozzle;
-                    text: root.temperature-text == "" ? "- °C" : root.temperature-text;
-                    horizontal: true;
-                    clicked => {
-                        temperature-entry.title = @tr("Nozzle temperature · {}", root.item.title);
-                        temperature-entry.text = root.item.temperature > 0 ? root.item.temperature : "";
-                        temperature-entry.open = true;
+                // With Spoolman the tile takes the filament of a spool; where the copy differs, it can take it again.
+                VerticalLayout {
+                    width: 240px;
+                    spacing: Theme.spacing;
+                    if root.item.can-pick-spool: IconButton {
+                        icon: Icons.filament-spool;
+                        text: root.item.spool-id >= 0 ? @tr("Change spool") : @tr("Pick spool");
+                        horizontal: true;
+                        clicked => { SpoolPicker.show-lane(MmuDialogs.gate-row, root.item.spool-id, root.item.title); }
                     }
-                }
-                // With Spoolman the tile takes the filament of a spool.
-                if Printer.has-spoolman: IconButton {
-                    width: 200px;
-                    icon: Icons.filament-spool;
-                    text: root.item.spool-id >= 0 ? @tr("Change spool") : @tr("Pick spool");
-                    horizontal: true;
-                    clicked => { SpoolPicker.show-lane(MmuDialogs.gate-row, root.item.spool-id, root.item.title); }
+                    if root.item.spool-differs: IconButton {
+                        icon: Icons.ui-refresh;
+                        text: @tr("Take from Spoolman");
+                        horizontal: true;
+                        enabled: root.item.can-refresh-spool;
+                        clicked => { Actions.lane-refresh-spool(MmuDialogs.gate-row); }
+                    }
                 }
             }
 
@@ -167,6 +214,12 @@ export component GateDialog inherits Scrim {
                     vertical-alignment: center;
                     overflow: elide;
                 }
+            }
+
+            if root.item.active-spool-differs: ActiveSpoolNotice {
+                title: root.item.active-spool-title;
+                colors: root.item.active-spool-colors;
+                set-active => { Actions.set-active-spool(root.item.spool-id); }
             }
 
             HorizontalLayout {

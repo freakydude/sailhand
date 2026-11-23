@@ -183,6 +183,11 @@ export struct HeadItem {
     // (then `can-pick-spool` says whether the spool in use is).
     spool-tool: int,
     can-pick-spool: bool,
+    // The spool in use of Moonraker is not the spool of this head's lane in use (only for the mounted head): the
+    // notice beside the strip names it (`active-spool-title`, empty for none) and sets this head's spool as active.
+    active-spool-differs: bool,
+    active-spool-title: string,
+    active-spool-colors: BarColors,
     // The head's part of the filament path: its extruder sensors, the extruder and the nozzle (`FilamentPath.head-only`).
     path: FilamentPathItem,
 }
@@ -223,6 +228,25 @@ export struct MmuGateItem {
     exit-sensor: string,
     // A sensor contradicts the gate's state (Happy Hare only): shown as a small dot on the tile.
     sensor-conflict: bool,
+    // What the dialog may do with this lane (decided in the core): set material, colour and temperature by hand, pick
+    // a spool of Spoolman for the lane, take the values of its spool again.
+    sets-filament: bool,
+    can-pick-spool: bool,
+    can-refresh-spool: bool,
+    // The lane's spool in Spoolman says something else than the copy of Happy Hare or AFC; `material-differs`,
+    // `color-differs` and `temperature-differs` say what. The spool's own values: `spool-material` (only set when it
+    // differs), `spool-colors`, `spool-temperature` (formatted, only set when it differs).
+    spool-differs: bool,
+    spool-material: string,
+    spool-colors: BarColors,
+    spool-temperature: string,
+    material-differs: bool,
+    color-differs: bool,
+    temperature-differs: bool,
+    // The lane is the one in use and Moonraker books on another spool (`active-spool-title`, empty for none).
+    active-spool-differs: bool,
+    active-spool-title: string,
+    active-spool-colors: BarColors,
 }
 
 // A page of tiles on the Gates tab: a run of rows of `Printer.mmu-gates` (the gates of one unit, at most five), the

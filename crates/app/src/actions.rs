@@ -269,6 +269,7 @@ fn bind_lanes(actions: &Actions, service: &PrinterService, presenter: &Rc<Presen
     actions.on_lane_load(with_lane(service, presenter, |lane| Command::LoadLane { lane }));
     actions.on_lane_unload(with_lane(service, presenter, |lane| Command::UnloadLane { lane }));
     actions.on_lane_eject(with_lane(service, presenter, |lane| Command::EjectLane { lane }));
+    actions.on_lane_refresh_spool(with_lane(service, presenter, |lane| Command::RefreshLaneSpool { lane }));
     let (service_for_spool, presenter_for_spool) = (service.clone(), Rc::clone(presenter));
     actions.on_assign_lane_spool(move |row, id| {
         if let Some(lane) = lane_of_row(&presenter_for_spool, row) {

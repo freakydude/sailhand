@@ -35,10 +35,25 @@ pub(super) fn assign_spool(
     spool_id: Option<u32>,
 ) -> Result<Vec<Command>, CommandError> {
     Ok(vec![match lane {
-        LaneId::Gate(gate) => Command::AssignGateSpool { gate, spool_id },
+        LaneId::Gate(gate) => return mmu::assign_gate_spool(status, gate, spool_id),
         LaneId::Bypass => return Err(CommandError::NotForBypass),
         LaneId::Afc(name) => gcode(afc::assign_spool(afc_lane(status, &name)?, spool_id)),
     }])
+}
+
+/// Gives the lane the values of its spool in Spoolman again: AFC fetches the spool anew when it gets its own id once
+/// more (`AFC_spool.py` `cmd_SET_SPOOL_ID` skips the check for a spool of another lane then).
+pub(super) fn refresh_spool(status: &PrinterStatus, lane: LaneId) -> Result<Vec<Command>, CommandError> {
+    match lane {
+        LaneId::Gate(gate) => mmu::refresh_gate_spool(status, gate),
+        LaneId::Bypass => Err(CommandError::NotForBypass),
+        LaneId::Afc(name) => {
+            let afc = status.afc.as_ref().ok_or(CommandError::NoAfc)?;
+            let state = afc.lane(&name).ok_or_else(|| CommandError::UnknownLane(name.clone()))?;
+            let spool_id = state.spool_id.ok_or(CommandError::NoLaneSpool)?;
+            Ok(vec![gcode(afc::assign_spool(&name, Some(spool_id)))])
+        }
+    }
 }
 
 pub(super) fn set_filament(

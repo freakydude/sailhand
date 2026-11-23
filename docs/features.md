@@ -136,12 +136,16 @@ holds **Tools** and **Service**. The Gates tab and a strip on the print page sho
 
 A tap on a gate opens what can be done with it: select, load, preload, check or eject it, and pick its spool. Where the
 gate has its own filament sensors (entry, exit), the dialog shows what they see; a small dot on the gate tile marks a
-sensor that disagrees with Happy Hare's gate state. Without
-a spool the dialog sets material, colour and nozzle temperature of the gate in Happy Hare's gate map instead, from a
-set of common materials and colours. The temperature is the one Happy Hare heats to when it loads the gate outside a
-print (in a print the slicer sets it); a new material sets it back to Happy Hare's `default_extruder_temp`, and a tap
-on it types another one. With a spool, material, colour and temperature come from Spoolman and are only shown. Each
-tile shows the temperature beside the material. A tap on a gate never moves the selector by itself. The bypass takes filament fed by hand past
+sensor that disagrees with Happy Hare's gate state. The
+dialog shows the material, colour and nozzle temperature of the gate as Happy Hare's gate map holds them, and without a
+spool it sets them, from a set of common materials and colours. The temperature is the one Happy Hare heats to when it
+loads the gate outside a print (in a print the slicer sets it); a new material sets it back to Happy Hare's
+`default_extruder_temp`, and a tap on it types another one. With a spool they are only shown, and in Happy Hare's
+`pull` mode always (Happy Hare takes them from Spoolman). If the spool differs from the gate map (material, first
+colour, temperature), the dialog adds a line "Spoolman" with both values, marks the difference, and **Take from
+Spoolman** hands the spool's values to Happy Hare; the tile carries a warning symbol. Nothing is overwritten by
+itself. Which mode does what: [Spoolman](printer-setup.md#happy-hare). Each tile shows the temperature beside the
+material. A tap on a gate never moves the selector by itself. The bypass takes filament fed by hand past
 the gates; its dialog selects and loads it. **Changer > Tools** is the one place to set which gate each tool takes its
 filament from (Happy Hare's tool-to-gate map): one row per tool with what its gate holds (material, colour, spool, grams
 left and, with EndlessSpool, what its group can still give), and a tap on a tool offers the gates with their colour and
@@ -254,6 +258,13 @@ Appears when Moonraker has the `spoolman` component, with or without an MMU:
 - the temperature page offers a preset for the spool in use and notes quietly when the target is off from it;
 - before a print the confirmation names what differs between the file and the spools (material, weight), only as a
   hint.
+- the copy the printer works with (Happy Hare gate map, AFC lane) is what tiles and dialogs show; Spoolman adds the
+  weight left and the colours of a multi-colour spool. If they differ, both are shown, with **Take from Spoolman**;
+- with several lanes or heads, a warning symbol and the line "Active spool" with **Set as active spool** appear when
+  the spool in use differs from the active spool of Moonraker, which books the consumption;
+- without Spoolman, AFC's own weight left is shown, marked with "~".
+
+What each setup needs (Happy Hare modes, AFC, tool changers) is in [Spoolman](printer-setup.md#spoolman).
 
 | ![Spool picker](screenshots/spool-picker.png) | ![Start print with hints](screenshots/spool-hints.png) | ![Spool preset on the temperature page](screenshots/temperature-spool.png) |
 | --------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------- |

@@ -36,6 +36,9 @@ pub struct Lane {
     /// First tool that is mapped to the lane.
     pub tool: Option<usize>,
     pub spool_id: Option<u32>,
+    /// A gate of Happy Hare keeps a spool of its own (`spoolman_support` other than `off`); in `off` the gate in use
+    /// holds the active spool of Moonraker, like the direct feed.
+    pub gate_holds_spool: bool,
     /// The spool is assigned through [`Self::tool`]: its tool macro declares `spool_id`, or AFC keeps the spool of the
     /// lane mapped to it.
     pub spool_by_tool: bool,
@@ -76,11 +79,12 @@ impl Lane {
         }
     }
 
-    /// Where a spool for this lane is assigned; `None` for a head that is not in use and keeps no spool of its own,
-    /// and for an AFC lane without tool (AFC sets the active spool itself).
+    /// Where a spool for this lane is assigned; `None` for a head or gate that is not in use and keeps no spool of
+    /// its own, and for an AFC lane without tool (AFC sets the active spool itself).
     pub fn spool_holder(&self) -> Option<SpoolHolder> {
         match (self.gate, self.tool) {
-            (Some(gate), _) => Some(SpoolHolder::Gate(gate)),
+            (Some(gate), _) if self.gate_holds_spool => Some(SpoolHolder::Gate(gate)),
+            (Some(_), _) => self.active.then_some(SpoolHolder::ActiveSpool),
             (None, Some(tool)) if self.spool_by_tool => Some(SpoolHolder::Tool(tool)),
             _ if self.name.is_some() => None,
             _ => self.active.then_some(SpoolHolder::ActiveSpool),
@@ -250,6 +254,7 @@ fn direct_lane(extruder: &str, tool: Option<usize>, tool_spools: &[ToolSpool]) -
         extruder: extruder.to_owned(),
         tool,
         spool_id: declared.and_then(|spool| spool.spool_id),
+        gate_holds_spool: false,
         spool_by_tool: declared.is_some(),
         spool: None,
         empty: false,
@@ -261,6 +266,7 @@ fn direct_lane(extruder: &str, tool: Option<usize>, tool_spools: &[ToolSpool]) -
 /// in the list is the gate index; code that looks a gate up still compares `Lane::gate`.
 fn gate_lanes(mmu: &MmuStatus) -> Vec<Lane> {
     let several_units = mmu.units.len() > 1;
+    let gate_holds_spool = mmu.spoolman.spools_at_gates();
     mmu.gates
         .iter()
         .map(|gate| {
@@ -275,7 +281,8 @@ fn gate_lanes(mmu: &MmuStatus) -> Vec<Lane> {
                 head: None,
                 extruder: unit_state.map_or(MAIN_EXTRUDER, |unit| unit.extruder.as_str()).to_owned(),
                 tool: gate.tools.first().copied(),
-                spool_id: gate.spool_id,
+                spool_id: gate.spool_id.filter(|_| gate_holds_spool),
+                gate_holds_spool,
                 spool_by_tool: false,
                 spool: None,
                 empty: false,
@@ -303,6 +310,7 @@ fn afc_lanes(afc: &AfcStatus) -> Vec<Lane> {
             extruder: lane.extruder.clone(),
             tool: lane.tool,
             spool_id: lane.spool_id,
+            gate_holds_spool: false,
             spool_by_tool: lane.tool.is_some(),
             spool: None,
             empty: !lane.filled,
@@ -331,7 +339,7 @@ fn afc_heads(afc: &AfcStatus) -> Vec<ToolHead> {
 mod tests {
     use super::*;
     use crate::sources::afc::{AfcHead, AfcLane};
-    use crate::sources::happy_hare::{MmuGate, MmuUnit};
+    use crate::sources::happy_hare::{MmuGate, MmuUnit, SpoolmanMode};
     use crate::sources::toolchanger::ToolchangerStatus;
 
     fn mmu(units: &[(usize, usize)], selected: i32) -> PrinterStatus {
@@ -341,6 +349,7 @@ mod tests {
             enabled: true,
             num_gates: total,
             gate: selected,
+            spoolman: SpoolmanMode::Push,
             units: units
                 .iter()
                 .map(|&(first_gate, num_gates)| MmuUnit {
@@ -428,8 +437,8 @@ mod tests {
                 ..ToolchangerStatus::default()
             }),
             tool_spools: vec![
-                ToolSpool { tool: 0, macro_name: "T0".into(), spool_id: Some(1) },
-                ToolSpool { tool: 1, macro_name: "T1".into(), spool_id: None },
+                ToolSpool { tool: 0, macro_name: "T0".into(), spool_id: Some(1), active: false },
+                ToolSpool { tool: 1, macro_name: "T1".into(), spool_id: None, active: false },
             ],
             ..PrinterStatus::default()
         }

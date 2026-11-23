@@ -58,6 +58,22 @@ Functions only appear when the printer has them. Some common cases:
 - **Happy Hare** needs version 4.1 or newer; with an older one the screen shows a notice instead of the gates.
 - **Load and unload** buttons need the macros `LOAD_FILAMENT` and `UNLOAD_FILAMENT` (see [Macros](printer-setup.md#macros)).
 
+## Colours or materials from Spoolman are missing at the gates
+
+Happy Hare with `spoolman_support: readonly` does not fetch values from Spoolman after Moonraker has started (Happy
+Hare issue [#1571](https://github.com/moggieuk/Happy-Hare/issues/1571), open). The gate shows its spool, but material
+and colour are missing or old, and the gate dialog shows the comparison. Either use `spoolman_support: push`, or send
+`MMU_SPOOLMAN REFRESH=1` after every Moonraker start (the button **Take from Spoolman** does that; not during a
+print). See [Spoolman](printer-setup.md#happy-hare).
+
+## Spoolman books on the wrong spool
+
+Moonraker books the extruded filament on one active spool. If the spool in use differs from it, the tile shows a
+warning and the dialog offers **Set as active spool**. Happy Hare and AFC set the active spool themselves when loading;
+on a tool changer the tool change macro has to do it, with `SET_ACTIVE_SPOOL` (see
+[Spools of tool heads](printer-setup.md#spools-of-tool-heads)). The comparison appears only with Spoolman connected,
+filament loaded and the printer at rest.
+
 ## Sailhand is missing from the update list
 
 The installer adds `[update_manager sailhand]` to `moonraker.conf`. If your `moonraker.conf` lives elsewhere, add

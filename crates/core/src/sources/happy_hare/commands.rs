@@ -91,10 +91,25 @@ pub fn endless_spool_groups(groups: &[u32]) -> String {
     format!("MMU_ENDLESS_SPOOL GROUPS={}", groups.join(","))
 }
 
-/// Puts a Spoolman spool into a gate; `None` takes the spool out of the record (`SPOOLID=-1`).
+/// Puts a Spoolman spool into a gate; `None` takes the spool out of the record (`SPOOLID=-1`). For `readonly` and
+/// `push`; `pull` refuses `SPOOLID` in `MMU_GATE_MAP` (`commands/mmu_gate_map.py`).
 pub fn assign_gate_spool(gate: usize, spool_id: Option<u32>) -> String {
     format!("MMU_GATE_MAP GATE={gate} SPOOLID={}", spool_id.map_or(-1, i64::from))
 }
+
+/// Puts a spool into a gate in Spoolman's record, which Happy Hare takes in `pull`; without spool `GATE=` alone takes
+/// the gate's spool out (`commands/mmu_spoolman.py`; `SPOOLID` takes 1 at least).
+pub fn assign_gate_spool_in_spoolman(gate: usize, spool_id: Option<u32>) -> String {
+    match spool_id {
+        Some(id) => format!("MMU_SPOOLMAN GATE={gate} SPOOLID={id}"),
+        None => format!("MMU_SPOOLMAN GATE={gate}"),
+    }
+}
+
+/// Reads all spools from Spoolman again and gives every gate the values of its spool (`MMU_SPOOLMAN REFRESH=1`, which
+/// syncs afterwards). `MMU_GATE_MAP` with the gate's own `SPOOLID` would not do: Happy Hare skips an unchanged id
+/// (`mmu_gate_map.py`, "Spool_id changed"). Happy Hare's documentation keeps it out of prints.
+pub const REFRESH_FROM_SPOOLMAN: &str = "MMU_SPOOLMAN REFRESH=1";
 
 /// Sets material or colour of a gate in Happy Hare's gate map; `None` keeps what the gate has. `temperature` goes
 /// along as `TEMP`, so the gate's temperature never depends on how a Happy Hare version treats a missing one. The
@@ -151,6 +166,8 @@ mod tests {
     fn a_gate_spool_is_set_or_taken_out() {
         assert_eq!(assign_gate_spool(2, Some(18)), "MMU_GATE_MAP GATE=2 SPOOLID=18");
         assert_eq!(assign_gate_spool(2, None), "MMU_GATE_MAP GATE=2 SPOOLID=-1");
+        assert_eq!(assign_gate_spool_in_spoolman(2, Some(18)), "MMU_SPOOLMAN GATE=2 SPOOLID=18");
+        assert_eq!(assign_gate_spool_in_spoolman(2, None), "MMU_SPOOLMAN GATE=2");
     }
 
     #[test]

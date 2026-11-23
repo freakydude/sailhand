@@ -33,9 +33,18 @@ pub(super) fn parse(name: &str, args: &[&str]) -> Result<Option<Command>, Comman
         "MMU_GATE_MAP" => Ok(Command::Mmu(MmuCommand::GateMap {
             gate: required_index(args, "GATE")?,
             spool_id: named_value(args, "SPOOLID")?.map(|id| id as i64),
+            name: named_text(args, "NAME"),
             material: named_text(args, "MATERIAL").map(|material| material.to_ascii_uppercase()),
+            vendor: named_text(args, "VENDOR"),
             color: named_text(args, "COLOR").map(|color| color.to_ascii_lowercase()),
             temperature: named_value(args, "TEMP")?.map(|degrees| degrees.round() as i32),
+            weights_given: named_value(args, "WEIGHT")?.is_some() || named_value(args, "INITIAL_WEIGHT")?.is_some(),
+        })),
+        "MMU_SPOOLMAN" => Ok(Command::Mmu(MmuCommand::Spoolman {
+            gate: named_index(args, "GATE")?,
+            spool_id: named_value(args, "SPOOLID")?.map(|id| id as i64),
+            refresh: named_index(args, "REFRESH")?.is_some_and(|value| value != 0),
+            sync: named_index(args, "SYNC")?.is_some_and(|value| value != 0),
         })),
         "FAKE_MMU_FILAMENT" => Ok(Command::Mmu(MmuCommand::FakeFilament {
             position: named_value(args, "POS")?

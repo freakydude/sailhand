@@ -6,6 +6,7 @@ use sailhand_core::domain::estimates;
 use sailhand_core::domain::filament_match::{self, Difference, ToolMatch, Verdict};
 use sailhand_core::domain::file_catalog::FileInfo;
 use sailhand_core::domain::job_end::{self, JobLoss};
+use sailhand_core::domain::lane_filament::Remaining;
 use sailhand_core::domain::pause::{Interruption, InterruptionFact};
 use sailhand_core::domain::print_hints::PrintHint;
 use sailhand_core::sources::happy_hare::{
@@ -214,6 +215,15 @@ fn stands_at(job: &PrintJob) -> Option<String> {
 }
 
 /// What is left of a spool, for example `613 g`; empty without a weight.
+/// The grams left in a lane: as Spoolman books them, or with `~` where the source counts them down itself (AFC).
+pub fn lane_remaining(left: Option<Remaining>) -> String {
+    match left {
+        Some(Remaining { grams, estimated: true }) => format!("~{}", format::filament_weight(grams)),
+        Some(Remaining { grams, estimated: false }) => format::filament_weight(grams),
+        None => String::new(),
+    }
+}
+
 pub fn spool_remaining(spool: &Spool) -> String {
     spool.remaining_weight.map(format::filament_weight).unwrap_or_default()
 }

@@ -1,5 +1,5 @@
 use fake_moonraker::access::AccessConfig;
-use fake_moonraker::machine::MachineProfile;
+use fake_moonraker::machine::{MachineProfile, SpoolmanMode};
 use fake_moonraker::server::{ServerConfig, serve};
 use fake_moonraker::tls::TlsIdentity;
 use std::process::ExitCode;
@@ -11,7 +11,9 @@ const DEFAULT_TIME_SCALE: f64 = 10.0;
 const DEFAULT_MMU_GATES: usize = 4;
 const USAGE: &str = "Usage: fake-moonraker [--port <port>] [--time-scale <factor>] \
     [--profile basic|voron|happy-hare|ercf|happy-hare-encoder|happy-hare-co|happy-hare-to|toolchanger|toolchanger-required|happy-hare-units|toolchanger-mmu|afc|afc-toolchanger] \
-    [--gates <1-16>, only for the Happy Hare profiles] [--auth <user>:<password>] [--tls] [--no-history] [--no-gcode-help] [--round-bed]";
+    [--gates <1-16>, only for the Happy Hare profiles] [--auth <user>:<password>] [--tls] [--no-history] [--no-gcode-help] [--round-bed] \
+    [--spoolman-mode off|readonly|push|pull, only for the Happy Hare profiles] \
+    [--no-spoolman, only for the profiles afc, afc-toolchanger, toolchanger and toolchanger-required]";
 
 enum Profile {
     Basic,
@@ -39,14 +41,21 @@ struct Options {
     no_history: bool,
     no_gcode_help: bool,
     round_bed: bool,
+    spoolman_mode: Option<SpoolmanMode>,
+    no_spoolman: bool,
 }
 
 impl Options {
-    fn machine_profile(&self) -> MachineProfile {
+    fn machine_profile(&self) -> Result<MachineProfile, String> {
         let profile = self.base_profile();
         let profile = if self.no_history { profile.without_history() } else { profile };
         let profile = if self.no_gcode_help { profile.without_gcode_help() } else { profile };
-        if self.round_bed { profile.with_round_bed() } else { profile }
+        let profile = if self.round_bed { profile.with_round_bed() } else { profile };
+        let profile = match self.spoolman_mode {
+            Some(mode) => profile.with_spoolman_mode(mode)?,
+            None => profile,
+        };
+        if self.no_spoolman { profile.without_spoolman() } else { Ok(profile) }
     }
 
     fn base_profile(&self) -> MachineProfile {
@@ -79,6 +88,8 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         no_history: false,
         no_gcode_help: false,
         round_bed: false,
+        spoolman_mode: None,
+        no_spoolman: false,
     };
 
     while let Some(flag) = args.next() {
@@ -99,6 +110,10 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
                 options.no_gcode_help = true;
                 continue;
             }
+            "--no-spoolman" => {
+                options.no_spoolman = true;
+                continue;
+            }
             _ => {}
         }
         let value = args.next().ok_or_else(|| format!("missing value for {flag}"))?;
@@ -107,6 +122,10 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
             "--time-scale" => options.time_scale = parse_time_scale(&value)?,
             "--profile" => options.profile = parse_profile(&value)?,
             "--gates" => options.gates = parse_gates(&value)?,
+            "--spoolman-mode" => {
+                options.spoolman_mode =
+                    Some(SpoolmanMode::parse(&value).ok_or_else(|| format!("invalid spoolman mode '{value}'"))?);
+            }
             "--auth" => options.access = Some(parse_access(&value)?),
             _ => return Err(format!("unknown option '{flag}'")),
         }
@@ -158,6 +177,7 @@ fn parse_time_scale(value: &str) -> Result<f64, String> {
 
 async fn run() -> Result<(), String> {
     let options = parse_options(std::env::args().skip(1))?;
+    let profile = options.machine_profile()?;
     let listener = TcpListener::bind(("127.0.0.1", options.port))
         .await
         .map_err(|error| format!("cannot listen on port {}: {error}", options.port))?;
@@ -182,7 +202,7 @@ async fn run() -> Result<(), String> {
     let config = ServerConfig {
         time_scale: options.time_scale,
         status_interval: Duration::from_millis(250),
-        profile: options.machine_profile(),
+        profile,
         access: options.access.clone(),
         tls,
     };

@@ -313,7 +313,7 @@ fn a_gate_is_loaded_after_selecting_it_in_the_same_script() {
 fn the_filament_of_a_gate_is_set_unless_happy_hare_takes_it_from_spoolman() {
     let with_support = |spoolman_support: &str| PrinterStatus {
         mmu: Some(crate::sources::happy_hare::MmuStatus {
-            spoolman_support: spoolman_support.into(),
+            spoolman: crate::sources::happy_hare::SpoolmanMode::parse(spoolman_support),
             gates: vec![crate::sources::happy_hare::MmuGate { temperature: Some(215.0), ..Default::default() }],
             ..Default::default()
         }),
@@ -420,7 +420,119 @@ fn intents_are_no_calls_of_their_own() {
 fn spool_commands_make_the_spools_be_read_again() {
     assert!(Command::MeasureSpool { spool_id: 1, weight: 1.0 }.changes_spools());
     assert!(Command::AssignGateSpool { gate: 0, spool_id: None }.changes_spools());
+    assert!(Command::AssignToolSpool { tool: 0, spool_id: None }.changes_spools());
+    assert!(Command::AssignLaneSpool { lane: LaneId::Gate(0), spool_id: None }.changes_spools());
+    assert!(Command::RefreshLaneSpool { lane: LaneId::Gate(0) }.changes_spools());
     assert!(!Command::PausePrint.changes_spools());
+}
+
+/// Happy Hare in `mode` with gate 0 holding spool 7 and gate 1 none.
+fn happy_hare_in(mode: crate::sources::happy_hare::SpoolmanMode) -> PrinterStatus {
+    use crate::sources::happy_hare::{MmuGate, MmuStatus};
+    PrinterStatus {
+        mmu: Some(MmuStatus {
+            spoolman: mode,
+            gates: vec![
+                MmuGate { index: 0, spool_id: Some(7), temperature: Some(215.0), ..MmuGate::default() },
+                MmuGate { index: 1, temperature: Some(215.0), ..MmuGate::default() },
+            ],
+            ..MmuStatus::default()
+        }),
+        ..PrinterStatus::default()
+    }
+}
+
+#[test]
+fn a_gate_gets_its_spool_the_way_the_mode_of_happy_hare_takes_it() {
+    use crate::sources::happy_hare::SpoolmanMode::*;
+    let assign = |mode, spool_id| {
+        Command::AssignLaneSpool { lane: LaneId::Gate(1), spool_id }.resolve(&printer(&[]), &happy_hare_in(mode))
+    };
+    let gcode = |script: &str| Ok(vec![Command::RunGcode { script: script.into() }]);
+
+    assert_eq!(assign(Off, Some(4)), Err(CommandError::NoGateSpools));
+    assert_eq!(assign(Readonly, Some(4)), gcode("MMU_GATE_MAP GATE=1 SPOOLID=4"));
+    assert_eq!(assign(Push, None), gcode("MMU_GATE_MAP GATE=1 SPOOLID=-1"));
+    assert_eq!(assign(Pull, Some(4)), gcode("MMU_SPOOLMAN GATE=1 SPOOLID=4"));
+    assert_eq!(assign(Pull, None), gcode("MMU_SPOOLMAN GATE=1"));
+}
+
+#[test]
+fn the_values_of_a_gate_are_set_by_hand_only_where_the_mode_leaves_them_to_happy_hare() {
+    use crate::sources::happy_hare::SpoolmanMode::*;
+    let red = |gate, mode| {
+        Command::SetGateFilament { gate, material: None, color: Some([255, 0, 0]) }
+            .resolve(&printer(&[]), &happy_hare_in(mode))
+    };
+    let warm = |gate, mode| {
+        Command::SetLaneTemperature { lane: LaneId::Gate(gate), temperature: 230.0 }
+            .resolve(&printer(&[]), &happy_hare_in(mode))
+    };
+
+    assert!(red(0, Off).is_ok() && warm(0, Off).is_ok());
+    assert!(red(1, Push).is_ok() && warm(1, Readonly).is_ok());
+    assert_eq!(red(0, Push), Err(CommandError::GateValuesFromSpoolman));
+    assert_eq!(warm(0, Readonly), Err(CommandError::GateValuesFromSpoolman));
+    assert_eq!(red(1, Pull), Err(CommandError::GateValuesFromSpoolman));
+}
+
+#[test]
+fn the_values_of_the_spool_are_taken_again_outside_a_print() {
+    use crate::sources::happy_hare::SpoolmanMode::*;
+    let refresh = |gate, status: &PrinterStatus| {
+        Command::RefreshLaneSpool { lane: LaneId::Gate(gate) }.resolve(&printer(&[]), status)
+    };
+    let all_gates = Ok(vec![Command::RunGcode { script: "MMU_SPOOLMAN REFRESH=1".into() }]);
+
+    for mode in [Readonly, Push, Pull] {
+        assert_eq!(refresh(0, &happy_hare_in(mode)), all_gates);
+    }
+    assert_eq!(refresh(1, &happy_hare_in(Push)), Err(CommandError::NoLaneSpool));
+    assert_eq!(refresh(0, &happy_hare_in(Off)), Err(CommandError::NoGateSpools));
+    let mut printing = happy_hare_in(Push);
+    printing.job.state = crate::sources::klipper::PrintState::Printing;
+    printing.klippy_state = crate::sources::klipper::KlippyState::Ready;
+    assert_eq!(refresh(0, &printing), Err(CommandError::PrintRunning));
+}
+
+#[test]
+fn an_afc_lane_takes_its_spool_again_by_its_own_id() {
+    use crate::sources::afc::{AfcLane, AfcStatus};
+    let lane = |name: &str, spool_id| AfcLane { name: name.into(), spool_id, ..AfcLane::default() };
+    let status = PrinterStatus {
+        afc: Some(AfcStatus { lanes: vec![lane("lane1", Some(9)), lane("lane2", None)], ..AfcStatus::default() }),
+        ..PrinterStatus::default()
+    };
+    let refresh =
+        |name: &str| Command::RefreshLaneSpool { lane: LaneId::Afc(name.into()) }.resolve(&printer(&[]), &status);
+
+    assert_eq!(refresh("lane1"), Ok(vec![Command::RunGcode { script: "SET_SPOOL_ID LANE=lane1 SPOOL_ID=9".into() }]));
+    assert_eq!(refresh("lane2"), Err(CommandError::NoLaneSpool));
+}
+
+#[test]
+fn a_spool_for_the_active_tool_macro_is_also_booked_on() {
+    use crate::sources::tool_macros::ToolSpool;
+    let status = PrinterStatus {
+        tool_spools: vec![
+            ToolSpool { tool: 0, macro_name: "T0".into(), spool_id: None, active: false },
+            ToolSpool { tool: 1, macro_name: "T1".into(), spool_id: None, active: true },
+        ],
+        ..PrinterStatus::default()
+    };
+    let assign = |tool| Command::AssignToolSpool { tool, spool_id: Some(4) }.resolve(&printer(&[]), &status);
+
+    assert_eq!(
+        assign(0),
+        Ok(vec![Command::RunGcode { script: "SET_GCODE_VARIABLE MACRO=T0 VARIABLE=spool_id VALUE=4".into() }])
+    );
+    assert_eq!(
+        assign(1),
+        Ok(vec![
+            Command::RunGcode { script: "SET_GCODE_VARIABLE MACRO=T1 VARIABLE=spool_id VALUE=4".into() },
+            Command::SetActiveSpool { spool_id: Some(4) },
+        ])
+    );
 }
 
 #[test]
@@ -492,7 +604,12 @@ fn a_heater_target_is_never_negative() {
 #[test]
 fn a_tool_spool_goes_into_the_macro_under_its_reported_name_and_is_saved_where_possible() {
     let status = PrinterStatus {
-        tool_spools: vec![crate::sources::tool_macros::ToolSpool { tool: 1, macro_name: "t1".into(), spool_id: None }],
+        tool_spools: vec![crate::sources::tool_macros::ToolSpool {
+            tool: 1,
+            macro_name: "t1".into(),
+            spool_id: None,
+            active: false,
+        }],
         ..PrinterStatus::default()
     };
     let assign = |objects: &[&str], tool| {

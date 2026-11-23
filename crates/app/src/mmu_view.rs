@@ -3,19 +3,21 @@
 //! the MMU.
 
 use crate::items::{
-    bar_colors, compared_tool_items, fill_loaded, id_or_none, keeping_parts, lane_colors, load_path_item, no_path_item,
-    replace_rows, reuse_flags, tool_match_item,
+    ActiveSpoolNote, compared_tool_items, fill_loaded, id_or_none, keeping_parts, lane_bar_colors, lane_colors,
+    load_path_item, no_path_item, replace_rows, reuse_flags, tool_match_item,
 };
 use crate::{
     AfcHubReturnItem, AfcToolItem, FilamentPathItem, MmuGateItem, MmuGatePage, MmuPageRange, MmuSensorItem, Printer,
-    ToolMatchItem, view,
+    ToolMatchItem, format, view,
 };
 use sailhand_core::domain::changer;
 use sailhand_core::domain::filament_match::{self, ToolMatch, Verdict};
 use sailhand_core::domain::gate_pages::{self, BypassAt, GatePage};
 use sailhand_core::domain::heads::HeadRow;
+use sailhand_core::domain::lane_filament::{self, SpoolDifference, lane_filament as filament_of};
 use sailhand_core::domain::load_path::{self, BufferSide, LoadPath, PathScope};
 use sailhand_core::domain::machine_tree::LaneId;
+use sailhand_core::domain::machine_tree::SpoolHolder;
 use sailhand_core::domain::spools::{FilamentColors, Lane};
 use sailhand_core::sources::PrinterStatus;
 use sailhand_core::sources::afc::HubReturnBlock;
@@ -50,6 +52,23 @@ pub struct JobFile<'a> {
     pub matches: &'a [ToolMatch],
 }
 
+/// What decides how a lane's spool shows besides the lane itself.
+pub struct SpoolContext {
+    /// Moonraker is configured for Spoolman.
+    pub spoolman_configured: bool,
+    /// The spool Moonraker books on, where it is not the one of the lane in use.
+    pub active: ActiveSpoolNote,
+}
+
+/// The spool is picked at the extruder (the strip on the Filament and print pages) and not in the lanes: without a
+/// changer, or with Happy Hare in `off`. A gate of Happy Hare and a lane of AFC keep spools of their own.
+pub fn spool_at_extruder(status: &PrinterStatus) -> bool {
+    match status.happy_hare() {
+        Some(mmu) => !mmu.spoolman.spools_at_gates(),
+        None => status.afc.is_none(),
+    }
+}
+
 impl MmuView {
     pub fn bind(&self, printer: &Printer) {
         printer.set_mmu_gates(ModelRc::from(self.gates.clone()));
@@ -79,15 +98,23 @@ impl MmuView {
 
     /// Happy Hare while it has the say, else the lanes of AFC; an enabled Happy Hare that is too old gets a notice
     /// instead.
-    pub fn show(&self, printer: &Printer, status: &PrinterStatus, lanes: &[Lane], file: &JobFile) {
+    pub fn show(
+        &self,
+        printer: &Printer,
+        status: &PrinterStatus,
+        lanes: &[Lane],
+        file: &JobFile,
+        spool: &SpoolContext,
+    ) {
         let in_charge = status.happy_hare();
         printer.set_has_mmu(in_charge.is_some());
+        printer.set_spool_at_extruder(spool_at_extruder(status));
         printer.set_mmu_unsupported(status.mmu.as_ref().is_some_and(MmuStatus::is_too_old));
         let tiles = tile_lanes(status, lanes);
         printer.set_has_lanes(in_charge.is_some() || !tiles.is_empty());
         let items = match in_charge {
-            Some(mmu) => gate_items(status, mmu, lanes, file.matches),
-            None => lane_items(status, &tiles),
+            Some(mmu) => gate_items(status, mmu, lanes, file.matches, spool),
+            None => lane_items(status, &tiles, spool),
         };
         let ids = match in_charge {
             Some(mmu) => mmu.gates.iter().map(|gate| LaneId::Gate(gate.index)).collect(),
@@ -106,11 +133,12 @@ impl MmuView {
         self.show_tools(printer, mmu, status, lanes, file);
         printer.set_mmu_bypass(mmu.bypass_selected());
         printer.set_mmu_endless_spool(mmu.endless_spool);
-        printer.set_mmu_gate_map_local(mmu.gate_map_is_local());
         // The pause shows the selected gate (or the bypass), whatever tile was tapped.
-        let selected = usize::try_from(mmu.gate).ok().and_then(|index| mmu.gates.get(index));
-        let colors =
-            selected.map(|gate| FilamentColors::of_gate(gate, gate_spool(lanes, gate.index))).unwrap_or_default();
+        let colors = usize::try_from(mmu.gate)
+            .ok()
+            .and_then(|index| lanes.iter().find(|lane| lane.gate == Some(index)))
+            .map(|lane| lane_colors(status, lane))
+            .unwrap_or_default();
         let selected_lane = match mmu.gate {
             happy_hare::BYPASS => Some((LaneId::Bypass, "Bypass".to_owned())),
             gate => usize::try_from(gate).ok().map(|gate| (LaneId::Gate(gate), format!("Gate {gate}"))),
@@ -290,7 +318,7 @@ impl MmuView {
                         || filament_match::endless_spool_reserve(state.index, &busy, status, lanes),
                         |found| found.reserve,
                     );
-                    fill_loaded(&mut item, &filament_match::gate_supply(state, lanes), reserve);
+                    fill_loaded(&mut item, &filament_match::gate_supply(state.index, status, lanes), reserve);
                 }
                 let fitting = found.is_some().then(|| filament_match::fitting_gates(matches, tool, status, lanes));
                 item.fitting_gates = reuse_flags(self.tools.row_data(row).map(|old| old.fitting_gates), fitting);
@@ -414,28 +442,26 @@ fn sensor_key(sensor: PathSensor) -> &'static str {
     }
 }
 
-fn gate_items(status: &PrinterStatus, mmu: &MmuStatus, lanes: &[Lane], matches: &[ToolMatch]) -> Vec<MmuGateItem> {
+fn gate_items(
+    status: &PrinterStatus,
+    mmu: &MmuStatus,
+    lanes: &[Lane],
+    matches: &[ToolMatch],
+    spool: &SpoolContext,
+) -> Vec<MmuGateItem> {
     mmu.gates
         .iter()
         .map(|gate| {
-            let spool = gate_spool(lanes, gate.index);
             let selected = usize::try_from(mmu.gate) == Ok(gate.index);
             let path = load_path::load_path(status, &LaneId::Gate(gate.index)).unwrap_or_else(LoadPath::empty);
-            MmuGateItem {
+            let mut item = MmuGateItem {
                 entry_sensor: sensor_key(path.entry).into(),
                 exit_sensor: sensor_key(path.exit).into(),
                 sensor_conflict: load_path::sensor_contradicts_gate(&path, gate.availability),
                 title: format!("Gate {}", gate.index).into(),
                 loaded: selected && mmu.filament != LoadedFilament::Unloaded,
-                spool_text: spool.map(view::spool_remaining).unwrap_or_default().into(),
-                spool_low: spool.is_some_and(Spool::is_low),
-                spool_id: id_or_none(gate.spool_id),
                 index: gate.index as i32,
                 availability: view::mmu_availability(gate.availability).into(),
-                name: gate.name.as_str().into(),
-                material: gate.material.as_str().into(),
-                colors: bar_colors(&FilamentColors::of_gate(gate, spool)),
-                has_color: gate.color.is_some(),
                 tools: view::gate_tools_text(&gate.tools).into(),
                 file_verdict: view::combined_verdict(
                     matches.iter().filter(|found| found.gate == Some(gate.index)).map(|found| &found.verdict),
@@ -445,34 +471,31 @@ fn gate_items(status: &PrinterStatus, mmu: &MmuStatus, lanes: &[Lane], matches: 
                 selected,
                 check_unloads_first: mmu.unloads_before_checking(gate.index),
                 temperature: whole_degrees(gate.temperature),
+                ..MmuGateItem::default()
+            };
+            if let Some(lane) = lanes.iter().find(|lane| lane.gate == Some(gate.index)) {
+                fill_lane_filament(&mut item, lane, status, spool);
             }
+            item
         })
         .collect()
 }
 
 /// The lanes of AFC as tiles: what AFC reports of the lane, the spool Spoolman knows in it.
-fn lane_items(status: &PrinterStatus, tiles: &[Lane]) -> Vec<MmuGateItem> {
+fn lane_items(status: &PrinterStatus, tiles: &[Lane], spool: &SpoolContext) -> Vec<MmuGateItem> {
     tiles
         .iter()
         .map(|lane| {
-            let spool = lane.spool.as_ref();
             let name = lane.name.clone().unwrap_or_default();
             let reported = status.afc.as_ref().and_then(|afc| afc.lane(&name));
             let path = load_path::load_path(status, &LaneId::Afc(name.clone())).unwrap_or_else(LoadPath::empty);
-            MmuGateItem {
+            let mut item = MmuGateItem {
                 entry_sensor: sensor_key(path.entry).into(),
                 exit_sensor: sensor_key(path.exit).into(),
                 sensor_conflict: false,
                 title: name.as_str().into(),
                 index: -1,
-                spool_text: spool.map(view::spool_remaining).unwrap_or_default().into(),
-                spool_low: spool.is_some_and(Spool::is_low),
-                spool_id: id_or_none(lane.spool_id),
                 availability: if lane.empty { "empty" } else { "available" }.into(),
-                name: spool.map(Spool::title).unwrap_or_default().into(),
-                material: reported.map(|lane| lane.material.as_str()).unwrap_or_default().into(),
-                colors: bar_colors(&lane_colors(status, lane)),
-                has_color: reported.is_some_and(|lane| lane.color.is_some()),
                 tools: lane.tool.map(|tool| view::gate_tools_text(&[tool])).unwrap_or_default().into(),
                 file_verdict: "".into(),
                 group: -1,
@@ -480,9 +503,53 @@ fn lane_items(status: &PrinterStatus, tiles: &[Lane]) -> Vec<MmuGateItem> {
                 loaded: lane.active,
                 check_unloads_first: false,
                 temperature: whole_degrees(reported.map(|lane| lane.load_temperature)),
-            }
+                ..MmuGateItem::default()
+            };
+            fill_lane_filament(&mut item, lane, status, spool);
+            item
         })
         .collect()
+}
+
+/// What the core says of the filament in a lane: the copy of its source with the spool's grams, the rules for the
+/// dialog, where the spool differs from the copy, and the notice for the lane in use.
+fn fill_lane_filament(item: &mut MmuGateItem, lane: &Lane, status: &PrinterStatus, context: &SpoolContext) {
+    let filament = filament_of(lane, status);
+    let rules = lane_filament::lane_spool_rules(lane, status, context.spoolman_configured);
+    // A gate in Happy Hare's `off` holds the active spool, not a spool of its own.
+    let own_spool = lane.spool.as_ref().filter(|_| lane.spool_holder() != Some(SpoolHolder::ActiveSpool));
+    item.name = filament.name.clone().unwrap_or_default().into();
+    item.material = filament.material.clone().unwrap_or_default().into();
+    item.colors = lane_bar_colors(&filament);
+    item.has_color = !filament.colors.is_empty();
+    item.spool_text = view::lane_remaining(filament.left).into();
+    item.spool_low = own_spool.is_some_and(Spool::is_low);
+    item.spool_id = id_or_none(lane.spool_id);
+    item.sets_filament = rules.values_editable;
+    item.can_pick_spool = rules.picks_spool;
+    item.can_refresh_spool = rules.refreshes;
+    item.spool_differs = !filament.spool_differences.is_empty();
+    if item.spool_differs {
+        item.spool_colors = own_spool.map(crate::items::spool_colors).unwrap_or_default();
+    }
+    for difference in &filament.spool_differences {
+        match difference {
+            SpoolDifference::Material { spool, .. } => {
+                item.material_differs = true;
+                item.spool_material = spool.as_str().into();
+            }
+            SpoolDifference::Color { .. } => item.color_differs = true,
+            SpoolDifference::Temperature { spool, .. } => {
+                item.temperature_differs = true;
+                item.spool_temperature = format::temperature(*spool, 0).into();
+            }
+        }
+    }
+    if lane.active && context.active.differs {
+        item.active_spool_differs = true;
+        item.active_spool_title = context.active.title.clone();
+        item.active_spool_colors = context.active.colors.clone();
+    }
 }
 
 /// A nozzle temperature for a tile in whole °C; 0 for none.
@@ -529,11 +596,6 @@ fn show_state(printer: &Printer, mmu: &MmuStatus) {
     printer.set_mmu_encoder_headroom(mmu.encoder_headroom.map(view::encoder_headroom).unwrap_or_default().into());
 }
 
-/// The spool Spoolman knows in a gate.
-fn gate_spool(lanes: &[Lane], gate: usize) -> Option<&Spool> {
-    lanes.iter().find(|lane| lane.gate == Some(gate)).and_then(|lane| lane.spool.as_ref())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,6 +614,7 @@ mod tests {
             extruder: "extruder".into(),
             tool: Some(1),
             spool_id: None,
+            gate_holds_spool: false,
             spool_by_tool: false,
             spool: None,
             empty: false,
@@ -595,7 +658,7 @@ mod tests {
         let status = afc_status();
         let lanes = [tile("lane1", false), tile("lane2", true)];
         let tiles = tile_lanes(&status, &lanes);
-        let items = lane_items(&status, &tiles);
+        let items = lane_items(&status, &tiles, &no_notice());
         assert_eq!(items.iter().map(|item| item.title.to_string()).collect::<Vec<_>>(), ["lane1", "lane2"]);
         assert_eq!((items[0].loaded, items[1].loaded), (false, true));
         assert_eq!(
@@ -629,5 +692,105 @@ mod tests {
         assert_eq!(view.tools_row(&item(1, 0)), 1);
         assert_eq!(view.tools_row(&item(5, -1)), 2);
         assert_eq!(view.tools_row(&item(7, -1)), -1);
+    }
+
+    fn happy_hare(mode: happy_hare::SpoolmanMode) -> PrinterStatus {
+        let gate = |index, spool_id| happy_hare::MmuGate {
+            index,
+            material: "PLA".into(),
+            color: Some([255, 0, 0, 255]),
+            spool_id: Some(spool_id),
+            ..happy_hare::MmuGate::default()
+        };
+        PrinterStatus {
+            mmu: Some(MmuStatus {
+                version: "4.2.0".into(),
+                enabled: true,
+                num_gates: 2,
+                gate: 1,
+                filament: LoadedFilament::Loaded,
+                spoolman: mode,
+                gates: vec![gate(0, 3), gate(1, 4)],
+                ..MmuStatus::default()
+            }),
+            ..PrinterStatus::default()
+        }
+    }
+
+    fn spoolman_with(spools: Vec<Spool>) -> sailhand_core::sources::spoolman::SpoolmanState {
+        sailhand_core::sources::spoolman::SpoolmanState {
+            connected: true,
+            spools: spools.into_iter().map(|spool| (spool.id, spool)).collect(),
+            ..Default::default()
+        }
+    }
+
+    fn no_notice() -> SpoolContext {
+        SpoolContext { spoolman_configured: true, active: ActiveSpoolNote::default() }
+    }
+
+    #[test]
+    fn a_lane_of_afc_shows_the_weight_it_counts_down_itself_with_a_tilde() {
+        let mut status = afc_status();
+        status.afc.as_mut().unwrap().lanes[0].weight = Some(812.0);
+        let lanes = [tile("lane1", false), tile("lane2", true)];
+        let items = lane_items(&status, &tile_lanes(&status, &lanes), &no_notice());
+        assert_eq!(items[0].spool_text.as_str(), "~812 g");
+        assert_eq!(items[0].material.as_str(), "PLA");
+        // Without a spool the values are set by hand, and there is nothing to refresh.
+        assert_eq!((items[0].sets_filament, items[0].can_refresh_spool, items[0].spool_differs), (true, false, false));
+    }
+
+    #[test]
+    fn a_gate_tile_keeps_the_copy_and_tells_where_its_spool_differs() {
+        let status = happy_hare(happy_hare::SpoolmanMode::Push);
+        let spool = |id, material: &str| Spool {
+            id,
+            material: material.into(),
+            colors: vec![[255, 0, 0, 255]],
+            remaining_weight: Some(640.0),
+            ..Spool::default()
+        };
+        let lanes =
+            sailhand_core::domain::spools::lanes(&status, &spoolman_with(vec![spool(3, "PETG"), spool(4, "PLA")]));
+        let mmu = status.mmu.as_ref().unwrap();
+        let items = gate_items(&status, mmu, &lanes, &[], &no_notice());
+        // The copy still says PLA; Spoolman's PETG is kept beside it.
+        assert_eq!(items[0].material.as_str(), "PLA");
+        assert_eq!(items[0].spool_text.as_str(), "640 g");
+        assert_eq!(
+            (items[0].spool_differs, items[0].material_differs, items[0].color_differs, items[0].temperature_differs),
+            (true, true, false, false)
+        );
+        assert_eq!(items[0].spool_material.as_str(), "PETG");
+        assert_eq!(items[0].spool_colors.count, 1);
+        assert!(items[0].can_pick_spool && items[0].can_refresh_spool && !items[0].sets_filament);
+        assert!(!items[1].spool_differs);
+        assert_eq!(items[1].spool_material.as_str(), "");
+    }
+
+    #[test]
+    fn the_notice_of_the_active_spool_lands_on_the_gate_in_use_only() {
+        let status = happy_hare(happy_hare::SpoolmanMode::Push);
+        let lanes = sailhand_core::domain::spools::lanes(&status, &spoolman_with(Vec::new()));
+        let context = SpoolContext {
+            spoolman_configured: true,
+            active: ActiveSpoolNote { differs: true, title: "Teal PETG".into(), ..ActiveSpoolNote::default() },
+        };
+        let items = gate_items(&status, status.mmu.as_ref().unwrap(), &lanes, &[], &context);
+        assert_eq!((items[0].active_spool_differs, items[1].active_spool_differs), (false, true));
+        assert_eq!(items[1].active_spool_title.as_str(), "Teal PETG");
+        assert_eq!(items[0].active_spool_title.as_str(), "");
+    }
+
+    #[test]
+    fn the_spool_is_picked_at_the_extruder_without_a_changer_or_with_happy_hare_off() {
+        use happy_hare::SpoolmanMode::{Off, Pull, Push, Readonly};
+        assert!(spool_at_extruder(&PrinterStatus::default()));
+        assert!(spool_at_extruder(&happy_hare(Off)));
+        assert!(!spool_at_extruder(&happy_hare(Push)));
+        assert!(!spool_at_extruder(&happy_hare(Pull)));
+        assert!(!spool_at_extruder(&happy_hare(Readonly)));
+        assert!(!spool_at_extruder(&afc_status()));
     }
 }

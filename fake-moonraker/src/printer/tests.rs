@@ -836,3 +836,33 @@ fn the_display_message_is_set_and_cleared_like_klipper() {
     run(&mut printer, "SET_DISPLAY_TEXT").unwrap();
     assert!(printer.status()["display_status"]["message"].is_null());
 }
+
+#[test]
+fn the_tool_macros_of_the_toolchanger_profile_declare_active_and_set_the_active_spool() {
+    let mut printer = toolchanger_printer();
+    let status = printer.status();
+    assert_eq!(status["gcode_macro T0"]["active"], true);
+    assert_eq!(status["gcode_macro T1"]["active"], false);
+    assert_eq!(status["configfile"]["settings"]["gcode_macro T0"]["variable_active"], "True");
+
+    run(&mut printer, "T1").unwrap();
+    let status = printer.status();
+    assert_eq!(status["gcode_macro T0"]["active"], false);
+    assert_eq!(status["gcode_macro T1"]["active"], true);
+    assert_eq!(printer.take_active_spool_events(), [Some(3)]);
+
+    // T2 has no spool: Moonraker's active spool is unset instead of staying with the old head.
+    run(&mut printer, "T2").unwrap();
+    assert_eq!(printer.take_active_spool_events(), [None]);
+}
+
+#[test]
+fn without_the_macro_profile_or_without_spoolman_the_tool_macros_set_no_active_spool() {
+    for profile in [MachineProfile::toolchanger_required(), MachineProfile::toolchanger().without_spoolman().unwrap()] {
+        let mut printer = Printer::with_profile(1.0, profile);
+        run(&mut printer, "G28\nT1").unwrap();
+
+        assert!(printer.status()["gcode_macro T1"].get("active").is_none());
+        assert!(printer.take_active_spool_events().is_empty());
+    }
+}

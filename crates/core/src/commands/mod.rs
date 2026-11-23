@@ -312,6 +312,11 @@ pub enum Command {
         lane: LaneId,
         spool_id: Option<u32>,
     },
+    /// Gives the lane the values of its spool in Spoolman again, where the source keeps a copy of them (Happy Hare
+    /// renews all gates at once, AFC the lane).
+    RefreshLaneSpool {
+        lane: LaneId,
+    },
     /// Sets material or colour of the lane where the source keeps them; `None` keeps the value.
     SetLaneFilament {
         lane: LaneId,
@@ -448,7 +453,6 @@ impl Command {
             Self::MmuMapTool { tool, gate } => run_gcode(mmu::map_tool(*tool, *gate)),
             Self::MmuResetToolMap => run_gcode(mmu::RESET_TOOL_MAP),
             Self::MmuEndlessSpool { enabled } => run_gcode(mmu::endless_spool(*enabled)),
-            Self::AssignGateSpool { gate, spool_id } => run_gcode(mmu::assign_gate_spool(*gate, *spool_id)),
             // Moonraker's components
             Self::SetActiveSpool { spool_id } => spoolman::set_active_spool(*spool_id),
             Self::MeasureSpool { spool_id, weight } => spoolman::measure_spool(*spool_id, *weight),
@@ -485,7 +489,9 @@ impl Command {
             | Self::LoadLane { .. }
             | Self::UnloadLane { .. }
             | Self::EjectLane { .. }
+            | Self::AssignGateSpool { .. }
             | Self::AssignLaneSpool { .. }
+            | Self::RefreshLaneSpool { .. }
             | Self::SetLaneFilament { .. }
             | Self::SetLaneTemperature { .. }
             | Self::MapToolToLane { .. }
@@ -497,9 +503,18 @@ impl Command {
         Some(call)
     }
 
-    /// The command changes what Spoolman knows, so the spools have to be read again when it succeeded.
+    /// The command changes what Spoolman knows or which spool sits where, so the spools have to be read again when
+    /// it succeeded. Asked of the command as sent, before it is resolved into G-code.
     pub fn changes_spools(&self) -> bool {
-        matches!(self, Self::SetActiveSpool { .. } | Self::MeasureSpool { .. } | Self::AssignGateSpool { .. })
+        matches!(
+            self,
+            Self::SetActiveSpool { .. }
+                | Self::MeasureSpool { .. }
+                | Self::AssignGateSpool { .. }
+                | Self::AssignLaneSpool { .. }
+                | Self::AssignToolSpool { .. }
+                | Self::RefreshLaneSpool { .. }
+        )
     }
 
     /// Restarts, reboots and updates end a running print, and `PID_CALIBRATE` switches the heater off and blocks

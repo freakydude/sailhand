@@ -684,6 +684,8 @@ export component TextWithValue inherits HorizontalLayout {
     in property <string> value;
     in property <string> separator: " · ";
     in property <color> color: Theme.muted;
+    // The value alone may carry another colour, e.g. a deviation beside a neutral label.
+    in property <color> value-color: root.color;
     in property <length> font-size: Theme.font-small;
     in property <int> font-weight: 400;
     alignment: start;
@@ -699,7 +701,7 @@ export component TextWithValue inherits HorizontalLayout {
     if root.value != "": Text {
         min-width: self.preferred-width;
         text: (root.text != "" ? root.separator : "") + root.value;
-        color: root.color;
+        color: root.value-color;
         font-size: root.font-size;
         font-weight: root.font-weight;
         vertical-alignment: center;

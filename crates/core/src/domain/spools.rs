@@ -4,9 +4,9 @@
 pub use super::machine_tree::{Lane, SpoolHolder};
 use crate::color::Rgba;
 use crate::commands::Command;
+use crate::domain::lane_filament;
 use crate::domain::machine_tree::MachineTree;
 use crate::sources::PrinterStatus;
-use crate::sources::happy_hare::MmuGate;
 use crate::sources::klipper::BED_HEATER;
 use crate::sources::spoolman::{Spool, SpoolmanState};
 
@@ -18,17 +18,6 @@ const TEMPERATURE_TOLERANCE: f64 = 5.0;
 pub struct FilamentColors {
     pub colors: Vec<Rgba>,
     pub longitudinal: bool,
-}
-
-impl FilamentColors {
-    /// The colours of a gate: a multi-colour spool of Spoolman shows all of its colours; otherwise the gate has the
-    /// one colour Happy Hare reports.
-    pub fn of_gate(gate: &MmuGate, spool: Option<&Spool>) -> Self {
-        match spool.filter(|spool| spool.is_multi_color()) {
-            Some(spool) => Self { colors: spool.colors.clone(), longitudinal: spool.has_longitudinal_colors() },
-            None => Self { colors: gate.color.into_iter().collect(), longitudinal: false },
-        }
-    }
 }
 
 /// The lanes of the printer, for code that has no tree at hand.
@@ -44,13 +33,17 @@ pub fn active_spool(lanes: &[Lane]) -> Option<&Spool> {
 /// The spool that feeds the nozzle of `extruder`: of its lane in use, or of its only lane (a head that is not
 /// mounted). For the temperature hint at each extruder.
 pub fn nozzle_spool<'a>(lanes: &'a [Lane], extruder: &str) -> Option<&'a Spool> {
+    nozzle_lane(lanes, extruder)?.spool.as_ref()
+}
+
+/// The lane that feeds the nozzle of `extruder`: its lane in use, or its only lane.
+fn nozzle_lane<'a>(lanes: &'a [Lane], extruder: &str) -> Option<&'a Lane> {
     let mut fed = lanes.iter().filter(|lane| lane.extruder == extruder);
-    let lane = match (fed.clone().find(|lane| lane.active), fed.next(), fed.next()) {
-        (Some(active), _, _) => active,
-        (None, Some(only), None) => only,
-        _ => return None,
-    };
-    lane.spool.as_ref()
+    match (fed.clone().find(|lane| lane.active), fed.next(), fed.next()) {
+        (Some(active), _, _) => Some(active),
+        (None, Some(only), None) => Some(only),
+        _ => None,
+    }
 }
 
 /// The spool of the lane in use at the nozzle of `extruder`; none for an extruder that is not feeding.
@@ -65,13 +58,14 @@ pub fn tool_lane(lanes: &[Lane], tool: usize) -> Option<&Lane> {
     of_tool.clone().find(|lane| lane.name.is_some()).or_else(|| of_tool.next())
 }
 
-/// What the spools recommend for `heater`: at the nozzle of an extruder its spool's nozzle temperature, at the bed the
-/// bed temperature of the spool in use.
-pub fn recommended_temperature(lanes: &[Lane], heater: &str) -> Option<f64> {
+/// What the spools recommend for `heater`: at the nozzle of an extruder its spool's nozzle temperature as the lane
+/// takes it ([`lane_filament::spool_temperature`]), at the bed the bed temperature of the spool in use.
+pub fn recommended_temperature(lanes: &[Lane], heater: &str, status: &PrinterStatus) -> Option<f64> {
     if heater == BED_HEATER {
         return active_spool(lanes)?.bed_temp;
     }
-    nozzle_spool(lanes, heater)?.extruder_temp
+    let lane = nozzle_lane(lanes, heater)?;
+    lane_filament::spool_temperature(lane, lane.spool.as_ref()?, status)
 }
 
 /// The spool for a hint about the temperature: the target that does not match it, if it is off by more than the
@@ -104,7 +98,7 @@ pub fn picker_order(mut spools: Vec<Spool>, inserted: &[u32]) -> Vec<Spool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sources::happy_hare::MmuStatus;
+    use crate::sources::happy_hare::{MmuGate, MmuStatus, SpoolmanMode};
     use crate::sources::klipper::Heater;
     use crate::sources::spoolman::test_spool;
 
@@ -135,6 +129,7 @@ mod tests {
                     ..MmuGate::default()
                 })
                 .collect(),
+            spoolman: SpoolmanMode::Push,
             ..MmuStatus::default()
         };
         PrinterStatus { mmu: Some(mmu), ..PrinterStatus::default() }
@@ -190,6 +185,7 @@ mod tests {
             extruder: extruder.into(),
             tool: None,
             spool_id: Some(id),
+            gate_holds_spool: false,
             spool_by_tool: false,
             spool: Some(test_spool(id, "PLA", 500.0, [0, 0, 0])),
             empty: false,
@@ -208,10 +204,14 @@ mod tests {
             let spool = lane.spool.as_mut().unwrap();
             (spool.extruder_temp, spool.bed_temp) = (Some(temperatures.0), Some(temperatures.1));
         }
-        assert_eq!(recommended_temperature(&hot, "extruder"), Some(200.0));
-        assert_eq!(recommended_temperature(&hot, "extruder1"), Some(240.0));
-        assert_eq!(recommended_temperature(&hot, BED_HEATER), Some(80.0), "the bed follows the spool in use");
-        assert_eq!(recommended_temperature(&hot, "heater_generic chamber"), None);
+        assert_eq!(recommended_temperature(&hot, "extruder", &PrinterStatus::default()), Some(200.0));
+        assert_eq!(recommended_temperature(&hot, "extruder1", &PrinterStatus::default()), Some(240.0));
+        assert_eq!(
+            recommended_temperature(&hot, BED_HEATER, &PrinterStatus::default()),
+            Some(80.0),
+            "the bed follows the spool in use"
+        );
+        assert_eq!(recommended_temperature(&hot, "heater_generic chamber", &PrinterStatus::default()), None);
     }
 
     #[test]
@@ -237,24 +237,6 @@ mod tests {
         let order: Vec<u32> = picker_order(spools, &[3]).iter().map(|spool| spool.id).collect();
 
         assert_eq!(order, [3, 2, 4, 1]);
-    }
-
-    #[test]
-    fn a_multi_colour_spool_shows_its_colours_instead_of_the_colour_of_the_gate() {
-        let (red, green, blue) = ([0xff, 0, 0, 0xff], [0, 0xff, 0, 0xff], [0, 0, 0xff, 0xff]);
-        let gate = MmuGate { color: Some(red), ..MmuGate::default() };
-        let spool = |colors: Vec<Rgba>| Spool { colors, longitudinal: true, ..Spool::default() };
-
-        assert_eq!(
-            FilamentColors::of_gate(&gate, Some(&spool(vec![green, blue]))),
-            FilamentColors { colors: vec![green, blue], longitudinal: true }
-        );
-        assert_eq!(
-            FilamentColors::of_gate(&gate, Some(&spool(vec![green]))),
-            FilamentColors { colors: vec![red], longitudinal: false }
-        );
-        assert_eq!(FilamentColors::of_gate(&gate, None), FilamentColors { colors: vec![red], longitudinal: false });
-        assert_eq!(FilamentColors::of_gate(&MmuGate::default(), None), FilamentColors::default());
     }
 
     #[test]

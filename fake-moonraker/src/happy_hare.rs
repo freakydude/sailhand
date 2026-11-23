@@ -4,7 +4,8 @@
 //! elapsed time: `action` is always `Idle`, loading and unloading complete immediately.
 
 use crate::gcode::{CommandError, MmuCommand, ServoPosition};
-use crate::machine::{BufferKind, MmuUnitSpec};
+use crate::machine::{BufferKind, MmuUnitSpec, SpoolmanMode};
+use crate::spoolman;
 use serde_json::{Map, Value, json};
 
 const VERSION: &str = "4.1.0";
@@ -112,10 +113,15 @@ pub struct HappyHare {
     gate_status: Vec<i32>,
     /// Spoolman spool of each gate.
     gate_spool: Vec<Option<u32>>,
-    /// What `MMU_GATE_MAP` set of the filament of each gate, over the spool or demo filament.
+    /// The filament of each gate as Happy Hare keeps it: a copy of what the spool had when Happy Hare took it.
     gate_filament: Vec<GateFilament>,
     /// `spoolman_support`: `push` with Moonraker's Spoolman, `off` without.
-    spoolman: bool,
+    spoolman: SpoolmanMode,
+    /// What Happy Hare told Moonraker's active spool since the script began (`spoolman_set_active_spool`): the spool
+    /// of the gate after a load, `None` at the start of an unload. The session hands them on and empties the list.
+    active_spool_events: Vec<Option<u32>>,
+    /// Console lines of the script (`log_error` is `!! ...`, `log_always` is `// ...`); the session sends them.
+    console: Vec<String>,
     /// The filament pulls hard on the buffer: tension at the stop and tangle prevention raises the gear current.
     boosting: bool,
     /// `mmu.selector.servo` of a linear selector with a servo, as on an ERCF.
@@ -180,10 +186,78 @@ struct SensorUnit {
 /// `mmu_constants.py` L341).
 const UNKNOWN_FILAMENT_COLOR: &str = "#808182E3";
 
-/// Material, colour (`rrggbb`) and temperature a gate got with `MMU_GATE_MAP`; `None` leaves that of its filament.
-#[derive(Debug, Clone, Default)]
+/// `default_extruder_temp` of `[mmu_parameters]` (`mmu_machine_parameters.py` L55); the temperature of a gate taken
+/// from a spool is never lower (`components/mmu_server.py`, as the caller of this fake reported).
+const DEFAULT_EXTRUDER_TEMP: i32 = 200;
+
+/// Moonraker's `hostname` as `server.info` of the fake reports it (`printer.info`); the messages of `MMU_SPOOLMAN`
+/// name it (`mmu_server.py` `_log_n_send` with `self.printer_hostname`).
+const PRINTER_HOSTNAME: &str = "fake-printer";
+
+/// The filament of the second gate with a spool differs from its spool at the start: someone edited the spool in
+/// Spoolman after Happy Hare took the values; it only takes them again on assignment, REFRESH or restart
+/// (`mmu_server.py`).
+const EDITED_MATERIAL: &str = "PETG";
+const EDITED_COLOR: &str = "ff8000";
+
+/// `log_error` (`mmu_logger.py` L141-144) and `log_always` (L149-152) as the console shows them.
+const ERROR_PREFIX: &str = "!! ";
+const INFO_PREFIX: &str = "// ";
+
+/// What Happy Hare keeps of the filament of a gate (its gate map). With Spoolman it is a copy of the values of the
+/// spool, taken when the spool is assigned, on `MMU_SPOOLMAN REFRESH=1` or `SYNC=1` and at the start
+/// (`mmu_server.py` `_get_filament_attr`, `mmu_controller.py` `_spoolman_sync`).
+#[derive(Debug, Clone)]
 struct GateFilament {
+    name: String,
+    material: String,
+    vendor: String,
+    /// `rrggbb`, a colour name of the demo filaments, or empty (a spool with several colours has no `color_hex`).
+    color: String,
+    rgb: [f64; 3],
+    temperature: i32,
+}
+
+impl GateFilament {
+    /// A demo filament, for a gate without Spoolman or without a spool.
+    fn demo(gate: usize) -> Self {
+        let spool = &SPOOLS[gate % BASIC_FILAMENTS];
+        Self {
+            name: spool.name.to_owned(),
+            material: spool.material.to_owned(),
+            vendor: spool.vendor.to_owned(),
+            color: spool.color.to_owned(),
+            rgb: spool.rgb,
+            temperature: spool.temperature,
+        }
+    }
+
+    /// What Happy Hare takes of a spool (`mmu_server.py` `_get_filament_attr`): name, material, vendor, the colour only
+    /// from `color_hex` and the temperature `settings_extruder_temp` at least `default_extruder_temp`. `None` for a
+    /// spool Spoolman does not know.
+    fn from_spoolman(id: u32) -> Option<Self> {
+        let spool = spoolman::initial_spool(id)?;
+        let filament = &spool["filament"];
+        let text = |field: &str| filament[field].as_str().unwrap_or_default().to_owned();
+        let color = text("color_hex").trim_start_matches('#').to_ascii_lowercase();
+        let temperature = filament["settings_extruder_temp"].as_i64().unwrap_or_default() as i32;
+        Some(Self {
+            name: text("name"),
+            material: text("material"),
+            vendor: filament["vendor"]["name"].as_str().unwrap_or_default().to_owned(),
+            rgb: hex_rgb(&color).unwrap_or_default(),
+            color,
+            temperature: temperature.max(DEFAULT_EXTRUDER_TEMP),
+        })
+    }
+}
+
+/// What `MMU_GATE_MAP` sets on a gate; `None` leaves the value.
+#[derive(Debug, Clone, Default)]
+struct GateChange {
+    name: Option<String>,
     material: Option<String>,
+    vendor: Option<String>,
     color: Option<String>,
     temperature: Option<i32>,
 }
@@ -200,24 +274,37 @@ fn hex_rgb(color: &str) -> Option<[f64; 3]> {
 
 impl HappyHare {
     /// Without `spoolman` the gates have no spools; Happy Hare keeps their filament in its own gate map.
-    pub fn new(gates: usize, spoolman: bool) -> Self {
+    pub fn new(gates: usize, spoolman: SpoolmanMode) -> Self {
         Self::build(gates, Vec::new(), spoolman)
     }
 
     /// A v4 machine of several units; their gates follow each other (`mmu_machine.py` L110-123).
-    pub fn with_units(units: &[MmuUnitSpec], spoolman: bool) -> Self {
+    pub fn with_units(units: &[MmuUnitSpec], spoolman: SpoolmanMode) -> Self {
         Self::build(units.iter().map(|unit| unit.gates).sum(), units.to_vec(), spoolman)
     }
 
-    fn build(gates: usize, units: Vec<MmuUnitSpec>, spoolman: bool) -> Self {
+    fn build(gates: usize, units: Vec<MmuUnitSpec>, spoolman: SpoolmanMode) -> Self {
         // The last gate stays empty so the UI also has to show an empty slot.
         let mut gate_status = vec![GATE_AVAILABLE; gates];
         if gates > 2 {
             gate_status[gates - 1] = GATE_EMPTY;
         }
-        let mut spools = GATE_SPOOLS.into_iter().filter(|_| spoolman);
-        let gate_spool =
+        let mut spools = GATE_SPOOLS.into_iter().filter(|_| spoolman != SpoolmanMode::Off);
+        let gate_spool: Vec<Option<u32>> =
             gate_status.iter().map(|status| if *status == GATE_AVAILABLE { spools.next() } else { None }).collect();
+        let mut gate_filament: Vec<GateFilament> = (0..gates)
+            .map(|gate| {
+                gate_spool[gate].and_then(GateFilament::from_spoolman).unwrap_or_else(|| GateFilament::demo(gate))
+            })
+            .collect();
+        if let Some(gate) =
+            gate_spool.iter().enumerate().filter(|(_, spool)| spool.is_some()).nth(1).map(|(gate, _)| gate)
+        {
+            let edited = &mut gate_filament[gate];
+            edited.material = EDITED_MATERIAL.to_owned();
+            edited.color = EDITED_COLOR.to_owned();
+            edited.rgb = hex_rgb(EDITED_COLOR).unwrap_or_default();
+        }
         Self {
             gates,
             homed: false,
@@ -232,8 +319,10 @@ impl HappyHare {
             endless_spool_groups: (0..gates as u32).collect(),
             gate_status,
             gate_spool,
-            gate_filament: vec![GateFilament::default(); gates],
+            gate_filament,
             spoolman,
+            active_spool_events: Vec::new(),
+            console: Vec::new(),
             boosting: false,
             servo: SERVO_UP,
             buffer: BufferKind::Proportional,
@@ -333,8 +422,11 @@ impl HappyHare {
                 self.move_servo(position);
                 Ok(())
             }
-            MmuCommand::GateMap { gate, spool_id, material, color, temperature } => {
-                self.gate_map(gate, spool_id, GateFilament { material, color, temperature })
+            MmuCommand::GateMap { gate, spool_id, name, material, vendor, color, temperature, weights_given } => {
+                self.gate_map(gate, spool_id, GateChange { name, material, vendor, color, temperature }, weights_given)
+            }
+            MmuCommand::Spoolman { gate, spool_id, refresh, sync } => {
+                self.spoolman_command(gate, spool_id, refresh || sync)
             }
             MmuCommand::SelectBypass => self.select_bypass(),
             MmuCommand::MapTool { tool, gate } => self.map_tool(tool, gate),
@@ -501,6 +593,10 @@ impl HappyHare {
         let gate =
             *self.tool_to_gate.get(tool).ok_or_else(|| CommandError::new(format!("Tool T{tool} does not exist")))?;
         self.require_filament_at(gate)?;
+        // Another gate is unloaded first; the same gate stays loaded.
+        if self.loaded && self.gate != gate as i32 {
+            self.set_loaded(false);
+        }
         self.select(gate);
         self.set_loaded(true);
         self.tool = tool as i32;
@@ -597,6 +693,9 @@ impl HappyHare {
 
     /// A load or an unload ends at its end of the way, moving in its direction.
     fn set_loaded(&mut self, loaded: bool) {
+        if loaded != self.loaded {
+            self.tell_moonraker_active_spool(loaded);
+        }
         self.loaded = loaded;
         self.direction = if loaded { 1 } else { -1 };
         self.held_position = None;
@@ -640,70 +739,206 @@ impl HappyHare {
         }
     }
 
-    /// The filament of a gate: that of its Spoolman spool, which Happy Hare takes over, else a demo filament.
-    fn spool(&self, gate: usize) -> &'static Spool {
-        match self.gate_spool.get(gate).copied().flatten() {
-            Some(id) => &SPOOLS[crate::spoolman::filament_index(id)],
-            None => &SPOOLS[gate % BASIC_FILAMENTS],
+    /// Happy Hare tells Moonraker the active spool after a load (the spool of the gate, if it has one) and at the
+    /// start of an unload (none), never with `spoolman_support: off` (`mmu_controller.py` `_spoolman_activate_spool`;
+    /// `mmu_filament_movement.py` L2749 and L2897 at 5aa3d30).
+    fn tell_moonraker_active_spool(&mut self, loading: bool) {
+        if self.spoolman == SpoolmanMode::Off {
+            return;
+        }
+        if !loading {
+            self.active_spool_events.push(None);
+        } else if let Some(spool) = self.selected_spool() {
+            self.active_spool_events.push(Some(spool));
         }
     }
 
-    /// The Spoolman spool of the selected gate, which Happy Hare makes the active one.
-    pub fn selected_spool(&self) -> Option<u32> {
+    /// The Spoolman spool of the selected gate.
+    fn selected_spool(&self) -> Option<u32> {
         usize::try_from(self.gate).ok().and_then(|gate| self.gate_spool.get(gate).copied().flatten())
     }
 
-    /// `MMU_GATE_MAP GATE= SPOOLID=`; a negative id takes the spool out. A new spool brings its own filament, so
-    /// what was set before goes; then material, colour and temperature given here apply.
-    fn gate_map(&mut self, gate: usize, spool_id: Option<i64>, change: GateFilament) -> Result<(), CommandError> {
+    /// The active spool changes Happy Hare reported since the last call, oldest first.
+    pub fn take_active_spool_events(&mut self) -> Vec<Option<u32>> {
+        std::mem::take(&mut self.active_spool_events)
+    }
+
+    /// The console lines of the last commands, oldest first.
+    pub fn take_console(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.console)
+    }
+
+    /// `MMU_GATE_MAP GATE= SPOOLID=`; a negative id takes the spool out. `commands/mmu_gate_map.py` `_run`:
+    /// - `pull`: with one of the parameters Spoolman owns (material, vendor, colour, spool, name, weights) the command
+    ///   only logs an error and does not fail; `TEMP` is ignored.
+    /// - Otherwise the given values are set. A **changed** spool id makes Happy Hare take the filament of the spool
+    ///   again (not with `off`), which overwrites the values given in the same call; the same id fetches nothing.
+    ///   A spool sits on one gate only (`assign_spool_id`).
+    fn gate_map(
+        &mut self,
+        gate: usize,
+        spool_id: Option<i64>,
+        change: GateChange,
+        weights_given: bool,
+    ) -> Result<(), CommandError> {
         self.check_gate(gate)?;
         if let Some(color) = &change.color {
             hex_rgb(color).ok_or_else(|| {
                 CommandError::new("Color specification must be in form 'rrggbb' hexadecimal value (no '#')")
             })?;
         }
-        if let Some(spool_id) = spool_id {
-            self.gate_spool[gate] = u32::try_from(spool_id).ok().filter(|id| *id > 0);
-            self.gate_filament[gate] = GateFilament::default();
+        if self.spoolman == SpoolmanMode::Pull {
+            let spoolman_owns = change.material.is_some()
+                || change.vendor.is_some()
+                || change.color.is_some()
+                || change.name.is_some()
+                || spool_id.is_some()
+                || weights_given;
+            if spoolman_owns {
+                self.console.push(format!(
+                    "{ERROR_PREFIX}Spoolman mode is 'pull': Can only set gate status and speed override locally\nUse MMU_SPOOLMAN or update spoolman directly"
+                ));
+            }
+            return Ok(());
         }
-        let filament = &mut self.gate_filament[gate];
-        filament.material = change.material.or(filament.material.take());
-        filament.color = change.color.or(filament.color.take());
-        filament.temperature = change.temperature.or(filament.temperature);
+        self.set_local_values(gate, change);
+        if let Some(spool_id) = spool_id {
+            let spool = u32::try_from(spool_id).ok().filter(|id| *id > 0);
+            if spool != self.gate_spool[gate] {
+                self.assign_spool_id(gate, spool);
+                if self.spoolman != SpoolmanMode::Off {
+                    self.take_filament_of_spool(gate);
+                }
+            }
+        }
         Ok(())
+    }
+
+    fn set_local_values(&mut self, gate: usize, change: GateChange) {
+        let filament = &mut self.gate_filament[gate];
+        if let Some(name) = change.name {
+            filament.name = name;
+        }
+        if let Some(material) = change.material {
+            filament.material = material;
+        }
+        if let Some(vendor) = change.vendor {
+            filament.vendor = vendor;
+        }
+        if let Some(color) = change.color {
+            filament.rgb = hex_rgb(&color).unwrap_or_default();
+            filament.color = color;
+        }
+        if let Some(temperature) = change.temperature {
+            filament.temperature = temperature;
+        }
+    }
+
+    /// `mmu_gate_maps.py` `assign_spool_id`: the gate gets the spool, and no other gate keeps it.
+    fn assign_spool_id(&mut self, gate: usize, spool: Option<u32>) {
+        if spool.is_some() {
+            for other in self.gate_spool.iter_mut().filter(|other| **other == spool) {
+                *other = None;
+            }
+        }
+        self.gate_spool[gate] = spool;
+    }
+
+    /// Copies the values of the gate's spool into the gate map; a spool Spoolman does not know changes nothing.
+    fn take_filament_of_spool(&mut self, gate: usize) {
+        if let Some(filament) = self.gate_spool[gate].and_then(GateFilament::from_spoolman) {
+            self.gate_filament[gate] = filament;
+        }
+    }
+
+    /// `MMU_SPOOLMAN` (`commands/mmu_spoolman.py`): with `off` it only logs that Spoolman is disabled (the command
+    /// does not fail). `REFRESH=1` and `SYNC=1` give every gate with a spool the values of that spool again. `GATE=`
+    /// with `SPOOLID=` assigns a spool in Spoolman's database, `GATE=` alone empties the gate, `SPOOLID=` alone takes
+    /// the spool from its gate; the gate map follows in `pull` only (the other modes call `_spoolman_set_spool_gate`
+    /// without `sync`). Without any parameter `readonly` logs that the gate map is not available.
+    fn spoolman_command(
+        &mut self,
+        gate: Option<usize>,
+        spool_id: Option<i64>,
+        resync: bool,
+    ) -> Result<(), CommandError> {
+        if self.spoolman == SpoolmanMode::Off {
+            self.console.push(format!("{ERROR_PREFIX}Spoolman support is currently disabled"));
+            return Ok(());
+        }
+        // Klipper's `gcmd.get_int('SPOOLID', None, minval=1)`; the wording is assumed.
+        if spool_id.is_some_and(|id| id < 1) {
+            return Err(CommandError::new("SPOOLID must have minimum of 1"));
+        }
+        let spool = spool_id.and_then(|id| u32::try_from(id).ok());
+        if let Some(gate) = gate {
+            self.check_gate(gate)?;
+        }
+        if resync {
+            for gate in 0..self.gates {
+                self.take_filament_of_spool(gate);
+            }
+        }
+        match (gate, spool) {
+            (Some(gate), Some(spool)) => self.assign_in_spoolman(gate, spool),
+            (Some(gate), None) => self.unassign_in_spoolman(self.gate_spool[gate], gate),
+            (None, Some(spool)) => {
+                if let Some(gate) = self.gate_spool.iter().position(|held| *held == Some(spool)) {
+                    self.unassign_in_spoolman(Some(spool), gate);
+                }
+            }
+            (None, None) if !resync && self.spoolman == SpoolmanMode::Readonly => self.console.push(format!(
+                "{ERROR_PREFIX}Spoolman gate map not available. Spoolman mode is: {}",
+                self.spoolman.as_str()
+            )),
+            (None, None) => {}
+        }
+        Ok(())
+    }
+
+    fn assign_in_spoolman(&mut self, gate: usize, spool: u32) {
+        let pull = self.spoolman == SpoolmanMode::Pull;
+        if let Some(old) = self.gate_spool[gate].filter(|old| pull && *old != spool) {
+            self.log_unassigned(old, gate);
+        }
+        self.console.push(format!(
+            "{INFO_PREFIX}Spool {spool} assigned to printer {PRINTER_HOSTNAME} @ gate {gate} in Spoolman db"
+        ));
+        if pull {
+            self.assign_spool_id(gate, Some(spool));
+            self.take_filament_of_spool(gate);
+        }
+    }
+
+    fn unassign_in_spoolman(&mut self, spool: Option<u32>, gate: usize) {
+        let Some(spool) = spool else { return };
+        self.log_unassigned(spool, gate);
+        if self.spoolman == SpoolmanMode::Pull {
+            self.gate_spool[gate] = None;
+        }
+    }
+
+    fn log_unassigned(&mut self, spool: u32, gate: usize) {
+        self.console.push(format!(
+            "{INFO_PREFIX}Spool {spool} unassigned from printer {PRINTER_HOSTNAME} and gate {gate} in Spoolman db"
+        ));
     }
 
     fn per_gate<T>(&self, value: impl Fn(usize) -> T) -> Vec<T> {
         (0..self.gates).map(value).collect()
     }
 
-    fn material(&self, gate: usize) -> String {
-        self.gate_filament[gate].material.clone().unwrap_or_else(|| self.spool(gate).material.to_owned())
-    }
-
-    fn color(&self, gate: usize) -> String {
-        self.gate_filament[gate].color.clone().unwrap_or_else(|| self.spool(gate).color.to_owned())
-    }
-
-    fn color_rgb(&self, gate: usize) -> [f64; 3] {
-        self.gate_filament[gate].color.as_deref().and_then(hex_rgb).unwrap_or(self.spool(gate).rgb)
-    }
-
-    fn temperature(&self, gate: usize) -> i32 {
-        self.gate_filament[gate].temperature.unwrap_or(self.spool(gate).temperature)
-    }
-
     fn active_filament(&self) -> Value {
         match usize::try_from(self.gate) {
             Ok(gate) => {
-                let spool = self.spool(gate);
+                let filament = &self.gate_filament[gate];
                 json!({
-                    "filament_name": spool.name,
-                    "material": self.material(gate),
-                    "vendor": spool.vendor,
-                    "color": self.color(gate),
+                    "filament_name": filament.name,
+                    "material": filament.material,
+                    "vendor": filament.vendor,
+                    "color": filament.color,
                     "spool_id": self.gate_spool.get(gate).copied().flatten().map_or(-1, i64::from),
-                    "temperature": self.temperature(gate),
+                    "temperature": filament.temperature,
                     "td": null,
                 })
             }
@@ -743,14 +978,14 @@ impl HappyHare {
             "endless_spool_enabled": u8::from(self.endless_spool),
             "endless_spool_groups": self.endless_spool_groups,
             "gate_status": self.gate_status,
-            "gate_filament_name": self.per_gate(|gate| self.spool(gate).name),
-            "gate_material": self.per_gate(|gate| self.material(gate)),
-            "gate_vendor": self.per_gate(|gate| self.spool(gate).vendor),
-            "gate_color": self.per_gate(|gate| self.color(gate)),
-            "gate_color_rgb": self.per_gate(|gate| self.color_rgb(gate)),
-            "gate_temperature": self.per_gate(|gate| self.temperature(gate)),
+            "gate_filament_name": self.per_gate(|gate| self.gate_filament[gate].name.clone()),
+            "gate_material": self.per_gate(|gate| self.gate_filament[gate].material.clone()),
+            "gate_vendor": self.per_gate(|gate| self.gate_filament[gate].vendor.clone()),
+            "gate_color": self.per_gate(|gate| self.gate_filament[gate].color.clone()),
+            "gate_color_rgb": self.per_gate(|gate| self.gate_filament[gate].rgb),
+            "gate_temperature": self.per_gate(|gate| self.gate_filament[gate].temperature),
             "gate_spool_id": self.gate_spool.iter().map(|id| id.map_or(-1, i64::from)).collect::<Vec<_>>(),
-            "spoolman_support": if self.spoolman { "push" } else { "off" },
+            "spoolman_support": self.spoolman.as_str(),
             "pending_spool_id": -1,
             "encoder": self.encoder_json(printing),
             "selector": { "has_bypass": self.selected_unit_has_bypass(), "servo": self.servo },
@@ -1093,7 +1328,7 @@ mod tests {
     const IDLE: &str = "standby";
 
     fn homed(gates: usize) -> HappyHare {
-        let mut hare = HappyHare::new(gates, true);
+        let mut hare = HappyHare::new(gates, SpoolmanMode::Push);
         hare.apply(MmuCommand::Home, IDLE).unwrap();
         hare
     }
@@ -1104,7 +1339,7 @@ mod tests {
 
     #[test]
     fn starts_unhomed_with_nothing_selected() {
-        let status = mmu(&HappyHare::new(4, true));
+        let status = mmu(&HappyHare::new(4, SpoolmanMode::Push));
 
         assert_eq!(status["is_homed"], false);
         assert_eq!(status["gate"], -1);
@@ -1115,7 +1350,7 @@ mod tests {
 
     #[test]
     fn last_gate_is_empty() {
-        let status = mmu(&HappyHare::new(4, true));
+        let status = mmu(&HappyHare::new(4, SpoolmanMode::Push));
 
         assert_eq!(status["gate_status"], json!([1, 1, 1, 0]));
         assert_eq!(status["gate_filament_name"].as_array().unwrap().len(), 4);
@@ -1123,7 +1358,7 @@ mod tests {
 
     #[test]
     fn every_move_requires_homing() {
-        let mut hare = HappyHare::new(4, true);
+        let mut hare = HappyHare::new(4, SpoolmanMode::Push);
 
         for command in [MmuCommand::Select { gate: 1 }, MmuCommand::ChangeTool { tool: 1 }, MmuCommand::Load] {
             assert_eq!(hare.apply(command, IDLE).unwrap_err().message(), "MMU is not homed");
@@ -1280,18 +1515,34 @@ mod tests {
     }
 
     fn spool_map(gate: usize, spool_id: i64) -> MmuCommand {
-        MmuCommand::GateMap { gate, spool_id: Some(spool_id), material: None, color: None, temperature: None }
+        gate_map(gate, Some(spool_id))
+    }
+
+    fn gate_map(gate: usize, spool_id: Option<i64>) -> MmuCommand {
+        MmuCommand::GateMap {
+            gate,
+            spool_id,
+            name: None,
+            material: None,
+            vendor: None,
+            color: None,
+            temperature: None,
+            weights_given: false,
+        }
     }
 
     #[test]
     fn without_spoolman_the_gate_map_keeps_material_colour_and_temperature() {
-        let mut hare = HappyHare::new(4, false);
+        let mut hare = HappyHare::new(4, SpoolmanMode::Off);
         let set = |material: Option<&str>, color: Option<&str>| MmuCommand::GateMap {
             gate: 1,
             spool_id: None,
+            name: None,
             material: material.map(str::to_owned),
+            vendor: None,
             color: color.map(str::to_owned),
             temperature: Some(240),
+            weights_given: false,
         };
 
         hare.apply(set(Some("PETG"), None), IDLE).unwrap();
@@ -1306,14 +1557,227 @@ mod tests {
         assert!(hare.apply(set(None, Some("orange")), IDLE).is_err());
     }
 
+    fn homed_in(mode: SpoolmanMode) -> HappyHare {
+        let mut hare = HappyHare::new(4, mode);
+        hare.apply(MmuCommand::Home, IDLE).unwrap();
+        hare
+    }
+
+    fn spoolman_command(gate: Option<usize>, spool_id: Option<i64>, refresh: bool) -> MmuCommand {
+        MmuCommand::Spoolman { gate, spool_id, refresh, sync: false }
+    }
+
+    fn gate_map_with(gate: usize, material: Option<&str>, temperature: Option<i32>, weights_given: bool) -> MmuCommand {
+        MmuCommand::GateMap {
+            gate,
+            spool_id: None,
+            name: None,
+            material: material.map(str::to_owned),
+            vendor: None,
+            color: None,
+            temperature,
+            weights_given,
+        }
+    }
+
     #[test]
-    fn the_selected_gate_makes_its_spool_the_active_one() {
+    fn a_load_makes_the_spool_of_the_gate_the_active_one_and_an_unload_clears_it() {
         let mut hare = homed(4);
-        assert_eq!(hare.selected_spool(), None);
-
         hare.apply(MmuCommand::Select { gate: 1 }, IDLE).unwrap();
+        assert!(hare.take_active_spool_events().is_empty(), "selecting a gate does not tell Moonraker");
 
-        assert_eq!(hare.selected_spool(), Some(7));
+        hare.apply(MmuCommand::Load, IDLE).unwrap();
+        assert_eq!(hare.take_active_spool_events(), [Some(7)]);
+
+        hare.apply(MmuCommand::Unload, IDLE).unwrap();
+        assert_eq!(hare.take_active_spool_events(), [None]);
+    }
+
+    #[test]
+    fn a_tool_change_unloads_the_old_spool_before_it_loads_the_new_one() {
+        let mut hare = homed(4);
+        hare.apply(MmuCommand::ChangeTool { tool: 0 }, IDLE).unwrap();
+        hare.apply(MmuCommand::ChangeTool { tool: 1 }, IDLE).unwrap();
+
+        assert_eq!(hare.take_active_spool_events(), [Some(1), None, Some(7)]);
+    }
+
+    #[test]
+    fn a_gate_without_a_spool_sets_no_active_spool_and_off_never_does() {
+        let mut hare = homed(4);
+        hare.apply(spool_map(1, -1), IDLE).unwrap();
+        hare.apply(MmuCommand::Select { gate: 1 }, IDLE).unwrap();
+        hare.apply(MmuCommand::Load, IDLE).unwrap();
+        assert!(hare.take_active_spool_events().is_empty());
+
+        let mut off = homed_in(SpoolmanMode::Off);
+        off.apply(MmuCommand::ChangeTool { tool: 0 }, IDLE).unwrap();
+        off.apply(MmuCommand::Unload, IDLE).unwrap();
+        assert!(off.take_active_spool_events().is_empty());
+    }
+
+    #[test]
+    fn a_new_spool_on_the_loaded_gate_is_not_the_active_one_until_the_next_load() {
+        let mut hare = homed(4);
+        hare.apply(MmuCommand::ChangeTool { tool: 0 }, IDLE).unwrap();
+        hare.take_active_spool_events();
+
+        hare.apply(spool_map(0, 4), IDLE).unwrap();
+        assert!(hare.take_active_spool_events().is_empty());
+
+        hare.apply(MmuCommand::Unload, IDLE).unwrap();
+        hare.apply(MmuCommand::Load, IDLE).unwrap();
+        assert_eq!(hare.take_active_spool_events(), [None, Some(4)]);
+    }
+
+    #[test]
+    fn the_gate_values_are_a_copy_that_differs_from_the_spool_of_the_second_gate_until_a_refresh() {
+        let mut hare = homed(4);
+        let status = mmu(&hare);
+        // Spool 7 is the PLA gradient; someone edited it in Spoolman after Happy Hare took the values.
+        assert_eq!(status["gate_material"], json!(["PLA", "PETG", "PLA", "ABS"]));
+        assert_eq!(status["gate_color"][1], EDITED_COLOR);
+
+        hare.apply(spoolman_command(None, None, true), IDLE).unwrap();
+
+        let status = mmu(&hare);
+        assert_eq!(status["gate_material"][1], "PLA");
+        // A spool with several colours has no `color_hex`, so the gate has no colour.
+        assert_eq!(status["gate_color"][1], "");
+        assert_eq!(status["gate_color_rgb"][1], json!([0.0, 0.0, 0.0]));
+        assert_eq!(status["gate_temperature"][1], 215);
+        assert!(hare.take_console().is_empty());
+    }
+
+    #[test]
+    fn a_changed_spool_id_fetches_the_spool_but_the_same_id_only_takes_the_other_parameters() {
+        let mut hare = homed(4);
+        hare.apply(spool_map(0, 4), IDLE).unwrap();
+        let status = mmu(&hare);
+        assert_eq!((&status["gate_material"][0], &status["gate_temperature"][0]), (&json!("ABS"), &json!(250)));
+        assert_eq!(status["gate_spool_id"], json!([4, 7, 8, -1]));
+
+        let mut same = gate_map_with(0, Some("ASA"), Some(255), false);
+        if let MmuCommand::GateMap { spool_id, .. } = &mut same {
+            *spool_id = Some(4);
+        }
+        hare.apply(same, IDLE).unwrap();
+
+        let status = mmu(&hare);
+        assert_eq!((&status["gate_material"][0], &status["gate_temperature"][0]), (&json!("ASA"), &json!(255)));
+    }
+
+    #[test]
+    fn a_spool_sits_on_one_gate_only_and_minus_one_keeps_the_values() {
+        let mut hare = homed(4);
+
+        hare.apply(spool_map(3, 1), IDLE).unwrap();
+        assert_eq!(mmu(&hare)["gate_spool_id"], json!([-1, 7, 8, 1]));
+
+        hare.apply(spool_map(3, -1), IDLE).unwrap();
+        let status = mmu(&hare);
+        assert_eq!(status["gate_spool_id"], json!([-1, 7, 8, -1]));
+        assert_eq!(status["gate_material"][3], "PLA");
+    }
+
+    #[test]
+    fn with_spoolman_off_the_spool_id_is_only_stored() {
+        let mut hare = homed_in(SpoolmanMode::Off);
+        assert_eq!(mmu(&hare)["gate_spool_id"], json!([-1, -1, -1, -1]));
+
+        hare.apply(spool_map(0, 4), IDLE).unwrap();
+
+        let status = mmu(&hare);
+        assert_eq!(status["gate_spool_id"], json!([4, -1, -1, -1]));
+        assert_eq!(status["gate_material"][0], "PLA", "nothing is fetched");
+    }
+
+    #[test]
+    fn spoolman_off_refuses_the_spoolman_command_in_the_console_without_failing() {
+        let mut hare = homed_in(SpoolmanMode::Off);
+
+        hare.apply(spoolman_command(Some(0), Some(4), false), IDLE).unwrap();
+
+        assert_eq!(hare.take_console(), ["!! Spoolman support is currently disabled"]);
+    }
+
+    #[test]
+    fn pull_refuses_the_parameters_of_spoolman_in_the_console_and_does_not_fail() {
+        let mut hare = homed_in(SpoolmanMode::Pull);
+        assert_eq!(mmu(&hare)["spoolman_support"], "pull");
+
+        for command in
+            [spool_map(0, 4), gate_map_with(0, Some("PETG"), None, false), gate_map_with(0, None, None, true)]
+        {
+            hare.apply(command, IDLE).unwrap();
+            assert_eq!(
+                hare.take_console(),
+                [
+                    "!! Spoolman mode is 'pull': Can only set gate status and speed override locally\nUse MMU_SPOOLMAN or update spoolman directly"
+                ]
+            );
+        }
+        let status = mmu(&hare);
+        assert_eq!(status["gate_spool_id"], json!([1, 7, 8, -1]));
+        assert_eq!(status["gate_material"][0], "PLA");
+    }
+
+    #[test]
+    fn pull_ignores_the_temperature_without_a_message() {
+        let mut hare = homed_in(SpoolmanMode::Pull);
+
+        hare.apply(gate_map_with(0, None, Some(300), false), IDLE).unwrap();
+
+        assert!(hare.take_console().is_empty());
+        assert_eq!(mmu(&hare)["gate_temperature"][0], 210);
+    }
+
+    #[test]
+    fn pull_assigns_and_empties_a_gate_through_the_spoolman_command() {
+        let mut hare = homed_in(SpoolmanMode::Pull);
+
+        hare.apply(spoolman_command(Some(3), Some(4), false), IDLE).unwrap();
+        let status = mmu(&hare);
+        assert_eq!(status["gate_spool_id"], json!([1, 7, 8, 4]));
+        assert_eq!(status["gate_material"][3], "ABS");
+        assert_eq!(hare.take_console(), ["// Spool 4 assigned to printer fake-printer @ gate 3 in Spoolman db"]);
+
+        hare.apply(spoolman_command(Some(3), Some(2), false), IDLE).unwrap();
+        assert_eq!(
+            hare.take_console(),
+            [
+                "// Spool 4 unassigned from printer fake-printer and gate 3 in Spoolman db",
+                "// Spool 2 assigned to printer fake-printer @ gate 3 in Spoolman db",
+            ]
+        );
+
+        hare.apply(spoolman_command(Some(3), None, false), IDLE).unwrap();
+        assert_eq!(mmu(&hare)["gate_spool_id"], json!([1, 7, 8, -1]));
+        assert_eq!(hare.take_console(), ["// Spool 2 unassigned from printer fake-printer and gate 3 in Spoolman db"]);
+    }
+
+    #[test]
+    fn the_spoolman_command_needs_a_positive_spool_id() {
+        let mut hare = homed_in(SpoolmanMode::Pull);
+
+        let error = hare.apply(spoolman_command(Some(0), Some(-1), false), IDLE).unwrap_err();
+
+        assert_eq!(error.message(), "SPOOLID must have minimum of 1");
+    }
+
+    #[test]
+    fn push_and_readonly_leave_the_gate_map_to_the_spoolman_command() {
+        for mode in [SpoolmanMode::Push, SpoolmanMode::Readonly] {
+            let mut hare = homed_in(mode);
+
+            hare.apply(spoolman_command(Some(3), Some(4), false), IDLE).unwrap();
+
+            assert_eq!(mmu(&hare)["gate_spool_id"], json!([1, 7, 8, -1]));
+            assert_eq!(hare.take_console().len(), 1);
+        }
+        let mut hare = homed_in(SpoolmanMode::Readonly);
+        hare.apply(spoolman_command(None, None, false), IDLE).unwrap();
+        assert_eq!(hare.take_console(), ["!! Spoolman gate map not available. Spoolman mode is: readonly"]);
     }
 
     #[test]
@@ -1378,8 +1842,11 @@ mod tests {
 
     #[test]
     fn one_unit_generates_the_six_sensors_of_the_recorded_single_lane_machine() {
-        let names: Vec<String> =
-            HappyHare::new(4, false).filament_sensors("standby").into_iter().map(|(name, _)| name).collect();
+        let names: Vec<String> = HappyHare::new(4, SpoolmanMode::Off)
+            .filament_sensors("standby")
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
 
         assert_eq!(
             names,
@@ -1396,7 +1863,7 @@ mod tests {
 
     #[test]
     fn status_registers_all_happy_hare_objects() {
-        let objects = HappyHare::new(4, true).status("standby");
+        let objects = HappyHare::new(4, SpoolmanMode::Push).status("standby");
 
         let names: Vec<&str> = objects.keys().map(String::as_str).collect();
         assert_eq!(names, ["mmu", "mmu_extruder extruder", "mmu_machine", "mmu_stepper unit0_gear"]);
@@ -1404,7 +1871,7 @@ mod tests {
     }
 
     fn stressed_print(buffer: BufferKind, encoder: bool) -> Value {
-        let mut hare = HappyHare::new(4, false).with_feedback(buffer, encoder);
+        let mut hare = HappyHare::new(4, SpoolmanMode::Off).with_feedback(buffer, encoder);
         hare.apply(MmuCommand::FakeTangle { boosting: true }, IDLE).unwrap();
         hare.status("printing")["mmu"].clone()
     }
@@ -1421,7 +1888,7 @@ mod tests {
         assert!(printing["sensors"].get("filament_proportional").is_none());
         assert_eq!(printing["tangle_prevention"]["active"], false);
         assert_eq!(printing["flowguard"]["level"], 0.4);
-        let hare = HappyHare::new(4, false).with_feedback(BufferKind::Compression, false);
+        let hare = HappyHare::new(4, SpoolmanMode::Off).with_feedback(BufferKind::Compression, false);
         assert_eq!(hare.status("printing")["mmu"]["sync_feedback_state"], "neutral");
     }
 
@@ -1436,7 +1903,7 @@ mod tests {
         assert!(printing["sensors"].get("encoder").is_none());
         assert!(printing["encoder"].is_null());
         assert_eq!(printing["tangle_prevention"]["boosted"], false);
-        let names: Vec<String> = HappyHare::new(4, false)
+        let names: Vec<String> = HappyHare::new(4, SpoolmanMode::Off)
             .with_feedback(BufferKind::Tension, false)
             .filament_sensors("standby")
             .into_iter()
@@ -1448,7 +1915,7 @@ mod tests {
 
     #[test]
     fn an_encoder_without_buffer_leaves_a_shortened_flowguard() {
-        let hare = HappyHare::new(4, false).with_feedback(BufferKind::None, true);
+        let hare = HappyHare::new(4, SpoolmanMode::Off).with_feedback(BufferKind::None, true);
         let idle = hare.status("standby")["mmu"].clone();
         let printing = stressed_print(BufferKind::None, true);
 

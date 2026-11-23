@@ -81,6 +81,40 @@ pub enum AfcLayout {
     Toolchanger,
 }
 
+/// `spoolman_support` of Happy Hare's `[mmu_parameters]` (`mmu_machine_parameters.py`, `printer.mmu.spoolman_support`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpoolmanMode {
+    /// Happy Hare ignores Spoolman.
+    Off,
+    /// Happy Hare takes the filament values of the spools of its gates.
+    Readonly,
+    /// Like `Readonly`, and the gate map is pushed to Spoolman.
+    Push,
+    /// Spoolman leads: the gate map is changed with `MMU_SPOOLMAN` only.
+    Pull,
+}
+
+impl SpoolmanMode {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "off" => Some(Self::Off),
+            "readonly" => Some(Self::Readonly),
+            "push" => Some(Self::Push),
+            "pull" => Some(Self::Pull),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Readonly => "readonly",
+            Self::Push => "push",
+            Self::Pull => "pull",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MachineProfile {
     pub quad_gantry_level: bool,
@@ -96,6 +130,11 @@ pub struct MachineProfile {
     pub z_thermal_adjust: bool,
     /// Moonraker's `spoolman` component with a few spools.
     pub spoolman: bool,
+    /// `spoolman_support` of Happy Hare; only the Happy Hare profiles use it (`Push` with Moonraker's Spoolman).
+    pub spoolman_mode: SpoolmanMode,
+    /// The user macros `T<n>` of a `klipper-toolchanger` declare `active` and set Moonraker's active spool on a tool
+    /// change (assumed user macro, as in Moonraker's docs "Setting the active spool from Klipper"). Only with Spoolman.
+    pub macro_active_spool: bool,
     /// Extra fans, LEDs with the led_effect plugin, a WLED strip of Moonraker, more temperature sensors and firmware
     /// retraction.
     pub devices: bool,
@@ -188,6 +227,8 @@ impl MachineProfile {
             exclude_object: false,
             z_thermal_adjust: false,
             spoolman: false,
+            spoolman_mode: SpoolmanMode::Off,
+            macro_active_spool: false,
             devices: false,
             filament_sensors: 0,
             probe: true,
@@ -216,6 +257,8 @@ impl MachineProfile {
             exclude_object: true,
             z_thermal_adjust: true,
             spoolman: true,
+            spoolman_mode: SpoolmanMode::Off,
+            macro_active_spool: false,
             devices: true,
             filament_sensors: 2,
             probe: true,
@@ -244,6 +287,8 @@ impl MachineProfile {
             exclude_object: true,
             z_thermal_adjust: false,
             spoolman: true,
+            spoolman_mode: SpoolmanMode::Push,
+            macro_active_spool: false,
             devices: true,
             filament_sensors: 5,
             probe: true,
@@ -264,7 +309,7 @@ impl MachineProfile {
 
     /// A voron with a tool changer of three tools and no MMU.
     pub fn toolchanger() -> Self {
-        Self { tools: Self::TOOLCHANGER_TOOLS, ..Self::voron() }
+        Self { tools: Self::TOOLCHANGER_TOOLS, macro_active_spool: true, ..Self::voron() }
     }
 
     /// Like the example config of viesturz (`examples/dock location/fixed/toolchanger.cfg` Z.23-26): `initialize_on:
@@ -274,6 +319,7 @@ impl MachineProfile {
             require_tool_present: true,
             initialize_on: InitializeOn::Home,
             error_gcode_pause: true,
+            macro_active_spool: false,
             ..Self::toolchanger()
         }
     }
@@ -301,7 +347,7 @@ impl MachineProfile {
 
     /// Happy Hare without Moonraker's Spoolman: material and colour of the gates live in Happy Hare's gate map.
     pub fn ercf(gates: usize) -> Self {
-        Self { spoolman: false, ..Self::happy_hare(gates) }
+        Self { spoolman: false, spoolman_mode: SpoolmanMode::Off, ..Self::happy_hare(gates) }
     }
 }
 
@@ -310,6 +356,34 @@ impl MachineProfile {
     /// its endpoints in `HistoryComponent.__init__`), so the methods are unknown and `server.info` omits `history`.
     pub fn without_history(self) -> Self {
         Self { history: false, ..self }
+    }
+
+    /// Happy Hare with another `spoolman_support`. Only the Happy Hare profiles have one, and every mode but `off`
+    /// needs Moonraker's Spoolman component (Happy Hare talks to it through Moonraker), so the profile `ercf` takes
+    /// `off` only.
+    pub fn with_spoolman_mode(self, mode: SpoolmanMode) -> Result<Self, String> {
+        if self.mmu_gates.is_none() {
+            return Err("--spoolman-mode only applies to the Happy Hare profiles".to_owned());
+        }
+        if mode != SpoolmanMode::Off && !self.spoolman {
+            return Err(format!(
+                "--spoolman-mode {} needs Moonraker's Spoolman, which this profile does not have",
+                mode.as_str()
+            ));
+        }
+        Ok(Self { spoolman_mode: mode, ..self })
+    }
+
+    /// Moonraker without the `spoolman` component. Only for the profiles of AFC and of the tool changer, whose
+    /// plugins then work without it (AFC counts its own `weight`); Happy Hare has `--spoolman-mode off`.
+    pub fn without_spoolman(self) -> Result<Self, String> {
+        if self.mmu_gates.is_some() || (self.afc.is_none() && self.tools == 0) {
+            return Err(
+                "--no-spoolman only applies to the profiles afc, afc-toolchanger, toolchanger and toolchanger-required"
+                    .to_owned(),
+            );
+        }
+        Ok(Self { spoolman: false, spoolman_mode: SpoolmanMode::Off, macro_active_spool: false, ..self })
     }
 
     /// A round bed, as on a delta: the bed mesh has a radius and only the points inside the circle are probed.
@@ -343,5 +417,41 @@ impl MachineProfile {
 impl Default for MachineProfile {
     fn default() -> Self {
         Self::voron()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_spoolman_mode_only_applies_to_happy_hare_profiles_with_spoolman() {
+        assert_eq!(
+            MachineProfile::happy_hare(4).with_spoolman_mode(SpoolmanMode::Pull).unwrap().spoolman_mode,
+            SpoolmanMode::Pull
+        );
+        assert!(MachineProfile::voron().with_spoolman_mode(SpoolmanMode::Pull).is_err());
+        assert!(MachineProfile::ercf(4).with_spoolman_mode(SpoolmanMode::Push).is_err());
+        assert!(MachineProfile::ercf(4).with_spoolman_mode(SpoolmanMode::Off).is_ok());
+        assert_eq!(MachineProfile::happy_hare(4).spoolman_mode, SpoolmanMode::Push);
+        assert_eq!(MachineProfile::ercf(4).spoolman_mode, SpoolmanMode::Off);
+    }
+
+    #[test]
+    fn no_spoolman_applies_to_afc_and_tool_changer_profiles_only() {
+        for profile in [MachineProfile::afc(), MachineProfile::afc_toolchanger(), MachineProfile::toolchanger()] {
+            assert!(!profile.without_spoolman().unwrap().spoolman);
+        }
+        for profile in [MachineProfile::voron(), MachineProfile::happy_hare(4), MachineProfile::toolchanger_mmu()] {
+            assert!(profile.without_spoolman().is_err());
+        }
+    }
+
+    #[test]
+    fn spoolman_modes_parse_by_their_happy_hare_names() {
+        for name in ["off", "readonly", "push", "pull"] {
+            assert_eq!(SpoolmanMode::parse(name).map(SpoolmanMode::as_str), Some(name));
+        }
+        assert_eq!(SpoolmanMode::parse("fetch"), None);
     }
 }

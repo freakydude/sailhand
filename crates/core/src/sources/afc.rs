@@ -25,7 +25,7 @@ const BUFFER_PREFIX: &str = "AFC_buffer ";
 const LANE_SECTIONS: [&str; 2] = ["afc_stepper ", "afc_lane "];
 const HUB_SECTION: &str = "afc_hub ";
 const AFC_FIELDS: [&str; 4] = ["current_load", "current_state", "error_state", "lanes"];
-const LANE_FIELDS: [&str; 14] = [
+const LANE_FIELDS: [&str; 15] = [
     "unit",
     "extruder",
     "hub",
@@ -35,6 +35,7 @@ const LANE_FIELDS: [&str; 14] = [
     "color",
     "material",
     "extruder_temp",
+    "weight",
     "load",
     "prep",
     "loaded_to_hub",
@@ -91,6 +92,9 @@ pub struct AfcLane {
     pub spool_id: Option<u32>,
     pub color: Option<Rgba>,
     pub material: String,
+    /// Grams left as AFC counts them down from the extruder's movement while the lane is in the tool
+    /// (`AFC_lane.py` `update_remaining_weight`); from Spoolman when a spool is set, else AFC's 1000 g on load.
+    pub weight: Option<f64>,
     /// The lane's own nozzle temperature in °C (`extruder_temp`: from Spoolman or `AFC_SET_SPOOL_TEMP`), if it has one.
     pub extruder_temp: Option<f64>,
     /// What AFC heats the nozzle to when it loads the lane outside a print (see [`load_temperature`]).
@@ -248,6 +252,7 @@ fn read_lane(store: &ObjectStore, settings: &Value, material_temps: &[MaterialTe
         spool_id: count(lane, "spool_id"),
         color: color::parse_hex(text(lane, "color")),
         material: material.to_owned(),
+        weight: lane.get("weight").and_then(Value::as_f64),
         filled: flag(lane, "prep") || flag(lane, "load"),
         prep: switch("prep"),
         load: switch("load"),
@@ -360,7 +365,15 @@ pub enum HubReturnBlock {
     HubClear,
 }
 
+/// `current_state` while AFC moves nothing (`AFC.py` `State.IDLE`).
+const STATE_IDLE: &str = "Idle";
+
 impl AfcStatus {
+    /// AFC loads, unloads or changes nothing right now and is not in its error state.
+    pub fn is_at_rest(&self) -> bool {
+        self.state == STATE_IDLE && !self.error
+    }
+
     pub fn lane(&self, name: &str) -> Option<&AfcLane> {
         self.lanes.iter().find(|lane| lane.name == name)
     }

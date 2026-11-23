@@ -292,22 +292,31 @@ fn run_script(backend: &Backend, params: &Value) -> Result<(Value, Duration), Rp
             let tuning = if pid_run { backend.with_printer(|printer| printer.pid_run_wait()) } else { Duration::ZERO };
             Ok(dwell + tuning)
         });
+    // The plugins' log lines come before the error that ended the script.
+    for line in backend.with_printer(|printer| printer.take_console()) {
+        backend.respond(&line);
+    }
     if let Err(error) = &outcome {
         backend.respond(&format!("!! {}", error.message()));
     }
+    // What Happy Hare, AFC or the tool macros told Moonraker happened even if a later command of the script failed.
+    report_active_spool_events(backend);
     let dwell = outcome?;
-    follow_selected_gate(backend);
     Ok((ok(), dwell))
 }
 
-/// Happy Hare makes the spool of the selected gate the active one in Moonraker.
-fn follow_selected_gate(backend: &Backend) {
-    if !backend.spoolman_enabled() || !backend.with_printer(|printer| printer.has_mmu()) {
+/// Hands the active spool changes of the filament changers to Moonraker's Spoolman component, in the order they
+/// happened (Moonraker's `server.spoolman.post_spool_id` and `notify_active_spool_set`). Without the component they
+/// are dropped.
+fn report_active_spool_events(backend: &Backend) {
+    let events = backend.with_printer(|printer| printer.take_active_spool_events());
+    if !backend.spoolman_enabled() {
         return;
     }
-    let spool = backend.with_printer(|printer| printer.selected_gate_spool());
-    if backend.with_spoolman(|spoolman| spoolman.set_active(spool)) == Ok(true) {
-        backend.notify("notify_active_spool_set", json!([{ "spool_id": spool }]));
+    for spool in events {
+        if backend.with_spoolman(|spoolman| spoolman.set_active(spool)) == Ok(true) {
+            backend.notify("notify_active_spool_set", json!([{ "spool_id": spool }]));
+        }
     }
 }
 
@@ -389,6 +398,8 @@ const AFC_COMMANDS: [&str; 12] = [
 const AFC_TOOLCHANGER_PREFIX: &str = "AFC_Toolchanger ";
 const AFC_TOOLCHANGER_COMMANDS: [&str; 1] = ["AFC_UNSELECT_TOOL"];
 
+const MMU_SPOOLMAN_COMMAND: &str = "MMU_SPOOLMAN";
+
 /// Klipper's command list: a few of its own commands, every macro, and Happy Hare's tool commands (one per gate).
 fn gcode_help(backend: &Backend) -> Value {
     let status = backend.with_printer(|printer| printer.status());
@@ -406,6 +417,10 @@ fn gcode_help(backend: &Backend) -> Value {
     let gates = status.pointer("/mmu/num_gates").and_then(Value::as_u64).unwrap_or(0);
     for tool in 0..gates {
         help.insert(format!("T{tool}"), json!("Change to tool"));
+    }
+    if gates > 0 {
+        // Registered by Happy Hare whatever `spoolman_support` is (`mmu_spoolman.py`); with `off` it only logs.
+        help.insert(MMU_SPOOLMAN_COMMAND.to_owned(), json!("Complete Spoolman integration"));
     }
     if let Some(maps) = status.pointer("/AFC/maps").and_then(Value::as_array) {
         for command in AFC_COMMANDS {
@@ -508,7 +523,7 @@ fn unauthorized() -> RpcError {
 mod tests {
     use super::*;
     use crate::access::AccessConfig;
-    use crate::machine::MachineProfile;
+    use crate::machine::{MachineProfile, SpoolmanMode};
 
     fn guarded() -> Backend {
         Backend::new(1.0).with_access(Some(AccessConfig::new("test", "secret")))
@@ -723,6 +738,7 @@ mod tests {
         let reply = exchange(&mut session, &backend, call("printer.gcode.help", json!({})));
 
         assert!(reply["result"].get("T7").is_some());
+        assert!(reply["result"].get("MMU_SPOOLMAN").is_some());
         assert!(reply["result"].get("T8").is_none());
     }
 
@@ -867,5 +883,59 @@ mod tests {
 
         assert_eq!(reply["result"]["status"], json!({ "configfile": { "save_config_pending": false } }));
         assert!(session.status_notification(&backend).is_none());
+    }
+
+    #[test]
+    fn happy_hare_sets_the_active_spool_after_a_load_and_clears_it_when_an_unload_starts() {
+        let backend = Backend::with_profile(1.0, MachineProfile::happy_hare(4));
+        let mut session = Session::new(1);
+        let script = |text: &str| call("printer.gcode.script", json!({ "script": text }));
+        let active = |session: &mut Session| {
+            exchange(session, &backend, call("server.spoolman.status", json!({})))["result"]["spool_id"].clone()
+        };
+
+        exchange(&mut session, &backend, script("MMU_HOME\nMMU_SELECT GATE=1"));
+        assert_eq!(active(&mut session), 4, "selecting a gate leaves Moonraker's spool alone");
+
+        exchange(&mut session, &backend, script("MMU_LOAD"));
+        assert_eq!(active(&mut session), 7);
+
+        exchange(&mut session, &backend, script("MMU_UNLOAD"));
+        assert_eq!(active(&mut session), Value::Null);
+    }
+
+    #[test]
+    fn with_spoolman_off_happy_hare_leaves_the_active_spool_of_moonraker_alone() {
+        let profile = MachineProfile::happy_hare(4).with_spoolman_mode(SpoolmanMode::Off).unwrap();
+        let backend = Backend::with_profile(1.0, profile);
+        let mut session = Session::new(1);
+
+        exchange(&mut session, &backend, call("printer.gcode.script", json!({ "script": "MMU_HOME\nT1\nMMU_UNLOAD" })));
+
+        let status = exchange(&mut session, &backend, call("server.spoolman.status", json!({})));
+        assert_eq!(status["result"]["spool_id"], 4);
+    }
+
+    #[test]
+    fn the_console_lines_of_the_plugins_reach_the_history_without_failing_the_script() {
+        let profile = MachineProfile::happy_hare(4).with_spoolman_mode(SpoolmanMode::Pull).unwrap();
+        let backend = Backend::with_profile(1.0, profile);
+        let mut session = Session::new(1);
+
+        let reply = exchange(
+            &mut session,
+            &backend,
+            call("printer.gcode.script", json!({ "script": "MMU_GATE_MAP GATE=0 MATERIAL=PETG" })),
+        );
+
+        assert_eq!(reply["result"], "ok");
+        let store = exchange(&mut session, &backend, call("server.gcode_store", json!({})));
+        let messages: Vec<&str> = store["result"]["gcode_store"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|entry| entry["message"].as_str())
+            .collect();
+        assert!(messages.iter().any(|message| message.starts_with("!! Spoolman mode is 'pull'")), "{messages:?}");
     }
 }

@@ -140,6 +140,7 @@ mod tests {
             extruder: "extruder".into(),
             tool: None,
             spool_id: None,
+            gate_holds_spool: true,
             spool_by_tool: false,
             spool: None,
             empty: false,

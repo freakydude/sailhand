@@ -19,6 +19,7 @@ component AxisValue inherits Rectangle {
     in property <bool> homed;
     callback tapped;
 
+    min-height: Theme.row-height-compact;
     border-radius: Theme.radius-small;
     background: value-touch.pressed ? Theme.surface-active : root.homed ? Theme.surface-raised : transparent;
     accessible-role: button;

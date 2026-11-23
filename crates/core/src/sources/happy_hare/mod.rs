@@ -6,11 +6,13 @@
 pub mod commands;
 mod gates;
 mod sensors;
+mod spoolman_mode;
 pub mod stale_gate_map;
 mod sync_feedback;
 
 pub use gates::{BYPASS, GateAvailability, LoadedFilament, MmuGate};
 pub use sensors::{MmuSensor, PathSensor, is_shown_by_mmu};
+pub use spoolman_mode::SpoolmanMode;
 pub use sync_feedback::{
     BufferSides, Emphasis, EncoderHeadroom, FlowGuard, FlowGuardReading, FlowGuardState, FlowGuardStatement,
     ORIGIN_ENCODER, ORIGIN_SYNC_FEEDBACK, SyncFeedback, SyncFeedbackState,
@@ -54,6 +56,8 @@ impl ServoPosition {
     }
 }
 
+/// Happy Hare's `action` while it moves nothing.
+const ACTION_IDLE: &str = "Idle";
 /// Happy Hare's `filament_pos` when it does not know (`FILAMENT_POS_UNKNOWN` in `mmu_constants.py`).
 const FILAMENT_POS_UNKNOWN: i32 = -1;
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -95,8 +99,8 @@ pub struct MmuStatus {
     pub tool_to_gate: Vec<usize>,
     /// EndlessSpool is on (`endless_spool_enabled`); the groups are in [`MmuGate::endless_spool_group`].
     pub endless_spool: bool,
-    /// `off`, `readonly`, `push` or `pull`; empty if not reported.
-    pub spoolman_support: String,
+    /// How Happy Hare works with Spoolman (`spoolman_support`).
+    pub spoolman: SpoolmanMode,
     /// Nozzle temperature in °C for a gate without one of its own (`default_extruder_temp` in `[mmu_parameters]`).
     pub default_extruder_temp: f64,
     pub sensors: Vec<MmuSensor>,
@@ -214,6 +218,11 @@ impl MmuStatus {
         self.enabled && !self.is_supported()
     }
 
+    /// Happy Hare moves nothing right now (`action` `Idle`, `mmu_controller.py` `_get_action_string`).
+    pub fn is_at_rest(&self) -> bool {
+        self.action == ACTION_IDLE
+    }
+
     pub fn bypass_selected(&self) -> bool {
         self.gate == BYPASS
     }
@@ -226,10 +235,9 @@ impl MmuStatus {
             .collect()
     }
 
-    /// Material and colour of a gate can be set in Happy Hare, unless it takes them from Spoolman
-    /// (`spoolman_support: pull`; `mmu_gate_map.py` refuses them then).
-    pub fn gate_map_is_local(&self) -> bool {
-        self.spoolman_support != "pull"
+    /// Material, colour and temperature of `gate` may be set by hand (see [`SpoolmanMode::gate_values_editable`]).
+    pub fn gate_values_editable(&self, gate: &MmuGate) -> bool {
+        self.spoolman.gate_values_editable(gate.spool_id.is_some())
     }
 }
 
@@ -289,7 +297,7 @@ pub(super) fn read_mmu(store: &ObjectStore) -> Option<MmuStatus> {
         units,
         tool_to_gate,
         endless_spool: flag(mmu, "endless_spool_enabled"),
-        spoolman_support: text(mmu, "spoolman_support").to_owned(),
+        spoolman: SpoolmanMode::parse(text(mmu, "spoolman_support")),
         default_extruder_temp: read_default_extruder_temp(settings),
         flow_rate: read_flow_rate(mmu, &sensors),
         flowguard,
