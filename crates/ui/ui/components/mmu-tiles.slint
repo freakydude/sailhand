@@ -88,7 +88,8 @@ export component GateTile inherits SlotTile {
     in property <MmuGateItem> gate;
 
     property <bool> has-filament: root.gate.availability == "available" || root.gate.availability == "buffered";
-    property <bool> shows-spool: Printer.has-spoolman && root.has-filament;
+    // The grams left (Spoolman's, or AFC's own with `~`), else the way to pick a spool where the lane takes one.
+    property <bool> shows-spool: root.has-filament && (root.gate.spool-text != "" || (Printer.has-spoolman && root.gate.can-pick-spool));
     property <string> material: root.gate.material == "" ? "-" : root.gate.material;
     // Long materials (PEEK-CF, PA6-GF30) step down instead of being cut.
     property <length> material-size: root.material.character-count <= 5 ? Theme.font-tool : root.material.character-count <= 7 ? Theme.font-normal : Theme.font-label;
@@ -171,13 +172,26 @@ export component GateTile inherits SlotTile {
                 wrap: word-wrap;
                 overflow: elide;
             }
-            Text {
+            HorizontalLayout {
                 visible: root.shows-spool;
                 height: root.shows-spool ? self.preferred-height : 0px;
-                text: root.gate.spool-text != "" ? root.gate.spool-text : root.gate.spool-id >= 0 ? @tr("Spool #{}", root.gate.spool-id) : @tr("+ spool");
-                color: root.gate.spool-low ? StateIcons.severity-color(Severity.attention) : root.gate.spool-text == "" && root.gate.spool-id < 0 ? Theme.accent : Theme.muted;
-                font-size: Theme.font-small;
-                overflow: elide;
+                spacing: Theme.spacing-small;
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.gate.spool-text != "" ? root.gate.spool-text : root.gate.spool-id >= 0 ? @tr("Spool #{}", root.gate.spool-id) : @tr("+ spool");
+                    color: root.gate.spool-low ? StateIcons.severity-color(Severity.attention) : root.gate.spool-text == "" && root.gate.spool-id < 0 ? Theme.accent : Theme.muted;
+                    font-size: Theme.font-small;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                // The lane's spool says otherwise than its copy, or the spool in use is not booked: the dialog says how.
+                if root.gate.spool-differs || root.gate.active-spool-differs: Image {
+                    cross-axis-self-alignment: center;
+                    source: Icons.ui-warning;
+                    colorize: StateIcons.severity-color(Severity.attention);
+                    width: Theme.icon-compact;
+                    height: Theme.icon-compact;
+                }
             }
             Rectangle { vertical-stretch: 1; }
             HorizontalLayout {

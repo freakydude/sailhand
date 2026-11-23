@@ -188,6 +188,9 @@ export global Printer {
     in property <BedMapItem> bed-map;
     // Happy Hare (4.1 or newer). Without it the Filament page has no MMU tabs.
     in property <bool> has-mmu;
+    // The spool is picked at the extruder (the spool strip): no changer with spools in its lanes, so without an MMU, or
+    // with Happy Hare in `off`. AFC and the other Happy Hare modes keep spools in the lanes.
+    in property <bool> spool-at-extruder;
     // AFC (Armored Turtle): its state, its tool map and the lanes it can pull back out of their hub. `afc-error` is
     // AFC's error state (what "Clear error" clears); `afc-state` is its `current_state` ("Idle", "Error", ...).
     in property <bool> has-afc;
@@ -222,8 +225,6 @@ export global Printer {
     in property <string> mmu-match-verdict;
     // EndlessSpool: on a runout Happy Hare continues with the next gate of the same group.
     in property <bool> mmu-endless-spool;
-    // Material and colour of a gate can be set in Happy Hare; false when it takes them from Spoolman (`pull`).
-    in property <bool> mmu-gate-map-local;
     in property <bool> mmu-paused;
     in property <bool> mmu-locked;
     in property <bool> mmu-homed;

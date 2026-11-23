@@ -25,8 +25,12 @@ pub enum CommandError {
     NoLayerReport,
     #[error("this printer has no MMU")]
     NoMmu,
-    #[error("Happy Hare takes material and colour of the gates from Spoolman (spoolman_support: pull)")]
-    GateMapFromSpoolman,
+    #[error("Happy Hare takes material, colour and temperature of this gate from Spoolman")]
+    GateValuesFromSpoolman,
+    #[error("Happy Hare keeps no spools at its gates (spoolman_support: off)")]
+    NoGateSpools,
+    #[error("the lane has no spool to take the values from")]
+    NoLaneSpool,
     #[error("Happy Hare reports no EndlessSpool groups")]
     NoEndlessSpoolGroups,
     #[error("this printer has no {0}")]

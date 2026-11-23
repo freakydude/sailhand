@@ -285,13 +285,23 @@ impl Printer {
         Self::with_profile(time_scale, MachineProfile::default())
     }
 
-    /// The Spoolman spool that Happy Hare (the selected gate) or AFC (the lane in the toolhead) makes the active one;
-    /// `None` without either or without a spool.
-    pub fn selected_gate_spool(&self) -> Option<u32> {
-        match &self.afc {
-            Some(afc) => afc.active_spool(),
-            None => self.mmu.as_ref().and_then(HappyHare::selected_spool),
-        }
+    /// The active spool changes the filament changers and the tool macros reported since the last call, oldest first:
+    /// Happy Hare after a load and at the start of an unload, AFC after a load into and an unload from the toolhead,
+    /// the macros of the tool changer on a tool change.
+    pub fn take_active_spool_events(&mut self) -> Vec<Option<u32>> {
+        let mut events = self.mmu.as_mut().map(HappyHare::take_active_spool_events).unwrap_or_default();
+        events.extend(self.afc.as_mut().map(Afc::take_active_spool_events).unwrap_or_default());
+        events.extend(
+            self.toolchanger.as_mut().map(toolchanger::Toolchanger::take_active_spool_events).unwrap_or_default(),
+        );
+        events
+    }
+
+    /// The console lines the plugins wrote since the last call (Happy Hare's and AFC's log messages).
+    pub fn take_console(&mut self) -> Vec<String> {
+        let mut lines = self.mmu.as_mut().map(HappyHare::take_console).unwrap_or_default();
+        lines.extend(self.afc.as_mut().map(Afc::take_console).unwrap_or_default());
+        lines
     }
 
     /// Whether a filament changer tells Moonraker the active spool.
@@ -300,14 +310,14 @@ impl Printer {
     }
 
     pub fn with_profile(time_scale: f64, profile: MachineProfile) -> Self {
-        let afc = profile.afc.map(Afc::new);
+        let afc = profile.afc.map(|layout| Afc::new(layout, profile.spoolman));
         let mut printer = Self {
             time_scale,
             uptime: 0.0,
             profile,
             mmu: match (profile.mmu_units, profile.mmu_gates) {
-                (Some(units), _) => Some(HappyHare::with_units(units, profile.spoolman)),
-                (None, gates) => gates.map(|gates| HappyHare::new(gates, profile.spoolman)),
+                (Some(units), _) => Some(HappyHare::with_units(units, profile.spoolman_mode)),
+                (None, gates) => gates.map(|gates| HappyHare::new(gates, profile.spoolman_mode)),
             }
             .map(|hare| hare.with_feedback(profile.buffer, profile.encoder)),
             toolchanger: if profile.tools > 0 {
@@ -780,8 +790,13 @@ impl Printer {
         match self.print_state {
             PrintState::Printing => {
                 let layer_before = self.layers().0;
+                let filament_before = self.filament_used();
                 self.total_duration += seconds;
                 self.print_duration += seconds;
+                let filament = self.filament_used() - filament_before;
+                if let Some(afc) = self.afc.as_mut() {
+                    afc.consume_filament(filament);
+                }
                 if self.progress() >= 1.0 {
                     self.print_state = PrintState::Complete;
                     self.end_job();

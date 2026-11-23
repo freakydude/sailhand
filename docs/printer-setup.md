@@ -109,3 +109,117 @@ case. The second line only when the printer has `[save_variables]`; restoring th
 macros. Without the variable a head has no spool of its own, and the head in use shows Moonraker's active spool. A tool
 changer plugin that registers `T<n>` itself skips a name that a `gcode_macro` already has, so the variable needs a
 macro `T<n>` of your own that calls the plugin's tool change.
+
+
+A head's macro can also declare `variable_active`, the convention Fluidd uses for "this head's spool is the active
+one". When it is true, choosing a spool for that head also sets Moonraker's active spool. Moonraker books the extruded
+filament on that one active spool, so the tool change macro has to set it whenever the head changes; Klipper
+can tell Moonraker with the `SET_ACTIVE_SPOOL` macro from the
+[Moonraker documentation](https://moonraker.readthedocs.io/en/latest/configuration/#setting-the-active-spool-from-klipper):
+
+```ini
+[gcode_macro SET_ACTIVE_SPOOL]
+gcode:
+  {% if params.ID %}
+    {% set id = params.ID|int %}
+    {action_call_remote_method(
+       "spoolman_set_active_spool",
+       spool_id=id
+    )}
+  {% else %}
+    {action_respond_info("Parameter 'ID' is required")}
+  {% endif %}
+
+[gcode_macro CLEAR_ACTIVE_SPOOL]
+gcode:
+  {action_call_remote_method(
+    "spoolman_set_active_spool",
+    spool_id=None
+  )}
+```
+
+Your own `T<n>` macro (or the tool change macro after the head has changed) then calls
+`SET_ACTIVE_SPOOL ID={printer["gcode_macro T<n>"].spool_id}`, with the head's number in place of `<n>`.
+
+## Spoolman
+
+Two questions are separate. **Booking:** Moonraker books the extrusion of the active extruder on one active spool.
+With Spoolman configured this works in every setup; what differs is who sets the active spool. **Filament data
+without Spoolman** (material, colour, temperature) exists only where a system stores it: the gate map of Happy Hare
+and the lane of AFC. A tool changer, and a printer without a changer, has none.
+
+Sailhand shows and compares the copy the printer works with (the Happy Hare gate map or the AFC lane) and adds what
+only Spoolman knows: the weight left and all colours of a multi-colour spool. It never overwrites that copy with
+Spoolman values by itself. If spool and copy differ, the gate or lane dialog shows both and offers
+**Take from Spoolman**. Testing is limited to a few printers: Spoolman with Happy Hare in `push` and `readonly` runs on
+a real printer; the other modes, AFC and several heads were checked against a simulated printer built from the
+sources of these projects.
+
+### Happy Hare
+
+Happy Hare's `spoolman_support` in `[mmu_parameters]` decides who leads:
+
+| Mode | Spool at the gate | Command when assigning | Material, colour, temperature at the gate | Take from Spoolman |
+| --- | --- | --- | --- | --- |
+| `off` | none; pick the spool in use at the extruder (Filament › Extruder, print page) | – | editable | – |
+| `readonly` | yes | `MMU_GATE_MAP GATE= SPOOLID=` | editable without a spool, read-only with one | `MMU_SPOOLMAN REFRESH=1` |
+| `push` | yes | `MMU_GATE_MAP GATE= SPOOLID=` | editable without a spool, read-only with one | `MMU_SPOOLMAN REFRESH=1` |
+| `pull` | yes | `MMU_SPOOLMAN GATE= SPOOLID=` (to empty: `MMU_SPOOLMAN GATE=`) | read-only; Happy Hare takes them from Spoolman | `MMU_SPOOLMAN REFRESH=1` |
+
+- **`push` is the recommended mode.** Happy Hare keeps the assignment and writes it to Spoolman.
+- `pull`: Spoolman leads; the gate of a spool is set in Spoolman, and Sailhand does it with `MMU_SPOOLMAN`.
+- `readonly`: see [Troubleshooting](troubleshooting.md#colours-or-materials-from-spoolman-are-missing-at-the-gates);
+  use it once Happy Hare issue [#1571](https://github.com/moggieuk/Happy-Hare/issues/1571) is fixed, or send
+  `MMU_SPOOLMAN REFRESH=1` after every Moonraker start.
+- `off`: Happy Hare without Spoolman. The gates carry no spool; the active spool is chosen at the extruder, as on a
+  printer without an MMU.
+
+**Take from Spoolman** sends `MMU_SPOOLMAN REFRESH=1`. Happy Hare reads all spools again and every gate gets the
+values of its spool, so do not use it during a print (Happy Hare's documentation says the same).
+`MMU_GATE_MAP GATE= SPOOLID=` with the ID that is already set fetches nothing.
+
+Sailhand compares material, first colour and, for Happy Hare, the nozzle temperature. Happy Hare uses the larger of
+`settings_extruder_temp` and `default_extruder_temp`; Sailhand compares with the same rule. Happy Hare stores one
+colour per gate; if the first colour of the spool matches it, the tile shows all colours of the spool.
+
+Happy Hare (except in `off`) sets the active spool itself after loading and clears it when unloading starts. If the
+loaded gate gets another spool, Happy Hare changes the active spool at the next load.
+
+### AFC
+
+A spool is assigned with `SET_SPOOL_ID`. With a spool, material, colour and temperature are read-only: AFC
+overwrites them at the next `SET_SPOOL_ID` and from Spoolman at every restart. **Take from Spoolman** sends
+`SET_SPOOL_ID LANE=<lane> SPOOL_ID=<same id>`, after which AFC fetches the spool again. AFC sets the active spool when
+a lane is loaded into a tool.
+
+Without Spoolman Sailhand shows AFC's own weight left, marked with `~`: AFC subtracts it while printing. A lane
+without spool data starts at 1000 g when loaded, so the `~` is AFC's estimate.
+
+### Tool changers
+
+The plugins ([viesturz's klipper-toolchanger](https://github.com/viesturz/klipper-toolchanger), KTC-easy) have no
+Spoolman code of their own. The spool of a head is kept as described in
+[Spools of tool heads](#spools-of-tool-heads), including `variable_active` and the `SET_ACTIVE_SPOOL` macro that
+makes Moonraker book on the right spool after a head change.
+
+### The active spool
+
+With Spoolman connected, a loaded filament and the printer at rest, Sailhand compares the spool of the lane in use
+(Happy Hare: the loaded gate; AFC: the loaded lane; tool changer: the mounted head) with Moonraker's active spool.
+If they differ, the tile shows a warning, and the gate or lane dialog (for a head: below the spool strip) shows a line
+"Active spool" with the button **Set as active spool**. A printer without a changer, and Happy Hare in `off`, has no
+such comparison: the active spool is its spool.
+
+### Limits of Moonraker
+
+- Moonraker has exactly one active spool. Consumption per head at the same time needs an extension of Moonraker
+  (see [moonraker#1057](https://github.com/Arksine/moonraker/issues/1057), pull request #1059, both open).
+- Moonraker does not tell clients when a spool changes; Sailhand reads the spools of the lanes again every 60 seconds.
+- `color` of a head's macro `T<n>` is not read by Sailhand, and a Spoolman that is offline has no special handling.
+
+### Happy Hare next to a tool changer
+
+Happy Hare's `update_t_macros` writes `spool_id` and `color` to `gcode_macro T<n>` for the tools 0 up to the number
+of gates minus one. It removes `spool_id` when the gate is empty, has no spool or `t_macro_color` is `off`. It does
+not check whether such a macro is a head of the changer. If heads and Happy Hare tools share the names `T<n>`, the
+spool of a head can be overwritten by this.

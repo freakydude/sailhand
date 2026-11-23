@@ -1,10 +1,13 @@
 //! End-to-end test of the service against the fake Moonraker in the same process.
 
 use fake_moonraker::access::AccessConfig;
-use fake_moonraker::machine::MachineProfile;
+use fake_moonraker::machine::{MachineProfile, SpoolmanMode as FakeSpoolmanMode};
 use fake_moonraker::server::{ServerConfig, serve};
+use sailhand_core::commands::CommandError;
 use sailhand_core::credentials::Credential;
+use sailhand_core::domain::active_spool::{ActiveSpoolMismatch, active_spool_mismatch};
 use sailhand_core::domain::filament::{self, FilamentHandling};
+use sailhand_core::domain::lane_filament::{SpoolDifference, lane_filament};
 use sailhand_core::domain::load_path::{BufferSide, LOADED, head_path, load_path};
 use sailhand_core::domain::machine_tree::LaneId;
 use sailhand_core::domain::{changer, heads, job_end, light, pause, spools};
@@ -16,6 +19,7 @@ use sailhand_core::sources::klipper::tuning::TuningKey;
 use sailhand_core::sources::klipper::{Axis, FanKind, KlippyState, Leveling, PrintState, WhiteChannel};
 use sailhand_core::sources::moonraker_server::files::ThumbnailImage;
 use sailhand_core::sources::moonraker_server::gcode_store::ConsoleKind;
+use sailhand_core::sources::spoolman::SpoolmanState;
 use sailhand_core::{
     Access, Command, ConnectionState, CredentialStore, Endpoint, Event, PrinterService, Query, ServiceChannels,
     Snapshot,
@@ -1072,4 +1076,148 @@ async fn pulls_an_afc_lane_back_to_its_hub_and_clears_the_error() {
     service.send(Command::AfcResetFailure);
     let snapshot = wait_for(&mut channels, |snapshot| snapshot.status.afc.as_ref().is_some_and(|afc| !afc.error)).await;
     assert_eq!(snapshot.status.afc.unwrap().state, "Idle");
+}
+
+/// The next state of Spoolman that `condition` accepts.
+async fn spoolman_until(channels: &mut ServiceChannels, condition: impl Fn(&SpoolmanState) -> bool) -> SpoolmanState {
+    loop {
+        let Event::Spoolman(state) = next_event(channels, |event| matches!(event, Event::Spoolman(_))).await else {
+            unreachable!()
+        };
+        if condition(&state) {
+            return *state;
+        }
+    }
+}
+
+fn happy_hare_in(mode: FakeSpoolmanMode) -> MachineProfile {
+    MachineProfile::happy_hare(4).with_spoolman_mode(mode).expect("Happy Hare takes every mode")
+}
+
+fn gate_spool(snapshot: &Snapshot, gate: usize) -> Option<u32> {
+    snapshot.status.mmu.as_ref().and_then(|mmu| mmu.gates.get(gate)).and_then(|gate| gate.spool_id)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn in_pull_a_gate_gets_its_spool_through_spoolman_and_keeps_its_values() {
+    let endpoint = start_fake_with(happy_hare_in(FakeSpoolmanMode::Pull)).await;
+    let (service, mut channels) =
+        PrinterService::start(&tokio::runtime::Handle::current(), endpoint, CredentialStore::in_memory());
+    wait_for(&mut channels, |snapshot| ready(snapshot) && snapshot.status.mmu.is_some()).await;
+
+    service.send(Command::AssignLaneSpool { lane: LaneId::Gate(3), spool_id: Some(4) });
+    wait_for(&mut channels, |snapshot| gate_spool(snapshot, 3) == Some(4)).await;
+
+    service.send(Command::SetLaneFilament { lane: LaneId::Gate(3), material: Some("PETG".into()), color: None });
+    let refused = next_event(&mut channels, |event| matches!(event, Event::CommandFailed { .. })).await;
+    assert!(matches!(refused, Event::CommandFailed { error: CommandError::GateValuesFromSpoolman, .. }));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn in_off_the_gates_keep_no_spools_and_the_gate_in_use_holds_the_active_spool() {
+    let endpoint = start_fake_with(happy_hare_in(FakeSpoolmanMode::Off)).await;
+    let (service, mut channels) =
+        PrinterService::start(&tokio::runtime::Handle::current(), endpoint, CredentialStore::in_memory());
+    wait_for(&mut channels, |snapshot| ready(snapshot) && snapshot.status.mmu.is_some()).await;
+
+    service.send(Command::AssignLaneSpool { lane: LaneId::Gate(0), spool_id: Some(4) });
+    let refused = next_event(&mut channels, |event| matches!(event, Event::CommandFailed { .. })).await;
+    assert!(matches!(refused, Event::CommandFailed { error: CommandError::NoGateSpools, .. }));
+
+    service.send(Command::MmuHome);
+    service.send(Command::MmuSelectGate { gate: 2 });
+    let snapshot =
+        wait_for(&mut channels, |snapshot| snapshot.status.mmu.as_ref().is_some_and(|mmu| mmu.gate == 2)).await;
+    service.send(Command::SetActiveSpool { spool_id: Some(6) });
+    let state = spoolman_until(&mut channels, |state| state.active_spool_id == Some(6)).await;
+
+    let lanes = spools::lanes(&snapshot.status, &state);
+    let in_use = lanes.iter().find(|lane| lane.active).expect("gate 2 is selected");
+    assert_eq!(in_use.spool_holder(), Some(spools::SpoolHolder::ActiveSpool));
+    assert_eq!(spools::active_spool(&lanes).map(|spool| spool.id), Some(6));
+    assert!(lane_filament(in_use, &snapshot.status).spool_differences.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_gate_whose_copy_differs_from_its_spool_takes_the_values_again() {
+    let endpoint = start_fake_with(happy_hare_in(FakeSpoolmanMode::Push)).await;
+    let (service, mut channels) =
+        PrinterService::start(&tokio::runtime::Handle::current(), endpoint, CredentialStore::in_memory());
+    let snapshot = wait_for(&mut channels, |snapshot| ready(snapshot) && snapshot.status.mmu.is_some()).await;
+    let state = spoolman_until(&mut channels, |state| state.spools.contains_key(&7)).await;
+
+    // The fake starts with gate 1 holding PETG in orange, though its spool 7 is a two-colour PLA.
+    let lanes = spools::lanes(&snapshot.status, &state);
+    let differences = lane_filament(&lanes[1], &snapshot.status).spool_differences;
+    assert!(differences.iter().any(|difference| matches!(difference, SpoolDifference::Material { .. })));
+
+    service.send(Command::RefreshLaneSpool { lane: LaneId::Gate(1) });
+    let snapshot = wait_for(&mut channels, |snapshot| {
+        snapshot.status.mmu.as_ref().is_some_and(|mmu| mmu.gates[1].material == "PLA")
+    })
+    .await;
+    let lanes = spools::lanes(&snapshot.status, &state);
+    let filament = lane_filament(&lanes[1], &snapshot.status);
+    assert!(filament.spool_differences.is_empty(), "{:?}", filament.spool_differences);
+    assert_eq!(filament.colors.len(), 2, "the copy agrees, so the tile shows both colours of the spool");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_spool_in_the_loaded_gate_is_booked_on_once_it_is_set_as_the_active_spool() {
+    let endpoint = start_fake_with(happy_hare_in(FakeSpoolmanMode::Push)).await;
+    let (service, mut channels) =
+        PrinterService::start(&tokio::runtime::Handle::current(), endpoint, CredentialStore::in_memory());
+    wait_for(&mut channels, |snapshot| ready(snapshot) && snapshot.status.mmu.is_some()).await;
+
+    service.send(Command::MmuHome);
+    service.send(Command::MmuLoadGate { gate: 0 });
+    wait_for(&mut channels, |snapshot| {
+        snapshot.status.mmu.as_ref().is_some_and(|mmu| mmu.filament == LoadedFilament::Loaded)
+    })
+    .await;
+    spoolman_until(&mut channels, |state| state.active_spool_id == Some(1)).await;
+
+    // Happy Hare sets the active spool only when loading, not when the loaded gate gets another spool.
+    service.send(Command::AssignLaneSpool { lane: LaneId::Gate(0), spool_id: Some(4) });
+    let snapshot = wait_for(&mut channels, |snapshot| gate_spool(snapshot, 0) == Some(4)).await;
+    let state = spoolman_until(&mut channels, |state| state.spools.contains_key(&4)).await;
+    let lanes = spools::lanes(&snapshot.status, &state);
+    assert_eq!(
+        active_spool_mismatch(&snapshot.status, &lanes, &state),
+        Some(ActiveSpoolMismatch { lane_spool: 4, active_spool: Some(1) })
+    );
+
+    service.send(Command::SetActiveSpool { spool_id: Some(4) });
+    let state = spoolman_until(&mut channels, |state| state.active_spool_id == Some(4)).await;
+    assert_eq!(active_spool_mismatch(&snapshot.status, &lanes, &state), None);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn afc_without_spoolman_counts_its_own_grams() {
+    let profile = MachineProfile::afc().without_spoolman().expect("AFC runs without Spoolman");
+    let endpoint = start_fake_with(profile).await;
+    let (_service, mut channels) =
+        PrinterService::start(&tokio::runtime::Handle::current(), endpoint, CredentialStore::in_memory());
+    let snapshot = wait_for(&mut channels, |snapshot| {
+        ready(snapshot) && snapshot.status.afc.as_ref().is_some_and(|afc| afc.lanes.iter().any(|lane| lane.filled))
+    })
+    .await;
+    assert!(!snapshot.sources.moonraker.spoolman);
+
+    let lanes = spools::lanes(&snapshot.status, &SpoolmanState::default());
+    let filled = lanes.iter().find(|lane| lane.name.is_some() && !lane.empty).expect("a filled lane");
+    let left = lane_filament(filled, &snapshot.status).left.expect("AFC reports its weight");
+    assert!(left.estimated && left.grams > 0.0);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_spool_for_the_active_head_is_also_booked_on() {
+    let endpoint = start_fake_with(MachineProfile::toolchanger()).await;
+    let (service, mut channels) =
+        PrinterService::start(&tokio::runtime::Handle::current(), endpoint, CredentialStore::in_memory());
+    let snapshot = wait_for(&mut channels, |snapshot| ready(snapshot) && !snapshot.status.tool_spools.is_empty()).await;
+    let active_tool = snapshot.status.tool_spools.iter().find(|spool| spool.active).expect("one head is active").tool;
+
+    service.send(Command::AssignToolSpool { tool: active_tool, spool_id: Some(6) });
+    spoolman_until(&mut channels, |state| state.active_spool_id == Some(6)).await;
 }

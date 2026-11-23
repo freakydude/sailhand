@@ -91,6 +91,7 @@ pub fn command_name(command: &Command) -> String {
         Command::UnloadLane { .. } => "Unload Lane".to_owned(),
         Command::EjectLane { .. } => "Eject Lane".to_owned(),
         Command::AssignLaneSpool { .. } => "Assign Lane Spool".to_owned(),
+        Command::RefreshLaneSpool { .. } => "Take Values From Spoolman".to_owned(),
         Command::SetLaneFilament { .. } => "Set Lane Filament".to_owned(),
         Command::SetLaneTemperature { .. } => "Set Lane Temperature".to_owned(),
         Command::MapToolToLane { .. } => "Map Tool To Lane".to_owned(),

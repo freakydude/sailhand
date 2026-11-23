@@ -307,9 +307,21 @@ pub enum MmuCommand {
     GateMap {
         gate: usize,
         spool_id: Option<i64>,
+        name: Option<String>,
         material: Option<String>,
+        vendor: Option<String>,
         color: Option<String>,
         temperature: Option<i32>,
+        /// `WEIGHT=` or `INITIAL_WEIGHT=` was given; the fake keeps no weights but `pull` refuses them.
+        weights_given: bool,
+    },
+    /// `MMU_SPOOLMAN GATE= SPOOLID= REFRESH= SYNC=` (`commands/mmu_spoolman.py`): assigns a spool to a gate in
+    /// Spoolman, empties a gate, or reads the spools again.
+    Spoolman {
+        gate: Option<usize>,
+        spool_id: Option<i64>,
+        refresh: bool,
+        sync: bool,
     },
     /// Not a Happy Hare command: lets a test or the snapshot tool raise the tension that makes tangle prevention
     /// boost the gear current (`FAKE_MMU_TANGLE BOOST=0|1`).
@@ -359,6 +371,7 @@ impl MmuCommand {
             MmuCommand::Preload { .. } => "MMU_PRELOAD",
             MmuCommand::Servo { .. } => "MMU_SERVO",
             MmuCommand::GateMap { .. } => "MMU_GATE_MAP",
+            MmuCommand::Spoolman { .. } => "MMU_SPOOLMAN",
             MmuCommand::SelectBypass => "MMU_SELECT_BYPASS",
             MmuCommand::MapTool { .. } | MmuCommand::ResetToolMap => "MMU_TTG_MAP",
             MmuCommand::EndlessSpool { .. } => "MMU_ENDLESS_SPOOL",
@@ -616,14 +629,20 @@ mod tests {
                     spool_id: Some(8),
                     material: None,
                     color: None,
-                    temperature: None
+                    temperature: None,
+                    name: None,
+                    vendor: None,
+                    weights_given: false,
                 }),
                 Command::Mmu(MmuCommand::GateMap {
                     gate: 2,
                     spool_id: Some(-1),
                     material: None,
                     color: None,
-                    temperature: None
+                    temperature: None,
+                    name: None,
+                    vendor: None,
+                    weights_given: false,
                 }),
                 Command::Mmu(MmuCommand::Select { gate: 2 }),
                 Command::Mmu(MmuCommand::ChangeTool { tool: 1 }),
@@ -687,6 +706,38 @@ mod tests {
                 material: Some("PETG".into()),
                 color: Some("ff8000".into()),
                 temperature: Some(235),
+                name: None,
+                vendor: None,
+                weights_given: false,
+            })]
+        );
+    }
+
+    #[test]
+    fn the_spoolman_command_takes_gate_spool_refresh_and_sync() {
+        assert_eq!(
+            parse_script("MMU_SPOOLMAN GATE=1 SPOOLID=4\nMMU_SPOOLMAN REFRESH=1\nMMU_SPOOLMAN SYNC=1 GATE=2").unwrap(),
+            vec![
+                Command::Mmu(MmuCommand::Spoolman { gate: Some(1), spool_id: Some(4), refresh: false, sync: false }),
+                Command::Mmu(MmuCommand::Spoolman { gate: None, spool_id: None, refresh: true, sync: false }),
+                Command::Mmu(MmuCommand::Spoolman { gate: Some(2), spool_id: None, refresh: false, sync: true }),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_gate_map_reports_the_parameters_that_spoolman_owns() {
+        assert_eq!(
+            parse_script("MMU_GATE_MAP GATE=1 NAME=Test VENDOR=Acme WEIGHT=500").unwrap(),
+            vec![Command::Mmu(MmuCommand::GateMap {
+                gate: 1,
+                spool_id: None,
+                name: Some("Test".into()),
+                material: None,
+                vendor: Some("Acme".into()),
+                color: None,
+                temperature: None,
+                weights_given: true,
             })]
         );
     }

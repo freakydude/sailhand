@@ -2,8 +2,10 @@
 
 use super::mmu::filament_path_midway;
 use crate::session::Session;
-use sailhand::{Actions, Confirm, Navigation, Page, Printer, SpoolPicker};
-use sailhand_core::Command;
+use sailhand::{Actions, Confirm, FilamentTab, MmuDialogs, Navigation, Page, Printer, SpoolPicker};
+use sailhand_core::domain::machine_tree::LaneId;
+use sailhand_core::sources::happy_hare::LoadedFilament;
+use sailhand_core::{Command, Snapshot};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::time::Duration;
 
@@ -52,13 +54,61 @@ pub(super) fn spools(session: &mut Session) -> Result<(), String> {
     session.window.global::<Confirm>().set_open(false);
     session.service.send(Command::SetHeaterTarget { heater: "extruder".into(), target: 0.0 });
     session.pump(Duration::from_millis(500));
-    if !has_mmu {
+    if has_mmu {
+        spool_differences(session)?;
+    }
+    // Only where the spool in use is Moonraker's active spool: a lane of AFC or the head of a tool changer keeps its own.
+    let status = session.presenter.snapshot().status;
+    if !has_mmu && status.afc.is_none() && status.toolchanger.is_none() {
         unlink_active_spool(session)?;
     }
     Ok(())
 }
 
-/// Without MMU, "Unlink" in the picker clears the active spool of Moonraker. Without the reference layout the tap goes
+/// Happy Hare with spools at its gates: the fake starts gate 1 with values its spool no longer has (edited in Spoolman
+/// afterwards), so its dialog compares both. Then the loaded gate gets another spool, which Happy Hare does not book on
+/// until the next load: the dialog offers to set it as the active spool. Gate 1 gets its spool back at the end.
+fn spool_differences(session: &mut Session) -> Result<(), String> {
+    let spools_at_gates = session.presenter.snapshot().status.mmu.is_some_and(|mmu| mmu.spoolman.spools_at_gates());
+    if !spools_at_gates {
+        return Ok(());
+    }
+    session.window.global::<Navigation>().set_page(Page::Filament);
+    session.window.global::<Navigation>().set_filament_tab(FilamentTab::Gates);
+    show_gate_dialog(session, 1, "filament-mmu-gate-spool-differs")?;
+
+    session.service.send(Command::MmuLoad);
+    session.wait_until("gate 1 loaded", |snapshot| {
+        snapshot.status.mmu.as_ref().is_some_and(|mmu| mmu.filament == LoadedFilament::Loaded)
+    })?;
+    session.service.send(Command::AssignLaneSpool { lane: LaneId::Gate(1), spool_id: Some(4) });
+    session.wait_until("spool 4 in gate 1", |snapshot| gate_spool(snapshot, 1) == Some(4))?;
+    session.settle_replies(Duration::from_secs(2));
+    show_gate_dialog(session, 1, "filament-mmu-gate-active-spool")?;
+
+    session.service.send(Command::AssignLaneSpool { lane: LaneId::Gate(1), spool_id: Some(7) });
+    session.service.send(Command::MmuUnload);
+    session.wait_until("gate 1 unloaded with its spool", |snapshot| {
+        gate_spool(snapshot, 1) == Some(7)
+            && snapshot.status.mmu.as_ref().is_some_and(|mmu| mmu.filament == LoadedFilament::Unloaded)
+    })?;
+    session.settle_replies(Duration::from_secs(2));
+    Ok(())
+}
+
+fn gate_spool(snapshot: &Snapshot, gate: usize) -> Option<u32> {
+    snapshot.status.mmu.as_ref().and_then(|mmu| mmu.gates.get(gate)).and_then(|gate| gate.spool_id)
+}
+
+fn show_gate_dialog(session: &mut Session, row: i32, name: &str) -> Result<(), String> {
+    session.window.global::<MmuDialogs>().set_gate_row(row);
+    session.pump(Duration::from_millis(500));
+    let captured = session.capture(name);
+    session.window.global::<MmuDialogs>().set_gate_row(-1);
+    captured
+}
+
+/// Without a filament changer or tool changer, "Unlink" in the picker clears the active spool of Moonraker. Without the reference layout the tap goes
 /// through the app's callback.
 fn unlink_active_spool(session: &mut Session) -> Result<(), String> {
     let current = session.window.global::<Printer>().get_spool_id();

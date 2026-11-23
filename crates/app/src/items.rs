@@ -8,8 +8,10 @@ use crate::{
 use crate::{format, view};
 use sailhand_core::ConnectionState;
 use sailhand_core::color::Rgba;
-use sailhand_core::domain::filament_match::{self, Difference, Supply, ToolMatch, Verdict};
+use sailhand_core::domain::active_spool::ActiveSpoolMismatch;
+use sailhand_core::domain::filament_match::{self, Difference, ToolMatch, Verdict};
 use sailhand_core::domain::heads::{HeadRow, PickUp};
+use sailhand_core::domain::lane_filament::{LaneFilament, lane_filament};
 use sailhand_core::domain::load_path::{self, BufferSide, Fill, LoadPath, PathPart, PathScope, Stage, Stretch};
 use sailhand_core::domain::machine_tree::MachineTree;
 use sailhand_core::domain::spools::{self, FilamentColors, Lane, SpoolHolder};
@@ -21,7 +23,7 @@ use sailhand_core::sources::led_effect::LedEffect;
 use sailhand_core::sources::moonraker_server::machine::HostInterface;
 use sailhand_core::sources::moonraker_server::power::PowerDevice;
 use sailhand_core::sources::moonraker_server::update_manager::UpdateInfo;
-use sailhand_core::sources::spoolman::Spool;
+use sailhand_core::sources::spoolman::{Spool, SpoolmanState};
 use slint::{Model, ModelRc, SharedString, VecModel};
 use std::rc::Rc;
 
@@ -134,7 +136,7 @@ pub(crate) fn heaters_by_head<'a>(
 }
 
 /// The row of a head for the Filament page: its nozzle, the spool of its lane in use and how it is picked up.
-pub(crate) fn head_item(row: &HeadRow, status: &PrinterStatus) -> HeadItem {
+pub(crate) fn head_item(row: &HeadRow, status: &PrinterStatus, active: &ActiveSpoolNote) -> HeadItem {
     let nozzle = row.extruder.as_deref().and_then(|object| status.heater(object));
     let spool = row.lane.as_ref().and_then(|lane| lane.spool.as_ref());
     let holder = row.lane.as_ref().and_then(Lane::spool_holder);
@@ -143,6 +145,8 @@ pub(crate) fn head_item(row: &HeadRow, status: &PrinterStatus) -> HeadItem {
         Some(PickUp::Head) => ("head", String::new()),
         None => ("", String::new()),
     };
+    // The mismatch belongs to the lane in use, which is the one of the mounted head.
+    let mounted_note = row.lane.as_ref().is_some_and(|lane| lane.active) && active.differs;
     HeadItem {
         name: row.name.as_str().into(),
         label: row.label.as_str().into(),
@@ -167,6 +171,9 @@ pub(crate) fn head_item(row: &HeadRow, status: &PrinterStatus) -> HeadItem {
             _ => -1,
         },
         can_pick_spool: matches!(holder, Some(SpoolHolder::Tool(_) | SpoolHolder::ActiveSpool)),
+        active_spool_differs: mounted_note,
+        active_spool_title: if mounted_note { active.title.clone() } else { SharedString::new() },
+        active_spool_colors: if mounted_note { active.colors.clone() } else { BarColors::default() },
         path: row.extruder.as_deref().map_or_else(no_path_item, |extruder| {
             let colors = row.lane.as_ref().map(|lane| lane_colors(status, lane)).unwrap_or_default();
             load_path_item(&load_path::head_path(status, extruder), PathScope::HeadOnly, "", &colors)
@@ -202,8 +209,13 @@ pub(crate) fn spool_colors(spool: &Spool) -> BarColors {
 }
 
 /// The row of a heater; the hint says that the target is off from what the spools recommend.
-pub(crate) fn heater_item(heater: &Heater, lanes: &[Lane], limits: Option<Limits>) -> HeaterItem {
-    let recommended = spools::recommended_temperature(lanes, &heater.object);
+pub(crate) fn heater_item(
+    heater: &Heater,
+    lanes: &[Lane],
+    status: &PrinterStatus,
+    limits: Option<Limits>,
+) -> HeaterItem {
+    let recommended = spools::recommended_temperature(lanes, &heater.object, status);
     let spool_hint = spools::temperature_hint(heater.target, recommended)
         .map_or_else(SharedString::new, |degrees| format::degrees(degrees).into());
     HeaterItem {
@@ -430,27 +442,42 @@ pub(crate) fn keeping_parts(mut path: FilamentPathItem, previous: &FilamentPathI
     path
 }
 
-/// The colours of the filament in a lane: of a multi-colour spool, else the one colour its source reports (AFC falls
-/// back to the spool's).
+/// The colours of the filament in a lane, as the core's `lane_filament` has them.
 pub(crate) fn lane_colors(status: &PrinterStatus, lane: &Lane) -> FilamentColors {
-    let spool = lane.spool.as_ref();
-    if let Some(spool) = spool.filter(|spool| spool.is_multi_color()) {
-        return FilamentColors { colors: spool.colors.clone(), longitudinal: spool.has_longitudinal_colors() };
-    }
-    let color = match (lane.gate, &lane.name) {
-        (Some(gate), _) => status
-            .happy_hare()
-            .and_then(|mmu| mmu.gates.iter().find(|state| state.index == gate))
-            .and_then(|state| state.color),
-        (None, Some(name)) => status
-            .afc
-            .as_ref()
-            .and_then(|afc| afc.lane(name))
-            .and_then(|state| state.color)
-            .or_else(|| spool.and_then(|spool| spool.colors.first().copied())),
-        (None, None) => None,
+    filament_colors(&lane_filament(lane, status))
+}
+
+/// The colours of a lane's filament as a field of colours.
+fn filament_colors(filament: &LaneFilament) -> FilamentColors {
+    FilamentColors { colors: filament.colors.clone(), longitudinal: filament.longitudinal }
+}
+
+/// The colours of a lane's filament for a bar or swatch.
+pub(crate) fn lane_bar_colors(filament: &LaneFilament) -> BarColors {
+    bar_colors(&filament_colors(filament))
+}
+
+/// The spool Moonraker books on, where it is not the one of the lane in use: what the notice beside it shows.
+#[derive(Default)]
+pub(crate) struct ActiveSpoolNote {
+    pub differs: bool,
+    /// The title of the active spool; empty for none.
+    pub title: SharedString,
+    pub colors: BarColors,
+}
+
+/// The notice for `mismatch`; the active spool is looked up in `state`, a spool it does not know shows as `#<id>`.
+pub(crate) fn active_spool_note(mismatch: Option<ActiveSpoolMismatch>, state: &SpoolmanState) -> ActiveSpoolNote {
+    let Some(mismatch) = mismatch else { return ActiveSpoolNote::default() };
+    let Some(id) = mismatch.active_spool else {
+        return ActiveSpoolNote { differs: true, ..ActiveSpoolNote::default() };
     };
-    FilamentColors { colors: color.into_iter().collect(), longitudinal: false }
+    let spool = state.spools.get(&id);
+    ActiveSpoolNote {
+        differs: true,
+        title: spool.map_or_else(|| format!("#{id}"), Spool::title).into(),
+        colors: spool.map(spool_colors).unwrap_or_default(),
+    }
 }
 
 /// An id, index or group number for a Slint model: -1 when there is none or it does not fit.
@@ -541,16 +568,15 @@ fn differs(found: &ToolMatch, kind: impl Fn(&Difference) -> bool) -> bool {
 
 /// What a tool prints with: material, colours, name and the grams left; with an EndlessSpool `reserve` also all the
 /// group can still give and what that adds, only when the own grams are known.
-pub(crate) fn fill_loaded(item: &mut ToolMatchItem, supply: &Supply, reserve: Option<f64>) {
+pub(crate) fn fill_loaded(item: &mut ToolMatchItem, supply: &LaneFilament, reserve: Option<f64>) {
     item.gate_empty = supply.empty;
     item.loaded_material = supply.material.clone().unwrap_or_default().into();
-    item.loaded_colors =
-        bar_colors(&FilamentColors { colors: supply.colors.clone(), longitudinal: supply.longitudinal });
+    item.loaded_colors = lane_bar_colors(supply);
     item.loaded_name = supply.name.clone().unwrap_or_default().into();
-    item.loaded_weight = supply.left.map(format::filament_weight).unwrap_or_default().into();
+    item.loaded_weight = view::lane_remaining(supply.left).into();
     let reserve = reserve.filter(|_| supply.left.is_some());
     item.endless_weight = supply
-        .left
+        .grams_left()
         .zip(reserve)
         .map(|(left, reserve)| format!("∞ {}", format::filament_weight(left + reserve)))
         .unwrap_or_default()
@@ -578,6 +604,7 @@ pub fn float_model(values: &[f64]) -> ModelRc<f32> {
 mod tests {
     use super::*;
     use sailhand_core::domain::filament_match::ToolRequest;
+    use sailhand_core::domain::lane_filament::Remaining;
 
     fn part(fill: Fill) -> PathPartItem {
         path_part_item(PathPart::Tube { stretch: Stretch::Bowden, fill })
@@ -662,6 +689,7 @@ mod tests {
             extruder: "extruder".into(),
             tool: Some(1),
             spool_id,
+            gate_holds_spool: gate.is_some(),
             spool_by_tool: head.is_some(),
             spool: None,
             empty: false,
@@ -713,12 +741,12 @@ mod tests {
             pick_up,
         };
         let status = PrinterStatus::default();
-        let by_macro = head_item(&row(Some(PickUp::Macro(1))), &status);
+        let by_macro = head_item(&row(Some(PickUp::Macro(1))), &status, &ActiveSpoolNote::default());
         assert_eq!((by_macro.pick_up.as_str(), by_macro.pick_up_macro.as_str()), ("macro", "T1"));
         assert_eq!((by_macro.spool_tool, by_macro.can_pick_spool, by_macro.spool_id), (1, true, -1));
         assert!(by_macro.detected && !by_macro.has_nozzle);
-        assert_eq!(head_item(&row(Some(PickUp::Head)), &status).pick_up.as_str(), "head");
-        assert_eq!(head_item(&row(None), &status).pick_up.as_str(), "");
+        assert_eq!(head_item(&row(Some(PickUp::Head)), &status, &ActiveSpoolNote::default()).pick_up.as_str(), "head");
+        assert_eq!(head_item(&row(None), &status, &ActiveSpoolNote::default()).pick_up.as_str(), "");
     }
 
     fn tree(heads: &[(Option<&str>, bool, &str)]) -> MachineTree {
@@ -984,12 +1012,12 @@ mod tests {
 
     #[test]
     fn the_gate_side_shows_the_spool_and_what_endless_spool_adds() {
-        let supply = Supply {
+        let supply = LaneFilament {
             material: Some("PLA".into()),
             colors: vec![[1, 2, 3, 0xFF], [4, 5, 6, 0xFF]],
             name: Some("Eryone Silk Dual".into()),
-            left: Some(14.0),
-            ..Supply::default()
+            left: Some(Remaining { grams: 14.0, estimated: false }),
+            ..LaneFilament::default()
         };
         let mut item = tool_match_item(1, Some(3), &[]);
 
@@ -1001,7 +1029,7 @@ mod tests {
         assert_eq!(item.loaded_colors.count, 2);
 
         // Without its own grams there is no sum to show, and the reserve alone says nothing.
-        fill_loaded(&mut item, &Supply { left: None, ..supply }, Some(230.0));
+        fill_loaded(&mut item, &LaneFilament { left: None, ..supply }, Some(230.0));
         assert_eq!((item.loaded_weight.as_str(), item.endless_weight.as_str()), ("", ""));
         assert_eq!(item.reserve_weight.as_str(), "");
     }
@@ -1026,5 +1054,41 @@ mod tests {
 
         assert_eq!(item.name, "sailhand");
         assert_eq!(item.label, "Sailhand");
+    }
+
+    #[test]
+    fn the_active_spool_notice_names_the_spool_or_its_number() {
+        let mut state = SpoolmanState::default();
+        state
+            .spools
+            .insert(7, Spool { id: 7, vendor: "Prusa".into(), filament_name: "Teal".into(), ..Spool::default() });
+        let mismatch = |active_spool| Some(ActiveSpoolMismatch { lane_spool: 3, active_spool });
+
+        assert!(!active_spool_note(None, &state).differs);
+        assert_eq!(active_spool_note(mismatch(Some(7)), &state).title.as_str(), Spool::title(&state.spools[&7]));
+        assert_eq!(active_spool_note(mismatch(Some(9)), &state).title.as_str(), "#9");
+        let none = active_spool_note(mismatch(None), &state);
+        assert_eq!((none.differs, none.title.as_str()), (true, ""));
+    }
+
+    #[test]
+    fn only_the_mounted_head_gets_the_notice_of_the_active_spool() {
+        let note = ActiveSpoolNote { differs: true, title: "Teal".into(), ..ActiveSpoolNote::default() };
+        let status = PrinterStatus::default();
+        let row = |active| HeadRow {
+            name: "T1".into(),
+            label: "T1".into(),
+            subtitle: None,
+            number: Some(1),
+            extruder: Some("extruder1".into()),
+            mounted: active,
+            detected: active,
+            lane_count: 1,
+            lane: Some(Lane { active, ..lane(None, Some("T1"), Some(3)) }),
+            pick_up: Some(PickUp::Head),
+        };
+        let (mounted, parked) = (row(true), row(false));
+        assert!(head_item(&mounted, &status, &note).active_spool_differs);
+        assert!(!head_item(&parked, &status, &note).active_spool_differs);
     }
 }

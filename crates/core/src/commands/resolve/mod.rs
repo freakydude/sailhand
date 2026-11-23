@@ -53,14 +53,16 @@ impl Command {
             Self::LoadLane { lane } => lanes::load(status, lane)?,
             Self::UnloadLane { lane } => lanes::unload(status, lane)?,
             Self::EjectLane { lane } => lanes::eject(status, lane)?,
+            Self::AssignGateSpool { gate, spool_id } => mmu::assign_gate_spool(status, gate, spool_id)?,
             Self::AssignLaneSpool { lane, spool_id } => lanes::assign_spool(status, lane, spool_id)?,
+            Self::RefreshLaneSpool { lane } => lanes::refresh_spool(status, lane)?,
             Self::SetLaneFilament { lane, material, color } => lanes::set_filament(status, lane, material, color)?,
             Self::SetLaneTemperature { lane, temperature } => lanes::set_temperature(status, lane, temperature)?,
             Self::MapToolToLane { tool, lane } => lanes::map_tool(status, tool, lane)?,
             Self::ResetToolMap => lanes::reset_tool_map(status)?,
             Self::AfcResetFailure => vec![lanes::afc_reset_failure(status)?],
             Self::AfcResetLane { lane } => vec![lanes::afc_reset_lane(status, &lane)?],
-            Self::AssignToolSpool { tool, spool_id } => vec![assign_tool_spool(sources, status, tool, spool_id)?],
+            Self::AssignToolSpool { tool, spool_id } => assign_tool_spool(sources, status, tool, spool_id)?,
             Self::RunGcode { script } => match script.trim() {
                 "" => Vec::new(),
                 trimmed => vec![Self::RunGcode { script: trimmed.to_owned() }],
@@ -72,19 +74,23 @@ impl Command {
 }
 
 /// `spool_id` goes into the AFC lane mapped to the tool, else into the tool macro under the name Klipper reports, so
-/// `SET_GCODE_VARIABLE` finds it.
+/// `SET_GCODE_VARIABLE` finds it. A tool macro whose `active` is true also gets the spool booked on, as Fluidd does.
 fn assign_tool_spool(
     sources: &Sources,
     status: &PrinterStatus,
     tool: usize,
     spool_id: Option<u32>,
-) -> Result<Command, CommandError> {
+) -> Result<Vec<Command>, CommandError> {
     let afc_lane = status.afc.iter().flat_map(|afc| &afc.lanes).find(|lane| lane.tool == Some(tool));
     if let Some(lane) = afc_lane {
-        return Ok(Command::RunGcode { script: afc::assign_spool(&lane.name, spool_id) });
+        return Ok(vec![Command::RunGcode { script: afc::assign_spool(&lane.name, spool_id) }]);
     }
     let declared = status.tool_spools.iter().find(|spool| spool.tool == tool);
-    let macro_name = &declared.ok_or(CommandError::NoToolSpoolVariable(tool))?.macro_name;
-    let script = tool_macros::assign_spool(macro_name, spool_id, sources.klipper.save_variables);
-    Ok(Command::RunGcode { script })
+    let declared = declared.ok_or(CommandError::NoToolSpoolVariable(tool))?;
+    let script = tool_macros::assign_spool(&declared.macro_name, spool_id, sources.klipper.save_variables);
+    let mut commands = vec![Command::RunGcode { script }];
+    if declared.active {
+        commands.push(Command::SetActiveSpool { spool_id });
+    }
+    Ok(commands)
 }

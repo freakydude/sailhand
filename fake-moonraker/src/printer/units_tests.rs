@@ -227,7 +227,7 @@ fn t2_loads_lane_three_and_unloads_lane_two() {
     assert_eq!(status["AFC_stepper lane2"]["tool_loaded"], false);
     assert_eq!(status["AFC_stepper lane2"]["status"], "None");
     assert_eq!(status["AFC_extruder extruder"]["lane_loaded"], "lane3");
-    assert_eq!(printer.selected_gate_spool(), Some(3));
+    assert_eq!(printer.take_active_spool_events(), [None, Some(3)]);
 }
 
 #[test]

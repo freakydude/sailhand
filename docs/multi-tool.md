@@ -194,12 +194,16 @@ the variable a head has no spool of its own and the active head shows Moonraker'
 
 | Source | Objects | Structure (read once) | State (per update) |
 | --- | --- | --- | --- |
-| Tool macro convention | `gcode_macro T<n>` | the macros `T0` … `Tn` | per macro `active`, `color`, `spool_id` if declared |
+| Tool macro convention | `gcode_macro T<n>` | the macros `T0` … `Tn` | per macro `active` and `spool_id` if declared |
 
 Notes:
 
 - KTC-easy drops viesturz's per-tool `detect_state` and `heater`; both stay optional.
 - An AFC lane reports an empty status until AFC has finished starting up.
+- Happy Hare's `update_t_macros` writes `spool_id` and `color` to `gcode_macro T<n>` for the tools 0 up to the number
+  of gates minus one (and removes `spool_id` when the gate is empty, has no spool or `t_macro_color` is `off`),
+  without checking whether the macro is a head of a tool changer. If heads and Happy Hare tools share the names
+  `T<n>`, the spool of a head can be overwritten. See [Spoolman](printer-setup.md#happy-hare-next-to-a-tool-changer).
 - Neither Happy Hare nor AFC was seen on a real printer with several units or heads; the fields above and the fake
   profiles `happy-hare-units`, `toolchanger-mmu`, `afc` and `afc-toolchanger` come from their sources (Happy Hare
   commit 7df830f, AFC-Klipper-Add-On commit 5ea84ea).
