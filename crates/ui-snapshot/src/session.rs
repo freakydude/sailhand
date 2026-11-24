@@ -11,7 +11,7 @@ use sailhand::{AppWindow, Navigation, Page, actions};
 use sailhand_core::backlight::{BacklightBackend, BacklightService, BacklightState};
 use sailhand_core::network::{NetworkBackend, NetworkChannels, NetworkService};
 use sailhand_core::printers::{DiscoveryBackend, DiscoveryService, DiscoveryState};
-use sailhand_core::settings::{Settings, SettingsStore};
+use sailhand_core::settings::{Settings, SettingsFile, SettingsStore};
 use sailhand_core::{CredentialStore, Endpoint, PrinterService, ServiceChannels, Snapshot};
 use slint::platform::software_renderer::{MinimalSoftwareWindow, RepaintBufferType};
 use slint::platform::{Platform, WindowAdapter};
@@ -101,7 +101,7 @@ impl Session {
         let store = SettingsStore::new(options.out.join("snapshot-settings.conf"));
         let settings = SettingsController::bind(
             &window,
-            store,
+            SettingsFile::new(store, snapshot_settings(&endpoint)),
             snapshot_settings(&endpoint),
             &endpoint,
             Bridges {

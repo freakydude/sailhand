@@ -4,7 +4,7 @@
 use crate::sources::moonraker_server::files::{FileEntry, FileMetadata};
 use crate::sources::moonraker_server::history::LastPrint;
 use crate::sources::spoolman::Spool;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// This many files of the list get their metadata and thumbnail right away; the rest stays plain.
 const DETAILS_LIMIT: usize = 40;
@@ -26,6 +26,10 @@ pub struct FileCatalog {
     entries: Vec<FileEntry>,
     metadata: HashMap<String, FileMetadata>,
     last_prints: HashMap<String, LastPrint>,
+    /// When each file was last started (Unix seconds); with the upload time it orders the list.
+    last_started: HashMap<String, f64>,
+    /// Files whose details were asked for since the last file list.
+    requested: HashSet<String>,
     spools: HashMap<u32, Spool>,
 }
 
@@ -44,21 +48,37 @@ impl FileCatalog {
             self.metadata.remove(path);
         }
         self.entries = entries;
+        // A new list asks again for what is still missing, also after a query that failed.
+        self.requested.clear();
+        self.sort();
         changed
+    }
+
+    /// Newest first: a file counts as new when it was uploaded or last printed, whichever came later, so a file
+    /// printed again is found at the top.
+    fn sort(&mut self) {
+        let last_started = &self.last_started;
+        let newest =
+            |entry: &FileEntry| last_started.get(&entry.path).map_or(entry.modified, |start| start.max(entry.modified));
+        self.entries
+            .sort_by(|left, right| newest(right).total_cmp(&newest(left)).then_with(|| left.path.cmp(&right.path)));
     }
 
     pub fn entries(&self) -> &[FileEntry] {
         &self.entries
     }
 
-    /// Files at the top of the list whose metadata has not been loaded yet.
-    pub fn needing_details(&self) -> Vec<String> {
-        self.entries
+    /// Files at the top of the list whose metadata is neither loaded nor asked for yet; they count as asked for now.
+    pub fn take_needing_details(&mut self) -> Vec<String> {
+        let needed: Vec<String> = self
+            .entries
             .iter()
             .take(DETAILS_LIMIT)
-            .filter(|entry| !self.metadata.contains_key(&entry.path))
+            .filter(|entry| !self.metadata.contains_key(&entry.path) && !self.requested.contains(&entry.path))
             .map(|entry| entry.path.clone())
-            .collect()
+            .collect();
+        self.requested.extend(needed.iter().cloned());
+        needed
     }
 
     /// Metadata also arrives for the file of the running job, which need not be in the list.
@@ -66,8 +86,11 @@ impl FileCatalog {
         self.metadata.insert(metadata.filename.clone(), metadata);
     }
 
-    pub fn store_last_prints(&mut self, last_prints: HashMap<String, LastPrint>) {
+    /// Takes what the job history tells about the files; a file printed recently moves up.
+    pub fn store_history(&mut self, last_prints: HashMap<String, LastPrint>, last_started: HashMap<String, f64>) {
         self.last_prints = last_prints;
+        self.last_started = last_started;
+        self.sort();
     }
 
     /// Spools of Spoolman that last prints may have used; a spool that is known stays until it is replaced.
@@ -117,10 +140,8 @@ mod tests {
         let mut catalog = FileCatalog::default();
         catalog.set_entries(vec![entry("a.gcode"), entry("b.gcode")]);
         catalog.store_metadata(metadata("a.gcode"));
-        catalog.store_last_prints(HashMap::from([(
-            "a.gcode".to_owned(),
-            LastPrint { print_duration: 5.0, filament_used: 1.0, ..LastPrint::default() },
-        )]));
+        let last_print = LastPrint { print_duration: 5.0, filament_used: 1.0, ..LastPrint::default() };
+        catalog.store_history(HashMap::from([("a.gcode".to_owned(), last_print)]), HashMap::new());
 
         let a = catalog.info(&catalog.entries()[0]);
         let b = catalog.info(&catalog.entries()[1]);
@@ -135,24 +156,28 @@ mod tests {
     fn only_files_without_metadata_at_the_top_of_the_list_need_details() {
         let mut catalog = FileCatalog::default();
         let names: Vec<String> = (0..DETAILS_LIMIT + 5).map(|index| format!("f{index}.gcode")).collect();
-        catalog.set_entries(names.iter().map(|name| entry(name)).collect());
+        let newest_first =
+            names.iter().enumerate().map(|(index, name)| FileEntry { modified: -(index as f64), ..entry(name) });
+        catalog.set_entries(newest_first.collect());
         catalog.store_metadata(metadata("f0.gcode"));
 
-        let needing = catalog.needing_details();
+        let needing = catalog.take_needing_details();
 
         assert_eq!(needing.len(), DETAILS_LIMIT - 1);
         assert!(!needing.contains(&"f0.gcode".to_owned()));
         assert!(!needing.contains(&format!("f{DETAILS_LIMIT}.gcode")));
+        assert!(catalog.take_needing_details().is_empty(), "asked for once until the next file list");
     }
 
     #[test]
     fn the_spool_of_the_last_print_is_known_only_for_a_print_with_one_spool() {
         let mut catalog = FileCatalog::default();
         catalog.set_entries(vec![entry("a.gcode"), entry("b.gcode")]);
-        catalog.store_last_prints(HashMap::from([
+        let last_prints = HashMap::from([
             ("a.gcode".to_owned(), LastPrint { print_duration: 5.0, filament_used: 1.0, spool_ids: vec![18] }),
             ("b.gcode".to_owned(), LastPrint { print_duration: 5.0, filament_used: 1.0, spool_ids: vec![18, 21] }),
-        ]));
+        ]);
+        catalog.store_history(last_prints, HashMap::new());
         catalog.store_spools([Spool { id: 18, ..Spool::default() }]);
 
         assert_eq!(catalog.info(&catalog.entries()[0]).spool.map(|spool| spool.id), Some(18));
@@ -169,7 +194,7 @@ mod tests {
         let changed = catalog.set_entries(vec![FileEntry { modified: 2.0, ..entry("a.gcode") }, entry("b.gcode")]);
 
         assert_eq!(changed, ["a.gcode"]);
-        assert_eq!(catalog.needing_details(), ["a.gcode"]);
+        assert_eq!(catalog.take_needing_details(), ["a.gcode"]);
         assert!(catalog.metadata("b.gcode").is_some());
     }
 
@@ -179,6 +204,32 @@ mod tests {
         catalog.store_metadata(metadata("running.gcode"));
 
         assert!(catalog.metadata("running.gcode").is_some());
-        assert!(catalog.needing_details().is_empty());
+        assert!(catalog.take_needing_details().is_empty());
+    }
+
+    #[test]
+    fn a_file_printed_after_newer_uploads_moves_to_the_top() {
+        let mut catalog = FileCatalog::default();
+        let uploaded = |path: &str, modified: f64| FileEntry { modified, ..entry(path) };
+        catalog.set_entries(vec![
+            uploaded("new.gcode", 300.0),
+            uploaded("mid.gcode", 200.0),
+            uploaded("old.gcode", 100.0),
+        ]);
+
+        catalog.store_history(
+            HashMap::new(),
+            HashMap::from([("old.gcode".to_owned(), 400.0), ("mid.gcode".to_owned(), 150.0)]),
+        );
+
+        let order: Vec<&str> = catalog.entries().iter().map(|entry| entry.path.as_str()).collect();
+        assert_eq!(order, ["old.gcode", "new.gcode", "mid.gcode"]);
+        catalog.set_entries(vec![
+            uploaded("mid.gcode", 200.0),
+            uploaded("old.gcode", 100.0),
+            uploaded("newest.gcode", 500.0),
+        ]);
+        let order: Vec<&str> = catalog.entries().iter().map(|entry| entry.path.as_str()).collect();
+        assert_eq!(order, ["newest.gcode", "old.gcode", "mid.gcode"]);
     }
 }

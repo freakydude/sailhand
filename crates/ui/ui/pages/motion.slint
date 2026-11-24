@@ -132,6 +132,7 @@ component AxesTab inherits Rectangle {
                     values: UiSettings.drive-speeds;
                     unit: Units.speed-symbol;
                     selected <=> UiSettings.drive-speed;
+                    changed => { UiSettings.steps-changed(); }
                 }
             }
         }

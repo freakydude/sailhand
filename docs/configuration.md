@@ -90,6 +90,7 @@ off_when_idle_minutes: 5
 #*# temperature = 5
 #*# extrude_mm = 10
 #*# extrude_speed = 5
+#*# drive_speed = 50
 #*#
 #*# [printer voron]
 #*# uuid = 29f7565a940247049493e8ff2a0d0c87
@@ -117,9 +118,9 @@ the [framebuffer fallback](install.md#framebuffer-fallback) uses it; under `cage
 Example for a display mounted upside down: `rotation: 180` in `[sailhand]`.
 
 **Below the SAVE_CONFIG line** (every line starts with `#*#`, exactly as in Klipper) is what nobody edits: the printer
-in use (`printer = <name>`, or `moonraker = <address>` for one that is not saved), the step sizes chosen last
-(`[selected_steps]`), and per printer its `uuid` and `known_macros`. Sailhand writes this block anew on every save. A
-line below the SAVE_CONFIG line that does not start with `#*#` is an error; move it above the line. Renaming a
+in use (`printer = <name>`, or `moonraker = <address>` for one that is not saved), the step sizes and the live pad's top
+speed chosen last (`[selected_steps]`), and per printer its `uuid` and `known_macros`. Sailhand writes this block
+anew on every save. A line below the SAVE_CONFIG line that does not start with `#*#` is an error; move it above the line. Renaming a
 `[printer …]` section by hand is harmless: `known_macros` fill again at the next connection, and the uuid when the
 printer is chosen again on System → Printers.
 
@@ -127,6 +128,10 @@ Commenting out works as usual. A commented-out option means its default, and Sai
 commented-out `[printer …]` or `[preset …]` section is not used and stays as a comment; if all presets are commented
 out, there are none. Comments and blank lines stay when Sailhand saves a change from the screen. Removing a printer on
 the screen removes its header and values; its comment lines stay.
+
+Above the SAVE_CONFIG line Sailhand only writes the values you changed on the screen; everything else stays as it is,
+also what you edit in Mainsail or Fluidd while Sailhand runs: a new `[preset …]` or `[printer …]`, a changed value, a
+comment. Sailhand reads such edits at its next start. It saves only when something changed on the screen.
 
 If the file cannot be read, Sailhand starts with the defaults and does not overwrite the file; the log names the line.
 This happens with a value that cannot be read (for example `fullscreen: tru`), a duplicate section or option, an option
@@ -170,7 +175,9 @@ on the Settings page and at the top of each log file.
 The normal log holds the basics: a header (Sailhand version, command line, system, the versions of Moonraker, Klipper
 and Happy Hare, the detected hardware including a "Changers" line), the connection, Klipper state changes with Klipper's
 reason, print state changes (without file names), failed commands with Moonraker's error, and warnings. It leaves out
-user names, Wi-Fi network names and file names.
+user names, Wi-Fi network names and file names. The Moonraker address in the command line of the header is replaced.
+The log export (Settings → "Export log") also replaces IP addresses, URLs, local host names, uuids, MAC addresses and
+the user name in home paths in every line; the log file on the printer itself stays as written.
 
 The verbose log adds more detail. Set `verbose_log: True` in the `[sailhand]` section of `sailhand.conf` (Mainsail: Machine → config) and restart
 Sailhand: `sudo systemctl restart sailhand`, with the `.deb` `sudo systemctl restart sailhand@<user>`. Mainsail
@@ -206,9 +213,14 @@ The report contains the Sailhand version, system, setup and settings; Moonraker 
 manager (Klipper, Moonraker, Happy Hare, AFC, Mainsail and so on, without commit history); the Spoolman status; the last
 100 console lines; `printer.objects.list`; the status of all Klipper objects including the Klipper configuration
 (`configfile.settings`); Klipper's command list; and what Sailhand detects (summary, changer systems Happy Hare, AFC
-and tool changer, machine tree). It does not contain Moonraker's configuration (API keys, passwords), network
-addresses, the host name, serial numbers, user names or the stored access of the display. Have a look at the file
-before you share it.
+and tool changer, machine tree). It does not contain Moonraker's configuration (API keys, passwords) or the stored
+access of the display. Everything that identifies you, your printer or your network is replaced by `<redacted>`,
+`<url>`, `<address>`, `<uuid>` or `<mac>`: Moonraker's address and the addresses, names and uuids of the saved
+printers (only their number stays), the host name, serial numbers (such as the MCU serial paths), CAN bus uuids, WLED
+and Spoolman addresses, Wi-Fi names, credentials, and the user name in paths (`/home/<you>/…` becomes `~/…`). In free
+text (console lines, error messages) IP addresses, URLs, local host names, uuids and MAC addresses are found by their
+pattern; a bare host name without `.local` or similar cannot be recognised there. Have a look at the file before you
+share it.
 
 Open a bug on the [issue page](https://github.com/freakydude/sailhand/issues/new/choose) and drag the files into
 the form.

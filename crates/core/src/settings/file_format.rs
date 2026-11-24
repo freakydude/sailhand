@@ -32,6 +32,7 @@ mod key {
     pub(super) const TEMPERATURE: &str = "temperature";
     pub(super) const EXTRUDE_MM: &str = "extrude_mm";
     pub(super) const EXTRUDE_SPEED: &str = "extrude_speed";
+    pub(super) const DRIVE_SPEED: &str = "drive_speed";
     pub(super) const MANUAL_PROBE_MM: &str = "manual_probe_mm";
     pub(super) const DEVICE: &str = "device";
     pub(super) const BRIGHTNESS: &str = "brightness";
@@ -51,6 +52,11 @@ const STEP_CHOICE_KEYS: [&str; 6] =
     [key::MOVE_MM, key::Z_OFFSET_MM, key::TEMPERATURE, key::EXTRUDE_MM, key::EXTRUDE_SPEED, key::MANUAL_PROBE_MM];
 const BACKLIGHT_KEYS: [&str; 4] =
     [key::DEVICE, key::BRIGHTNESS, key::OFF_WHEN_IDLE_MINUTES, key::OFF_WHEN_PRINTING_MINUTES];
+
+/// Picks one general option out of the settings.
+type FlagOf = fn(&Settings) -> bool;
+/// Picks one list of step sizes.
+type StepListOf = fn(&StepChoices) -> Option<&Vec<f64>>;
 
 /// One option: its key and how its value is read and written.
 struct Field<T> {
@@ -161,16 +167,52 @@ pub(super) fn read(file: &ConfigFile) -> Result<Settings, String> {
     Ok(settings)
 }
 
-/// Brings the file in line with the settings; text whose value did not change stays as it was written. `complete`
-/// writes every general option, for a new file to show them; otherwise one at its default is only written when the
-/// file names it, so commenting an option out means its default.
-pub(super) fn write(settings: &Settings, file: &mut ConfigFile, complete: bool) {
-    write_general(settings, &mut file.body, complete);
-    write_printers(&settings.printers, &mut file.body);
-    write_presets(&settings.temperature_presets, &mut file.body);
-    write_step_choices(&settings.step_choices, &mut file.body);
-    write_backlight(&settings.backlight, &mut file.body);
-    file.saved = saved_block(settings);
+/// Writes into the file what changed between `before` (the settings as last read or written) and `after`.
+/// Everything else above the SAVE_CONFIG line stays as it is: sections, values and comments made by hand, also
+/// those added while Sailhand ran. The SAVE_CONFIG block is Sailhand's own and is written anew. Without `before`
+/// (a new file) every general option and preset is written, so the file shows them.
+pub(super) fn write(before: Option<&Settings>, after: &Settings, file: &mut ConfigFile) {
+    let defaults = Settings::default();
+    let base = before.unwrap_or(&defaults);
+    write_general(before, after, &mut file.body);
+    write_named(&mut file.body, PRINTER, &base.printers, &after.printers);
+    let presets_before = before.map_or(&[][..], |before| before.temperature_presets.as_slice());
+    write_named(&mut file.body, PRESET, presets_before, &after.temperature_presets);
+    write_step_choices(&base.step_choices, &after.step_choices, &mut file.body);
+    write_backlight(&base.backlight, &after.backlight, &mut file.body);
+    file.saved = saved_block(after);
+}
+
+/// Writes the value when it changed; `None` removes the key.
+fn write_if_changed<T: PartialEq>(section: &mut Section, field: Field<T>, before: Option<&T>, after: Option<&T>) {
+    if before != after {
+        field.write_optional(section, after);
+    }
+}
+
+/// A list kept as one `[kind name]` section per item.
+trait NamedSection: PartialEq {
+    fn name(&self) -> &str;
+    /// Whether nothing above the SAVE_CONFIG line differs.
+    fn same_in_file(&self, other: &Self) -> bool {
+        self == other
+    }
+    /// Writes the values that differ from `before`; all of them for an item that is new.
+    fn write_changes(&self, before: Option<&Self>, section: &mut Section);
+}
+
+/// Removes the sections of items removed on the screen and writes the items that changed. A section of the same
+/// kind that was never in `before` (made by hand) stays.
+fn write_named<T: NamedSection>(body: &mut Document, kind: &str, before: &[T], after: &[T]) {
+    for removed in before.iter().filter(|old| !after.iter().any(|new| new.name() == old.name())) {
+        body.remove_section(kind, Some(removed.name()));
+    }
+    for item in after {
+        let old = before.iter().find(|old| old.name() == item.name());
+        if old.is_none_or(|old| !item.same_in_file(old)) {
+            item.write_changes(old, body.ensure_section(kind, Some(item.name())));
+        }
+    }
 }
 
 fn read_general(section: &Section, settings: &mut Settings) -> Result<(), String> {
@@ -185,29 +227,25 @@ fn read_general(section: &Section, settings: &mut Settings) -> Result<(), String
     Ok(())
 }
 
-fn write_general(settings: &Settings, body: &mut Document, complete: bool) {
-    let defaults = Settings::default();
-    let options = [
-        (key::FULLSCREEN, settings.fullscreen, defaults.fullscreen),
-        (key::KEEP_SCREEN_ON, settings.keep_screen_on, defaults.keep_screen_on),
-        (key::HIDE_TEMPERATURE_REPORTS, settings.hide_temperature_reports, defaults.hide_temperature_reports),
-        (key::VERBOSE_LOG, settings.verbose_log, defaults.verbose_log),
+fn write_general(before: Option<&Settings>, after: &Settings, body: &mut Document) {
+    let options: [(&'static str, FlagOf); 4] = [
+        (key::FULLSCREEN, |settings| settings.fullscreen),
+        (key::KEEP_SCREEN_ON, |settings| settings.keep_screen_on),
+        (key::HIDE_TEMPERATURE_REPORTS, |settings| settings.hide_temperature_reports),
+        (key::VERBOSE_LOG, |settings| settings.verbose_log),
     ];
-    let present = body.section(GENERAL, None).is_some();
-    let default_rotation = settings.rotation == defaults.rotation;
-    if !complete && !present && default_rotation && options.iter().all(|(_, value, default)| value == default) {
+    let changed: Vec<_> =
+        options.into_iter().filter(|(_, value)| before.is_none_or(|before| value(before) != value(after))).collect();
+    // Only for the framebuffer fallback: written when set, never as a hint in a new file.
+    let rotation_before = before.map_or(Settings::default().rotation, |before| before.rotation);
+    if changed.is_empty() && rotation_before == after.rotation {
         return;
     }
     let section = body.ensure_section(GENERAL, None);
-    for (key, value, default) in options {
-        if complete || value != default || section.get(key).is_some() {
-            flag(key).write(section, &value);
-        }
+    for (key, value) in changed {
+        flag(key).write(section, &value(after));
     }
-    // Only for the framebuffer fallback: written when set, never as a hint in a new file.
-    if !default_rotation || section.get(key::ROTATION).is_some() {
-        rotation(key::ROTATION).write(section, &settings.rotation);
-    }
+    write_if_changed(section, rotation(key::ROTATION), Some(&rotation_before), Some(&after.rotation));
 }
 
 fn read_printer(section: &Section, name: &str) -> Result<SavedPrinter, String> {
@@ -219,13 +257,23 @@ fn read_printer(section: &Section, name: &str) -> Result<SavedPrinter, String> {
     Ok(SavedPrinter { name: name.to_owned(), address, uuid: None, known_macros: Vec::new(), hidden_macros })
 }
 
-fn write_printers(printers: &[SavedPrinter], body: &mut Document) {
-    remove_sections_except(body, PRINTER, printers.iter().map(|printer| printer.name.as_str()));
-    for printer in printers {
-        let section = body.ensure_section(PRINTER, Some(&printer.name));
-        address(key::MOONRAKER).write(section, &printer.address);
-        let hidden = (!printer.hidden_macros.is_empty()).then_some(&printer.hidden_macros);
-        names(key::HIDDEN_MACROS, ListLayout::Lines).write_optional(section, hidden);
+/// Only what stands above the SAVE_CONFIG line counts; uuid and known macros belong to Sailhand's block.
+impl NamedSection for SavedPrinter {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn same_in_file(&self, other: &Self) -> bool {
+        self.address == other.address && self.hidden_macros == other.hidden_macros
+    }
+
+    fn write_changes(&self, before: Option<&Self>, section: &mut Section) {
+        let hidden = |printer: &Self| (!printer.hidden_macros.is_empty()).then(|| printer.hidden_macros.clone());
+        let address_before = before.map(|before| &before.address);
+        write_if_changed(section, address(key::MOONRAKER), address_before, Some(&self.address));
+        let hidden_before = before.and_then(hidden);
+        let hidden_macros = names(key::HIDDEN_MACROS, ListLayout::Lines);
+        write_if_changed(section, hidden_macros, hidden_before.as_ref(), hidden(self).as_ref());
     }
 }
 
@@ -237,12 +285,14 @@ fn read_preset(section: &Section, name: &str) -> Result<TemperaturePreset, Strin
     Ok(TemperaturePreset { name: name.to_owned(), extruder: required(key::EXTRUDER)?, bed: required(key::BED)? })
 }
 
-fn write_presets(presets: &[TemperaturePreset], body: &mut Document) {
-    remove_sections_except(body, PRESET, presets.iter().map(|preset| preset.name.as_str()));
-    for preset in presets {
-        let section = body.ensure_section(PRESET, Some(&preset.name));
-        number(key::EXTRUDER).write(section, &preset.extruder);
-        number(key::BED).write(section, &preset.bed);
+impl NamedSection for TemperaturePreset {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn write_changes(&self, before: Option<&Self>, section: &mut Section) {
+        write_if_changed(section, number(key::EXTRUDER), before.map(|before| &before.extruder), Some(&self.extruder));
+        write_if_changed(section, number(key::BED), before.map(|before| &before.bed), Some(&self.bed));
     }
 }
 
@@ -258,18 +308,23 @@ fn read_step_choices(section: &Section) -> Result<StepChoices, String> {
     })
 }
 
-/// The section only appears once there is something in it.
-fn write_step_choices(choices: &StepChoices, body: &mut Document) {
-    if choices.is_empty() && body.section(STEP_CHOICES, None).is_none() {
+/// The section only appears once something in it changed.
+fn write_step_choices(before: &StepChoices, after: &StepChoices, body: &mut Document) {
+    if before == after {
         return;
     }
     let section = body.ensure_section(STEP_CHOICES, None);
-    numbers(key::MOVE_MM).write_optional(section, choices.move_mm.as_ref());
-    numbers(key::Z_OFFSET_MM).write_optional(section, choices.z_offset_mm.as_ref());
-    numbers(key::TEMPERATURE).write_optional(section, choices.temperature.as_ref());
-    numbers(key::EXTRUDE_MM).write_optional(section, choices.extrude_mm.as_ref());
-    numbers(key::EXTRUDE_SPEED).write_optional(section, choices.extrude_speed.as_ref());
-    numbers(key::MANUAL_PROBE_MM).write_optional(section, choices.manual_probe_mm.as_ref());
+    let fields: [(&'static str, StepListOf); 6] = [
+        (key::MOVE_MM, |choices| choices.move_mm.as_ref()),
+        (key::Z_OFFSET_MM, |choices| choices.z_offset_mm.as_ref()),
+        (key::TEMPERATURE, |choices| choices.temperature.as_ref()),
+        (key::EXTRUDE_MM, |choices| choices.extrude_mm.as_ref()),
+        (key::EXTRUDE_SPEED, |choices| choices.extrude_speed.as_ref()),
+        (key::MANUAL_PROBE_MM, |choices| choices.manual_probe_mm.as_ref()),
+    ];
+    for (key, value) in fields {
+        write_if_changed(section, numbers(key), value(before), value(after));
+    }
 }
 
 fn read_backlight(section: &Section) -> Result<BacklightSettings, String> {
@@ -282,16 +337,23 @@ fn read_backlight(section: &Section) -> Result<BacklightSettings, String> {
     })
 }
 
-/// The section only appears once there is something in it.
-fn write_backlight(backlight: &BacklightSettings, body: &mut Document) {
-    if *backlight == BacklightSettings::default() && body.section(BACKLIGHT, None).is_none() {
+/// The section only appears once something in it changed.
+fn write_backlight(before: &BacklightSettings, after: &BacklightSettings, body: &mut Document) {
+    if before == after {
         return;
     }
     let section = body.ensure_section(BACKLIGHT, None);
-    text(key::DEVICE).write_optional(section, backlight.device.as_ref());
-    number(key::BRIGHTNESS).write_optional(section, backlight.brightness.as_ref());
-    number(key::OFF_WHEN_IDLE_MINUTES).write_optional(section, backlight.off_when_idle_minutes.as_ref());
-    number(key::OFF_WHEN_PRINTING_MINUTES).write_optional(section, backlight.off_when_printing_minutes.as_ref());
+    write_if_changed(section, text(key::DEVICE), before.device.as_ref(), after.device.as_ref());
+    write_if_changed(section, number(key::BRIGHTNESS), before.brightness.as_ref(), after.brightness.as_ref());
+    let (idle_before, idle_after) = (&before.off_when_idle_minutes, &after.off_when_idle_minutes);
+    write_if_changed(section, number(key::OFF_WHEN_IDLE_MINUTES), idle_before.as_ref(), idle_after.as_ref());
+    let (printing_before, printing_after) = (&before.off_when_printing_minutes, &after.off_when_printing_minutes);
+    write_if_changed(
+        section,
+        number(key::OFF_WHEN_PRINTING_MINUTES),
+        printing_before.as_ref(),
+        printing_after.as_ref(),
+    );
 }
 
 /// What Sailhand keeps for itself. A value there that cannot be read is only logged: the block is written anew.
@@ -310,6 +372,7 @@ fn read_saved(saved: &Document, settings: &mut Settings) {
         steps.temperature = read(key::TEMPERATURE, steps.temperature);
         steps.extrude_mm = read(key::EXTRUDE_MM, steps.extrude_mm);
         steps.extrude_speed = read(key::EXTRUDE_SPEED, steps.extrude_speed);
+        steps.drive_speed = read(key::DRIVE_SPEED, steps.drive_speed);
     }
     for printer in &mut settings.printers {
         let Some(section) = saved.section(PRINTER, Some(&printer.name)) else { continue };
@@ -346,6 +409,7 @@ fn write_selected_steps(steps: &Steps, section: &mut Section) {
     number(key::TEMPERATURE).write(section, &steps.temperature);
     number(key::EXTRUDE_MM).write(section, &steps.extrude_mm);
     number(key::EXTRUDE_SPEED).write(section, &steps.extrude_speed);
+    number(key::DRIVE_SPEED).write(section, &steps.drive_speed);
 }
 
 fn lenient<T>(result: Result<Option<T>, String>) -> Option<T> {
@@ -358,21 +422,5 @@ fn lenient<T>(result: Result<Option<T>, String>) -> Option<T> {
 fn warn_unknown(section: &Section, known: &[&str]) {
     for (key, _, line) in section.entries().filter(|(key, _, _)| !known.contains(key)) {
         log::warn!("settings: {} has no option `{key}` (line {line}); it is ignored", section.title());
-    }
-}
-
-/// Removes the sections of this kind whose name is not in `keep` (a printer removed on the screen).
-fn remove_sections_except<'a>(body: &mut Document, kind: &str, keep: impl Iterator<Item = &'a str>) {
-    let keep: Vec<&str> = keep.collect();
-    let stale: Vec<String> = body
-        .sections()
-        .iter()
-        .filter(|section| section.kind() == kind)
-        .filter_map(|section| section.name())
-        .filter(|name| !keep.contains(name))
-        .map(str::to_owned)
-        .collect();
-    for name in stale {
-        body.remove_section(kind, Some(&name));
     }
 }

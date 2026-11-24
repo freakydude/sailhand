@@ -127,7 +127,7 @@ it has been tried in the Android emulator and on a real phone with a printer, no
    pre-releases.
 
 For a bug report, Settings has "Export log": it copies the log of the last days into one text file you can attach to the
-issue. On Android 10 and newer it lands in `Download/Sailhand`; on Android 7 to 9 in the app's own folder
+issue; IP addresses, URLs, local host names, uuids, MAC addresses and user names in home paths are replaced in it. On Android 10 and newer it lands in `Download/Sailhand`; on Android 7 to 9 in the app's own folder
 (`Android/data/de.freakydu.sailhand/files/Download`), which the screen names after the export.
 
 The APK is signed with a release key; `apksigner verify --print-certs <apk>` shows the SHA-256 fingerprint of its

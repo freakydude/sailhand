@@ -1001,7 +1001,11 @@ impl Presenter {
         }
         self.show_file_rows();
         self.refresh_job_matches();
-        let missing = self.cache.borrow().files.catalog.needing_details();
+        self.ask_for_missing_details();
+    }
+
+    fn ask_for_missing_details(&self) {
+        let missing = self.cache.borrow_mut().files.catalog.take_needing_details();
         for filename in missing {
             self.service.query(Query::FileDetails { filename });
         }
@@ -1016,10 +1020,11 @@ impl Presenter {
     fn store_history(&self, history: PrintHistory) {
         {
             let mut cache = self.cache.borrow_mut();
-            cache.files.catalog.store_last_prints(history.last_prints);
+            cache.files.catalog.store_history(history.last_prints, history.last_started);
             cache.newest_job = history.newest;
         }
         self.show_file_rows();
+        self.ask_for_missing_details();
         self.refresh_job_texts();
     }
 

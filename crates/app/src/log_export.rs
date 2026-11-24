@@ -4,6 +4,7 @@
 
 use crate::logging;
 use chrono::NaiveDateTime;
+use sailhand_core::redact;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -28,7 +29,9 @@ fn read(current: &Path, now: NaiveDateTime) -> io::Result<LogExport> {
     let mut parts = Vec::new();
     for path in files_oldest_first(current) {
         let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-        parts.push((name, fs::read(&path)?));
+        // The export is attached to public issues: addresses, uuids, MAC addresses and user names in home paths go.
+        let content = redact::text(&String::from_utf8_lossy(&fs::read(&path)?)).into_bytes();
+        parts.push((name, content));
     }
     Ok(LogExport { file_name: file_name(now), content: combine(&parts) })
 }
@@ -81,6 +84,19 @@ mod tests {
         let parts = [("a.log.2026-11-16".to_owned(), b"one\n".to_vec()), ("a.log".to_owned(), b"two".to_vec())];
         let text = String::from_utf8(combine(&parts)).unwrap();
         assert_eq!(text, "===== a.log.2026-11-16 =====\none\n===== a.log =====\ntwo\n");
+    }
+
+    #[test]
+    fn the_export_hides_addresses_and_home_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let current = directory.path().join("sailhand.log");
+        fs::write(
+            &current,
+            "t INFO [x] - connected to ws://192.168.1.20:7125/websocket\nt INFO - /home/frank/a.conf\n",
+        )
+        .unwrap();
+        let text = String::from_utf8(read(&current, moment()).unwrap().content).unwrap();
+        assert_eq!(text, "===== sailhand.log =====\nt INFO [x] - connected to <url>\nt INFO - ~/a.conf\n");
     }
 
     #[test]

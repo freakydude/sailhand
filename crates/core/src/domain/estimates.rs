@@ -25,6 +25,7 @@ pub const ORIGIN_LAST_PRINT: &str = "last completed print";
 pub const ORIGIN_SLICER_ESTIMATE: &str = "slicer estimate";
 pub const ORIGIN_LAST_PRINT_LENGTH: &str = "length of the print, scaled by the slicer weight";
 pub const ORIGIN_SPOOL_DENSITY: &str = "length of the print, diameter and density of the spool";
+pub const ORIGIN_PACE_ONLY: &str = "measured pace only";
 
 /// Total print time of a file: what the last completed print took, else the slicer estimate.
 pub fn expected_print_seconds(metadata: Option<&FileMetadata>, last_print: Option<&LastPrint>) -> Option<Sourced<f64>> {
@@ -106,6 +107,18 @@ pub fn volumetric_flow(extruder_velocity: f64, diameter: Option<Sourced<f64>>) -
         Some(diameter) => Sourced::measured(flow, diameter.origin),
         None => Sourced::estimated(flow, ORIGIN_ASSUMED_DIAMETER),
     }
+}
+
+/// Time left of a running print (see [`remaining_print_seconds`]). It counts as measured only when the expected time
+/// is: the same file printed before, its time taken from the job history. A slicer estimate or the pace alone make it
+/// a prediction.
+pub fn remaining_print_time(job: &PrintJob, expected: Option<Sourced<f64>>) -> Option<Sourced<f64>> {
+    let seconds = remaining_print_seconds(job, expected.as_ref().map(|expected| expected.value))?;
+    Some(match expected {
+        Some(expected) if expected.is_measured() => Sourced::measured(seconds, expected.origin),
+        Some(expected) => Sourced::estimated(seconds, expected.origin),
+        None => Sourced::estimated(seconds, ORIGIN_PACE_ONLY),
+    })
 }
 
 /// Seconds left of a running print. The expected total time counts like `PRIOR_WEIGHT` of it as observed print
@@ -358,5 +371,18 @@ mod tests {
         assert!((flow.value - 24.05).abs() < 0.01);
         assert_eq!((flow.provenance, flow.origin), (Provenance::Estimated, ORIGIN_ASSUMED_DIAMETER));
         assert_eq!(volumetric_flow(-1.0, None).value, 0.0);
+    }
+
+    #[test]
+    fn the_time_left_is_measured_only_after_the_same_file_was_printed_before() {
+        let job = running(0.5, 1800.0);
+        let from_history = Sourced::measured(3600.0, ORIGIN_LAST_PRINT);
+        let from_slicer = Sourced::estimated(3600.0, ORIGIN_SLICER_ESTIMATE);
+
+        assert!(remaining_print_time(&job, Some(from_history)).unwrap().is_measured());
+        assert!(!remaining_print_time(&job, Some(from_slicer)).unwrap().is_measured());
+        let pace_only = remaining_print_time(&job, None).unwrap();
+        assert!(!pace_only.is_measured());
+        assert_eq!(pace_only.origin, ORIGIN_PACE_ONLY);
     }
 }

@@ -2,7 +2,7 @@
 
 use super::Snapshot;
 use super::dispatch::console_line;
-use super::queries::update_status_events;
+use super::queries::{SessionQueries, update_status_events};
 use super::trail;
 use super::{
     ACCESS_CHECK_INTERVAL, Access, CLIENT_NAME, Event, KLIPPY_POLL_INTERVAL, Outputs, PARALLEL_FILE_DETAILS, Query,
@@ -283,6 +283,8 @@ pub(super) struct Session<'a> {
     pub(super) spoolman_lane_spools: Option<Vec<u32>>,
     /// Limits the file details in flight, so a long file list does not flood Moonraker.
     pub(super) file_details: Arc<Semaphore>,
+    /// The queries in flight; their answers end with the session.
+    pub(super) queries: SessionQueries,
     /// Moonraker's WLED strips; part of the snapshot's lights.
     pub(super) wled: Vec<WledStrip>,
     /// The answers of the commands to a WLED strip, which carry its new state.
@@ -328,6 +330,7 @@ impl<'a> Session<'a> {
             watches,
             spoolman_lane_spools: None,
             file_details: Arc::new(Semaphore::new(PARALLEL_FILE_DETAILS)),
+            queries: SessionQueries::new(),
             wled: Vec::new(),
             wled_answers,
         }

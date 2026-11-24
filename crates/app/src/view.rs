@@ -22,7 +22,6 @@ use sailhand_core::sources::spoolman::Spool;
 use sailhand_core::{Provenance, Sourced};
 
 const NO_VALUE: &str = "-";
-const ORIGIN_PACE_ONLY: &str = "measured pace only";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JobTexts {
@@ -52,17 +51,14 @@ pub fn job_texts(
 ) -> JobTexts {
     let metadata = metadata.filter(|metadata| metadata.filename == job.filename);
     let expected = if job.state.is_active() { estimates::expected_print_seconds(metadata, last_print) } else { None };
-    let remaining = job
-        .state
-        .is_active()
-        .then(|| estimates::remaining_print_seconds(job, expected.map(|expected| expected.value)))
-        .flatten();
+    let remaining = job.state.is_active().then(|| estimates::remaining_print_time(job, expected)).flatten();
     JobTexts {
         name: if job.filename.is_empty() { String::new() } else { format::job_name(&job.filename) },
         elapsed: if job.filename.is_empty() { NO_VALUE.to_owned() } else { format::duration(job.print_duration) },
         total: if job.filename.is_empty() { NO_VALUE.to_owned() } else { format::duration(job.total_duration) },
-        remaining: remaining.map_or_else(|| NO_VALUE.to_owned(), format::duration),
-        eta: remaining.map_or_else(|| NO_VALUE.to_owned(), |seconds| format::finish_time(now, seconds)),
+        remaining: remaining.map_or_else(|| NO_VALUE.to_owned(), |left| show(left, format::duration)),
+        eta: remaining
+            .map_or_else(|| NO_VALUE.to_owned(), |left| show(left, |seconds| format::finish_time(now, seconds))),
         layers: layers(job, metadata),
         heights: heights(job, metadata),
         filament: filament(job, metadata, spool),
@@ -70,7 +66,7 @@ pub fn job_texts(
         expectation_origin: job
             .state
             .is_active()
-            .then(|| expected.map_or(ORIGIN_PACE_ONLY, |expected| expected.origin)),
+            .then(|| expected.map_or(estimates::ORIGIN_PACE_ONLY, |expected| expected.origin)),
     }
 }
 
@@ -597,8 +593,8 @@ mod tests {
 
         assert_eq!(texts.name, "cube");
         assert_eq!(texts.elapsed, "6 min 00 s");
-        assert_eq!(texts.remaining, "54 min 00 s");
-        assert_eq!(texts.eta, "12:54");
+        assert_eq!(texts.remaining, "~54 min 00 s");
+        assert_eq!(texts.eta, "~12:54");
         assert_eq!(texts.layers, "3 / ~100");
         assert_eq!(texts.filament, "1.0 / 5.0 m");
     }
@@ -617,6 +613,7 @@ mod tests {
         let texts = job_texts(&job, Some(&metadata("a.gcode")), Some(&last_print), None, now());
 
         assert_eq!(texts.remaining, "1 h 03 min");
+        assert!(!texts.eta.starts_with('~'), "{}", texts.eta);
         assert_eq!(texts.expectation_origin, Some(estimates::ORIGIN_LAST_PRINT));
     }
 
@@ -632,9 +629,9 @@ mod tests {
 
         let texts = job_texts(&job, None, None, None, now());
 
-        assert_eq!(texts.remaining, "30 min 00 s");
+        assert_eq!(texts.remaining, "~30 min 00 s");
         assert_eq!(texts.layers, "-");
-        assert_eq!(texts.expectation_origin, Some(ORIGIN_PACE_ONLY));
+        assert_eq!(texts.expectation_origin, Some(estimates::ORIGIN_PACE_ONLY));
     }
 
     #[test]

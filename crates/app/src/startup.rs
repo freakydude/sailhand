@@ -86,7 +86,7 @@ impl Cli {
         let command_line: Vec<String> = std::env::args().skip(1).collect();
         let mut header = vec![
             ("Version".to_owned(), sailhand_core::version_label()),
-            ("Command line".to_owned(), command_line.join(" ")),
+            ("Command line".to_owned(), sailhand_core::redact::command_line(&command_line)),
             ("System".to_owned(), format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)),
         ];
         let installed = match setup {
@@ -129,7 +129,8 @@ fn write_report(cli: &Cli, setup: SetupState, output: Option<PathBuf>) -> ExitCo
         Ok(path) => {
             println!("Report written to {}", path.display());
             println!("Attach it to the GitHub issue. It holds the versions, the Klipper objects and configuration and");
-            println!("the last console lines; no passwords, network addresses or host name.");
+            println!("the last console lines; addresses, host name, serial numbers, uuids, Wi-Fi names, passwords and");
+            println!("user names are replaced.");
             ExitCode::SUCCESS
         }
         Err(error) => {
