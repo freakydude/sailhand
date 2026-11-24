@@ -41,6 +41,9 @@ export component TextEntryDialog inherits Scrim {
     FocusScope {
         width: parent.width;
         height: parent.height;
+        // A tap between the keys or beside the field must not take the focus from the field: the keys of the
+        // on-screen keyboard go to the focused item, and here they would be lost (Slint's default takes it).
+        focus-on-click: false;
         // Escape closes the dialog; every other key is for the field.
         capture-key-pressed(event) => {
             if (event.text == Key.Escape) {
@@ -173,6 +176,9 @@ export component NumberEntryDialog inherits Scrim {
     FocusScope {
         width: parent.width;
         height: parent.height;
+        // A tap between the keys or beside the field must not take the focus from the field: the keys of the
+        // on-screen keyboard go to the focused item, and here they would be lost (Slint's default takes it).
+        focus-on-click: false;
         // Escape closes the dialog; every other key is for the field.
         capture-key-pressed(event) => {
             if (event.text == Key.Escape) {

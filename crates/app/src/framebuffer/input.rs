@@ -50,7 +50,7 @@ impl Input {
         }
         while let Some(event) = self.libinput.next() {
             let swallowed = self.wakes_the_screen(&event);
-            log_touch(&event, self.panel, self.touch_place(window), swallowed);
+            log_touch(&event, self.panel, self.touch_place(window), self.position, swallowed);
             if swallowed {
                 continue;
             }
@@ -144,8 +144,15 @@ fn input_activity(event: &Event) -> Option<bool> {
 }
 
 /// Verbose log of a touch going down or up: where (in layout pixels, as in the .slint files) and how long after the
-/// driver the event loop read it.
-fn log_touch(event: &Event, panel: PhysicalSize, place: impl Fn(f64, f64) -> (f64, f64), swallowed: bool) {
+/// driver the event loop read it. The release happens where the finger last was (`last`); a release off the key that
+/// was pressed is no tap, so a shaky panel shows here as a release far from its press.
+fn log_touch(
+    event: &Event,
+    panel: PhysicalSize,
+    place: impl Fn(f64, f64) -> (f64, f64),
+    last: LogicalPosition,
+    swallowed: bool,
+) {
     if !log::log_enabled!(log::Level::Debug) {
         return;
     }
@@ -156,7 +163,8 @@ fn log_touch(event: &Event, panel: PhysicalSize, place: impl Fn(f64, f64) -> (f6
             log::debug!("touch down at {x:.0},{y:.0}, read {} ms late{note}", lateness_ms(down.time_usec()));
         }
         Event::Touch(TouchEvent::Up(up)) => {
-            log::debug!("touch up, read {} ms late{note}", lateness_ms(up.time_usec()));
+            let (x, y) = (last.x, last.y);
+            log::debug!("touch up at {x:.0},{y:.0}, read {} ms late{note}", lateness_ms(up.time_usec()));
         }
         _ => {}
     }
