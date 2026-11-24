@@ -8,6 +8,7 @@ import { StateIcons } from "../state-icons.slint";
 import { Actions, Confirm, EddyDialog, MeshDialogs, Printer, ScrewItem } from "../state.slint";
 import { ButtonKind, Card, IconButton, Note, ScrollList } from "../components/controls.slint";
 import { MeshMap } from "../components/bed-mesh.slint";
+import { SaveConfigButton } from "../components/save-config-button.slint";
 
 component ActionButton inherits IconButton {
     height: Theme.touch;
@@ -203,7 +204,7 @@ component BedMeshCard inherits Card {
         CardButton {
             icon: Icons.ui-delete;
             text: @tr("Clear");
-            enabled: Printer.bed-mesh-active != "";
+            enabled: Printer.bed-mesh-active != "" && !Printer.position-locked;
             clicked => { Actions.clear-bed-mesh(); }
         }
     }
@@ -253,14 +254,8 @@ export component CalibrateTab inherits Rectangle {
                     overflow: elide;
                 }
             }
-            IconButton {
+            SaveConfigButton {
                 width: 220px;
-                icon: Icons.ui-save;
-                text: @tr("Save config");
-                horizontal: true;
-                kind: ButtonKind.accent;
-                enabled: Printer.save-config-pending;
-                clicked => { Confirm.ask(@tr("Save config"), @tr("Klipper writes the configuration and restarts."), "save-config", "", false); }
             }
         }
     }

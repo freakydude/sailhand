@@ -41,6 +41,9 @@ export component TextEntryDialog inherits Scrim {
     FocusScope {
         width: parent.width;
         height: parent.height;
+        // A tap between the keys or beside the field must not take the focus from the field: the keys of the
+        // on-screen keyboard go to the focused item, and here they would be lost (Slint's default takes it).
+        focus-on-click: false;
         // Escape closes the dialog; every other key is for the field.
         capture-key-pressed(event) => {
             if (event.text == Key.Escape) {
@@ -108,14 +111,14 @@ export component TextEntryDialog inherits Scrim {
 
                     if root.secret: IconButton {
                         icon: root.reveal ? Icons.ui-show : Icons.ui-hide;
-                        width: 56px;
+                        width: Theme.touch;
                         checked: root.reveal;
                         accessible-label: @tr("Show password");
                         clicked => { root.reveal = !root.reveal; }
                     }
                     IconButton {
                         icon: Icons.ui-close;
-                        width: 56px;
+                        width: Theme.touch;
                         clicked => { root.close(); }
                     }
                 }
@@ -173,6 +176,9 @@ export component NumberEntryDialog inherits Scrim {
     FocusScope {
         width: parent.width;
         height: parent.height;
+        // A tap between the keys or beside the field must not take the focus from the field: the keys of the
+        // on-screen keyboard go to the focused item, and here they would be lost (Slint's default takes it).
+        focus-on-click: false;
         // Escape closes the dialog; every other key is for the field.
         capture-key-pressed(event) => {
             if (event.text == Key.Escape) {
@@ -235,7 +241,7 @@ export component NumberEntryDialog inherits Scrim {
                     color: Theme.muted;
                     font-size: Theme.font-small;
                     horizontal-alignment: right;
-                    overflow: elide;
+                    wrap: word-wrap;
                 }
                 if root.hint != "" && root.hint-warning: IconLabel {
                     alignment: end;

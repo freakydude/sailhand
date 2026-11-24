@@ -139,9 +139,14 @@ pub fn speed_factor(percent: f64) -> String {
     format!("M220 S{}", percent.max(1.0).round())
 }
 
-/// Relative extrusion; `length` below zero retracts, the sign of `speed` does not count.
+/// Relative extrusion; `length` below zero retracts, the sign of `speed` does not count. Leaves the extrusion mode and
+/// the feed rate as they were, like [`move_axes`], so a macro or console line that expects absolute E still works.
 pub fn extrude(length: f64, speed: f64) -> String {
-    format!("M83\nG1 E{} F{}", number(length), number(speed.abs() * SECONDS_PER_MINUTE))
+    format!(
+        "SAVE_GCODE_STATE NAME={MOVE_STATE}\nM83\nG1 E{} F{}\nRESTORE_GCODE_STATE NAME={MOVE_STATE}",
+        number(length),
+        number(speed.abs() * SECONDS_PER_MINUTE)
+    )
 }
 
 /// `EXCLUDE_OBJECT` reads the name up to the next space, so names with spaces cannot be excluded.
@@ -274,8 +279,12 @@ mod tests {
         use crate::sources::klipper::Axis;
         use crate::sources::klipper::moves::AxisTarget;
         let target = |axis, gcode| AxisTarget { axis, gcode, toolhead: gcode };
-        let planned =
-            PlannedMove { targets: vec![target(Axis::X, 12.5), target(Axis::Y, 0.00004)], speed: 25.0, seconds: 0.5 };
+        let planned = PlannedMove {
+            targets: vec![target(Axis::X, 12.5), target(Axis::Y, 0.00004)],
+            speed: 25.0,
+            seconds: 0.5,
+            refused: false,
+        };
         assert_eq!(
             move_axes(&planned),
             "SAVE_GCODE_STATE NAME=sailhand_move\nG90\nG1 X12.5 Y0 F1500\nRESTORE_GCODE_STATE NAME=sailhand_move"
@@ -323,7 +332,10 @@ mod tests {
         assert_eq!(remove_bed_mesh("default").as_deref(), Some("BED_MESH_PROFILE REMOVE=default"));
         assert_eq!(speed_factor(110.0), "M220 S110");
         assert_eq!(speed_factor(0.0), "M220 S1");
-        assert_eq!(extrude(-10.0, 5.0), "M83\nG1 E-10 F300");
+        assert_eq!(
+            extrude(-10.0, 5.0),
+            "SAVE_GCODE_STATE NAME=sailhand_move\nM83\nG1 E-10 F300\nRESTORE_GCODE_STATE NAME=sailhand_move"
+        );
     }
 
     #[test]

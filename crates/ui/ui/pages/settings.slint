@@ -7,7 +7,7 @@ import { Icons } from "../icons.slint";
 import { Backlight, Confirm, Navigation, Network, Page, Printer, PrinterChoice, SettingsSection, UiSettings } from "../state.slint";
 import { Card, IconButton, ToggleRow } from "../components/controls.slint";
 import { SystemTabs } from "../components/system-tabs.slint";
-import { NetworkSection } from "network.slint";
+import { NetworkSection, WifiConnectDialogs } from "network.slint";
 
 // One row of minute choices for the standby; 0 is never.
 component MinutesRow inherits VerticalLayout {
@@ -20,7 +20,7 @@ component MinutesRow inherits VerticalLayout {
     HorizontalLayout {
         spacing: Theme.spacing;
         for minutes in root.choices: IconButton {
-            height: Theme.row-height-small;
+            min-height: Theme.row-height-small;
             text: minutes == 0 ? @tr("Never") : @tr("{} min", minutes);
             checked: root.current == minutes;
             clicked => { root.chosen(minutes); }
@@ -147,7 +147,7 @@ component AccessCard inherits Card {
     if Printer.login-user != "": HorizontalLayout {
         alignment: start;
         IconButton {
-            height: Theme.row-height-small;
+            min-height: Theme.row-height-small;
             icon: Icons.ui-lock;
             text: @tr("Log out");
             horizontal: true;
@@ -172,7 +172,7 @@ component LogsCard inherits Card {
     HorizontalLayout {
         alignment: start;
         IconButton {
-            height: Theme.row-height-small;
+            min-height: Theme.row-height-small;
             icon: Icons.ui-save;
             text: @tr("Export log");
             horizontal: true;
@@ -281,6 +281,8 @@ export component SettingsPage inherits Rectangle {
                     Network.refresh();
                     Network.scan();
                 }
+                choose(network) => { wifi-connect.choose(network); }
+                hidden-network => { wifi-connect.ask-hidden(); }
             }
             if !root.network-shown: VerticalLayout {
                 horizontal-stretch: 1;
@@ -292,4 +294,6 @@ export component SettingsPage inherits Rectangle {
             }
         }
     }
+
+    wifi-connect := WifiConnectDialogs { }
 }

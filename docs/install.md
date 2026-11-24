@@ -97,6 +97,23 @@ the text console is detached from the framebuffer while it runs. Leave the displ
 ([settings](configuration.md#settings-file)): Sailhand then turns the picture (clockwise by that angle) and the touch
 itself, which a driver of an SPI display (e.g. TFT35) often does not do for touch. This is a fallback: HDMI and DSI displays use the normal kiosk.
 
+**Taps land off target.** A resistive touch panel (ADS7846, TSC2007 and the like) that was never calibrated reports
+positions beside the finger, often pulled towards the middle of the screen: buttons light up but do not react, the
+narrow ones at the edges most of all. Calibrate it once:
+
+```bash
+sudo bash ~/sailhand/touch-calibrate.sh                  # zip installer
+sudo bash /usr/share/sailhand/touch-calibrate.sh         # .deb or Arch package
+```
+
+It stops Sailhand, shows five crosshairs (tap their centres, a fingernail is more precise), turns the result into
+libinput's calibration matrix and, after asking, stores it as a udev rule in
+`/etc/udev/rules.d/99-touch-calibration.rules`; then Sailhand starts again. It needs tslib's tools (`libts-bin`, on Arch
+`tslib`) and installs them if they are missing. The script is also
+[on GitHub](https://github.com/freakydude/sailhand/blob/main/scripts/touch-calibrate.sh). The rule belongs to the
+display, so uninstalling Sailhand keeps it; to undo the calibration, delete the file and run
+`sudo udevadm control --reload && sudo udevadm trigger`, then restart Sailhand.
+
 ## Android
 
 An old Android phone or tablet near the printer can serve as touch screen: the same UI, in landscape. It needs Android
@@ -110,7 +127,7 @@ it has been tried in the Android emulator and on a real phone with a printer, no
    pre-releases.
 
 For a bug report, Settings has "Export log": it copies the log of the last days into one text file you can attach to the
-issue. On Android 10 and newer it lands in `Download/Sailhand`; on Android 7 to 9 in the app's own folder
+issue; IP addresses, URLs, local host names, uuids, MAC addresses and user names in home paths are replaced in it. On Android 10 and newer it lands in `Download/Sailhand`; on Android 7 to 9 in the app's own folder
 (`Android/data/de.freakydu.sailhand/files/Download`), which the screen names after the export.
 
 The APK is signed with a release key; `apksigner verify --print-certs <apk>` shows the SHA-256 fingerprint of its

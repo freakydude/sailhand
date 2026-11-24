@@ -38,7 +38,7 @@ export component ModeSwitch inherits HorizontalLayout {
                 colorize: Theme.foreground;
                 width: Theme.icon-small;
                 height: Theme.icon-small;
-                y: (parent.height - self.height) / 2;
+                cross-axis-self-alignment: center;
             }
             Text {
                 text: label;
@@ -276,7 +276,7 @@ component ZPad inherits Rectangle {
     property <length> full-scale: root.full-scale-share * root.pad-height;
     property <float> deflection: touch.pressed ? clamp((touch.pressed-y - touch.mouse-y) / root.full-scale, -1, 1) : 0;
     property <string> floor-text: Printer.axes-area.floor-is-print
-        ? @tr("Print") + " " + Printer.axes-area.z-floor.to-fixed(2)
+        ? @tr("Print {}", Printer.axes-area.z-floor.to-fixed(2))
         : "Z " + Printer.axes-area.z-floor.to-fixed(2);
 
     min-width: root.pad-width + root.z-ruler-width;
@@ -328,7 +328,7 @@ component ZPad inherits Rectangle {
         if root.enabled && !touch.pressed: Text {
             width: parent.width;
             height: parent.height;
-            text: @tr("Hold and drag");
+            text: @tr("Touch and drag");
             color: Theme.muted;
             font-size: Theme.font-small;
             horizontal-alignment: center;
@@ -369,6 +369,8 @@ component ZPad inherits Rectangle {
     Text {
         x: root.pad-width + root.ruler-gap;
         y: root.pad-height + root.ruler-gap;
+        width: root.width - self.x;
+        overflow: elide;
         text: root.floor-text;
         color: Theme.muted;
         font-size: Theme.font-small;

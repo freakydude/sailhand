@@ -6,6 +6,7 @@ import { Icons } from "../icons.slint";
 import { Actions, Confirm, EddyDialog, EddyValue, Printer } from "../state.slint";
 import { ButtonKind, IconButton, Note } from "controls.slint";
 import { DialogHeader, DialogPanel, Scrim } from "dialog.slint";
+import { SaveConfigButton } from "save-config-button.slint";
 
 // A step: what it needs (from the guide), the option it sets with its value now and pending, its buttons.
 component StepRow inherits Rectangle {
@@ -215,14 +216,8 @@ export component EddyProbeDialog inherits Scrim {
                         overflow: elide;
                     }
                 }
-                IconButton {
+                SaveConfigButton {
                     width: 220px;
-                    icon: Icons.ui-save;
-                    text: @tr("Save config");
-                    horizontal: true;
-                    kind: ButtonKind.accent;
-                    enabled: Printer.save-config-pending;
-                    clicked => { Confirm.ask(@tr("Save config"), @tr("Klipper writes the configuration and restarts."), "save-config", "", false); }
                 }
             }
         }

@@ -282,7 +282,11 @@ pub(crate) fn host_interface_item(interface: &HostInterface) -> HostInterfaceIte
 
 pub(crate) fn update_item(update: &UpdateInfo) -> UpdateItem {
     let detail = if update.is_system() {
-        format!("{} packages", update.pending)
+        match update.pending {
+            0 => String::new(),
+            1 => "1 package".to_owned(),
+            pending => format!("{pending} packages"),
+        }
     } else if update.has_update() {
         format!("{} → {}", update.version, update.remote_version)
     } else {

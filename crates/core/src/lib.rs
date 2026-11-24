@@ -15,6 +15,7 @@ mod klipper_ini;
 pub mod moonraker;
 pub mod network;
 pub mod printers;
+pub mod redact;
 pub mod report;
 pub mod service;
 pub mod settings;

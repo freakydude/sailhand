@@ -201,11 +201,13 @@ ARGUMENTS="--moonraker $MOONRAKER --settings $SETTINGS_FILE --logfile $DATA_DIR/
 # -d: no client-side frame, otherwise winit keeps room for its title bar after leaving fullscreen (black bar).
 START="/usr/bin/cage -d -s -- $INSTALL_DIR/$NAME --fullscreen $ARGUMENTS"
 CONSOLE_LINES=""
+FRAMEBUFFER_HINT=""
 # cage needs a DRM/KMS device. Without one (only a framebuffer driver such as fbtft) the fallback draws straight to
 # the framebuffer. The text console would draw into it as well, so it is detached from the framebuffer while the
 # service runs (as root: `+`); systemd turns `$$` into `$`.
 if ! compgen -G "/dev/dri/card*" > /dev/null && compgen -G "/dev/fb[0-9]*" > /dev/null; then
   echo "No DRM/KMS device, only a framebuffer: using the framebuffer fallback without cage."
+  FRAMEBUFFER_HINT="Taps land off target (common on resistive SPI displays)? Calibrate: sudo bash $INSTALL_DIR/touch-calibrate.sh"
   START="$INSTALL_DIR/$NAME --framebuffer $ARGUMENTS"
   console_loop='for c in /sys/class/vtconsole/vtcon*; do grep -q "frame buffer" "$$c/name" && echo BIND > "$$c/bind"; done; true'
   CONSOLE_LINES="ExecStartPre=+/bin/sh -c '${console_loop/BIND/0}'
@@ -277,3 +279,6 @@ EOF
 fi
 
 echo "Done. Log: $DATA_DIR/logs/sailhand.log (Mainsail: Machine, logs) or journalctl -u $NAME -f"
+if [ -n "$FRAMEBUFFER_HINT" ]; then
+  echo "$FRAMEBUFFER_HINT"
+fi

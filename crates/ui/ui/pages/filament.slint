@@ -107,14 +107,14 @@ component ExtruderTab inherits Rectangle {
                     vertical-stretch: 1;
                     IconButton {
                         icon: Icons.filament-retract;
-                        text: @tr("Retract {} mm", UiSettings.extrude-length);
+                        text: @tr("Retract {}", Units.length(UiSettings.extrude-length, 0));
                         icon-size: root.has-head ? Theme.icon : 40px;
                         enabled: root.can-extrude;
                         clicked => { Actions.extrude(-UiSettings.extrude-length, UiSettings.extrude-speed); }
                     }
                     IconButton {
                         icon: Icons.filament-extrude;
-                        text: @tr("Extrude {} mm", UiSettings.extrude-length);
+                        text: @tr("Extrude {}", Units.length(UiSettings.extrude-length, 0));
                         icon-size: root.has-head ? Theme.icon : 40px;
                         kind: ButtonKind.accent;
                         enabled: root.can-extrude;

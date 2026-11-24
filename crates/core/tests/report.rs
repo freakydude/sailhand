@@ -43,6 +43,18 @@ async fn reports_versions_objects_and_what_was_detected() {
 }
 
 #[tokio::test]
+async fn leaves_out_the_address_of_moonraker() {
+    let endpoint = start_fake(MachineProfile::happy_hare(2)).await;
+    let report = collect(&endpoint, &CredentialStore::in_memory(), json!({ "Version": "test" })).await.unwrap();
+    assert_eq!(report["moonraker"]["address"], "<redacted>");
+    assert_eq!(report["moonraker"]["local"], true);
+    assert_eq!(report["moonraker"]["secure"], false);
+    let text = report.to_string();
+    assert!(!text.contains("127.0.0.1"), "no address in the report");
+    assert!(!text.contains(&endpoint.socket_address()), "no address with port in the report");
+}
+
+#[tokio::test]
 async fn leaves_out_the_host_name_and_the_raw_configuration() {
     let report = report_of(MachineProfile::afc()).await;
     assert!(report["moonraker"]["printer.info"].get("hostname").is_none());

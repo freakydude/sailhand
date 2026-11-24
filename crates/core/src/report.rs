@@ -2,13 +2,19 @@
 //! and what Sailhand detects in it, as one JSON file. It is the state at one moment; the verbose log tells what led
 //! there.
 //!
-//! The report only reads. It leaves out what is secret or personal: Moonraker's configuration (API keys, passwords),
-//! network addresses, the host name, serial numbers, the commit history of the update manager and the stored access
-//! of this display.
+//! The report only reads. It leaves out Moonraker's configuration (API keys, passwords), the commit history of the
+//! update manager, the network and SD card part of the system info and the stored access of this display. Everything
+//! privacy-relevant that remains is redacted (see [`crate::redact`]), because reports end up in public issues:
+//! Moonraker's address (only whether it is TLS and local stays), the printer addresses, names and uuids in the
+//! settings (their number stays), the host name, every `serial`, `*uuid*`, `address`, `host`, `url`, `ssid`, user and
+//! credential key anywhere in the Klipper and Moonraker answers (MCU serial, `canbus_uuid`, WLED and Spoolman
+//! addresses), and in all text IP addresses, URLs, local host names, uuids, MAC addresses, serial paths and the user
+//! name of home paths (`/home/frank/x` becomes `~/x`).
 
 use crate::credentials::CredentialStore;
 use crate::domain::machine_tree::MachineTree;
 use crate::moonraker::{Connection, Endpoint, InvalidEndpoint, Tls};
+use crate::redact;
 use crate::service::{Access, introduce};
 use crate::settings::{Settings, SettingsStore};
 use crate::sources::moonraker_server::{ServerComponents, server_info};
@@ -142,11 +148,13 @@ pub async fn collect(
         Err(error) => json!({ "error": error }),
     };
 
-    Ok(json!({
+    let mut report = json!({
         "format": FORMAT_VERSION,
         "sailhand": sailhand,
         "moonraker": {
-            "address": endpoint.display(),
+            "address": redact::REDACTED,
+            "secure": endpoint.is_secure(),
+            "local": endpoint.is_local(),
             "access": access_kind(&access),
             "server.info": shown(server, Value::clone),
             "printer.info": shown(moonraker.ask("printer.info", None).await, |info| without(info, &["hostname"])),
@@ -164,7 +172,10 @@ pub async fn collect(
             "printer.gcode.help": shown(help, Value::clone),
         },
         "detected": detected,
-    }))
+    });
+    // Last, over everything: a field nobody thought of still goes through the patterns.
+    redact::value(&mut report);
+    Ok(report)
 }
 
 /// Where the report goes: `output` (a folder gets the [`FILE_NAME`]), otherwise the `logs` folder of the
@@ -202,10 +213,28 @@ fn settings_store(explicit: Option<PathBuf>) -> SettingsStore {
 
 fn sailhand_section(facts: &[(String, String)], store: &SettingsStore, settings: &Settings) -> Value {
     let mut section: Map<String, Value> =
-        facts.iter().map(|(name, value)| (name.clone(), Value::String(value.clone()))).collect();
-    section.insert("Settings file".to_owned(), json!(store.path().display().to_string()));
-    section.insert("Settings".to_owned(), serde_json::to_value(settings).unwrap_or_default());
+        facts.iter().map(|(name, value)| (name.clone(), Value::String(redact::text(value)))).collect();
+    section.insert("Settings file".to_owned(), json!(redact::path(&store.path().display().to_string())));
+    section.insert("Settings".to_owned(), settings_redacted(settings));
     Value::Object(section)
+}
+
+/// The settings without the printer addresses, names and uuids; the printers stay as entries, so their number shows.
+fn settings_redacted(settings: &Settings) -> Value {
+    let mut shown = serde_json::to_value(settings).unwrap_or_default();
+    let Some(object) = shown.as_object_mut() else { return shown };
+    if object.get("moonraker").is_some_and(|address| !address.is_null()) {
+        object.insert("moonraker".to_owned(), json!(redact::REDACTED));
+    }
+    let printers = object.get_mut("printers").and_then(Value::as_array_mut).into_iter().flatten();
+    for printer in printers.filter_map(Value::as_object_mut) {
+        for field in ["name", "address", "uuid"] {
+            if printer.contains_key(field) {
+                printer.insert(field.to_owned(), json!(redact::REDACTED));
+            }
+        }
+    }
+    shown
 }
 
 /// Asks Moonraker with a time limit; a failure becomes its text, so the rest of the report is still written.
@@ -330,6 +359,58 @@ fn update_status(answer: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::SavedPrinter;
+
+    #[test]
+    fn saved_printers_and_paths_in_the_settings_are_redacted() {
+        let mut settings = Settings { moonraker: Some("http://192.168.1.20:7125".to_owned()), ..Settings::default() };
+        settings.printers = vec![
+            SavedPrinter {
+                name: "voron-lan".to_owned(),
+                address: "http://192.168.1.20:7125".to_owned(),
+                uuid: Some("123e4567-e89b-12d3-a456-426614174000".to_owned()),
+                ..SavedPrinter::default()
+            },
+            SavedPrinter { name: "second".to_owned(), address: "printer.local".to_owned(), ..SavedPrinter::default() },
+        ];
+        let facts = [("Command line".to_owned(), "--settings /home/frank/a.conf http://10.0.0.2:7125".to_owned())];
+        let store = SettingsStore::new("/home/frank/printer_data/config/sailhand.conf");
+        let section = sailhand_section(&facts, &store, &settings);
+        assert_eq!(section["Settings file"], "~/printer_data/config/sailhand.conf");
+        assert_eq!(section["Command line"], "--settings ~/a.conf <url>");
+        assert_eq!(section["Settings"]["moonraker"], redact::REDACTED);
+        let printers = section["Settings"]["printers"].as_array().unwrap();
+        assert_eq!(printers.len(), 2);
+        assert_eq!(printers[0]["name"], redact::REDACTED);
+        assert_eq!(printers[0]["address"], redact::REDACTED);
+        assert_eq!(printers[0]["uuid"], redact::REDACTED);
+        let text = section.to_string();
+        for private in ["192.168.1.20", "voron-lan", "123e4567", "printer.local", "frank", "10.0.0.2"] {
+            assert!(!text.contains(private), "{private} leaked: {text}");
+        }
+    }
+
+    #[test]
+    fn klipper_and_moonraker_answers_lose_serials_addresses_and_console_addresses() {
+        let mut answer = json!({
+            "klipper": { "configfile": { "settings": {
+                "mcu": { "serial": "/dev/serial/by-id/usb-Klipper_stm32f446xx_0A1B2C-if00" },
+                "mcu ebb": { "canbus_uuid": "1a2b3c4d5e6f", "canbus_interface": "can0" },
+                "wled chamber": { "address": "wled.local" },
+            }}},
+            "moonraker": {
+                "server.spoolman.status": { "spoolman_server": "http://10.0.0.8:7912", "connected": true },
+                "server.gcode_store": { "gcode_store": [
+                    { "message": "M118 reached 192.168.1.5 via wlan0", "type": "response" } ] },
+            },
+        });
+        redact::value(&mut answer);
+        let text = answer.to_string();
+        for private in ["0A1B2C", "1a2b3c4d5e6f", "wled.local", "10.0.0.8", "192.168.1.5"] {
+            assert!(!text.contains(private), "{private} leaked: {text}");
+        }
+        assert!(text.contains("can0") && text.contains("reached"), "the rest stays: {text}");
+    }
 
     #[test]
     fn the_report_goes_to_the_logs_of_printer_data() {

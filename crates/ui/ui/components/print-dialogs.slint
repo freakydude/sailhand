@@ -16,8 +16,8 @@ export component ExcludeObjectsDialog inherits Scrim {
     property <bool> has-selection: root.selected >= 0 && root.selected < Printer.print-objects.length;
     property <PrintObjectItem> chosen: Printer.print-objects[root.selected];
     // Room for the map: the dialog without its margin, padding, title and buttons; the list keeps the rest.
-    property <length> map-room-height: root.height - 16px - 2 * Theme.dialog-padding - 2 * Theme.touch - 2 * Theme.spacing;
-    property <length> map-width: min(root.map-room-height * Printer.bed-map.width / Printer.bed-map.depth, (root.width - 16px - 2 * Theme.dialog-padding) * 0.55);
+    property <length> map-room-height: root.height - 2 * Theme.dialog-inset - 2 * Theme.dialog-padding - 2 * Theme.touch - 2 * Theme.spacing;
+    property <length> map-width: min(root.map-room-height * Printer.bed-map.width / Printer.bed-map.depth, (root.width - 2 * Theme.dialog-inset - 2 * Theme.dialog-padding) * 0.55);
     // A tap on the status bar or the navigation closes the dialog without excluding anything.
     property <int> dismissals: Dialogs.dismissals;
     visible: root.open;
@@ -58,9 +58,9 @@ export component ExcludeObjectsDialog inherits Scrim {
                     vertical-stretch: 1;
                     content-height: Printer.print-objects.length * (Theme.touch + Theme.spacing);
                     for item[index] in Printer.print-objects: Rectangle {
-                        x: 8px;
+                        x: Theme.padding;
                         y: index * (Theme.touch + Theme.spacing);
-                        width: objects-list.row-width - 16px;
+                        width: objects-list.row-width - 2 * Theme.padding;
                         height: Theme.touch;
                         background: item.excluded ? Theme.background : Theme.surface-raised;
                         border-radius: Theme.radius;
@@ -201,23 +201,27 @@ export component LayerPauseDialog inherits Scrim {
                     clicked => { root.step(10); }
                 }
             }
-            IconButton {
-                icon: Icons.print-pause;
-                text: root.next-layer ? @tr("Pause at the next layer") : @tr("Pause at layer {}", root.target);
-                horizontal: true;
-                kind: ButtonKind.accent;
-                clicked => {
-                    Actions.pause-at-layer(root.target);
-                    root.shown = false;
+            HorizontalLayout {
+                spacing: Theme.spacing;
+                height: Theme.touch;
+                if !Printer.layer-pause-plan-known || Printer.layer-pause-planned != "": IconButton {
+                    icon: Icons.ui-delete;
+                    text: @tr("Clear planned pause");
+                    horizontal: true;
+                    clicked => {
+                        Actions.clear-layer-pause();
+                        root.shown = false;
+                    }
                 }
-            }
-            if !Printer.layer-pause-plan-known || Printer.layer-pause-planned != "": IconButton {
-                icon: Icons.ui-delete;
-                text: @tr("Clear planned pause");
-                horizontal: true;
-                clicked => {
-                    Actions.clear-layer-pause();
-                    root.shown = false;
+                IconButton {
+                    icon: Icons.print-pause;
+                    text: root.next-layer ? @tr("Pause at the next layer") : @tr("Pause at layer {}", root.target);
+                    horizontal: true;
+                    kind: ButtonKind.accent;
+                    clicked => {
+                        Actions.pause-at-layer(root.target);
+                        root.shown = false;
+                    }
                 }
             }
         }

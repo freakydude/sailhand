@@ -15,6 +15,7 @@ mod device;
 mod input;
 mod presenter;
 mod rotation;
+mod touch;
 
 use crate::AppWindow;
 use crate::backlight_controller::BacklightController;

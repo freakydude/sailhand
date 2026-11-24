@@ -117,6 +117,14 @@ impl Sources {
     }
 }
 
+/// A material name as one G-code parameter word: letters, digits and `+-_.`. Klipper splits parameters at spaces
+/// and cuts a line at `;` or `#` (klippy/gcode.py `_get_extended_params`), so anything else would break the command.
+pub fn material_word(material: &str) -> Result<&str, String> {
+    let valid = !material.is_empty()
+        && material.chars().all(|letter| letter.is_ascii_alphanumeric() || "+-_.".contains(letter));
+    if valid { Ok(material) } else { Err(format!("invalid material '{material}'")) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,5 +184,12 @@ mod tests {
 
         assert_eq!(sources.filament_macros, Some(FilamentMacros { load: true, unload: false }));
         assert_eq!(sources.layer_pause, Some(LayerPauseMacros { next_layer: true, at_layer: false }));
+    }
+
+    #[test]
+    fn a_material_is_one_gcode_word() {
+        assert_eq!(material_word("PLA+"), Ok("PLA+"));
+        assert!(material_word("PLA Silk").is_err() && material_word("PETG;x").is_err() && material_word("").is_err());
+        assert!(afc::set_filament("lane1", Some("PLA Silk"), None).is_err());
     }
 }

@@ -223,7 +223,6 @@ fn success_text(command: &NetworkCommand) -> Option<String> {
     }
 }
 
-/// Description for the log without secrets.
 /// The command for the normal log, without the name of a network.
 fn describe(command: &NetworkCommand) -> String {
     match command {

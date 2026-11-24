@@ -582,13 +582,12 @@ async fn a_layer_pause_pauses_and_the_history_tells_when_the_job_ended() {
     wait_for(&mut channels, ready).await;
 
     service.send(Command::StartPrint { filename: "calibration_cube.gcode".into() });
-    let printing = wait_for(&mut channels, |snapshot| snapshot.status.job.current_layer.is_some()).await;
-    let offer = pause::layer_pause_offer(&printing.sources, &printing.status).expect("layer pause offered");
-    service.send(Command::PauseAtLayer { layer: offer.current_layer + 1 });
-    let paused = wait_for(&mut channels, |snapshot| snapshot.status.job.state == PrintState::Paused).await;
+    let paused = pause_at_next_layer(&service, &mut channels).await;
     assert!(pause::interruption(&paused.status).is_some_and(|interruption| !interruption.failed));
     service.send(Command::Home { x: true, y: true, z: true });
-    let refused = next_event(&mut channels, |event| matches!(event, Event::CommandFailed { .. })).await;
+    let refused =
+        next_event(&mut channels, |event| matches!(event, Event::CommandFailed { command: Command::Home { .. }, .. }))
+            .await;
     assert!(
         matches!(refused, Event::CommandFailed { error, .. } if error.to_string().contains("resume from a wrong position"))
     );
@@ -607,6 +606,27 @@ async fn a_layer_pause_pauses_and_the_history_tells_when_the_job_ended() {
     .await
     .expect("history without the cancelled job");
     assert!(ended > 0.0);
+}
+
+/// A layer of the fake takes about 15 ms at its time scale, so on a busy machine the print can reach the next layer
+/// before the command does; the service then refuses it (`LayerPassed`) and the test plans the pause again.
+async fn pause_at_next_layer(service: &PrinterService, channels: &mut ServiceChannels) -> Snapshot {
+    const ATTEMPTS: usize = 5;
+    for _ in 0..ATTEMPTS {
+        let printing = wait_for(channels, |snapshot| snapshot.status.job.current_layer.is_some()).await;
+        let offer = pause::layer_pause_offer(&printing.sources, &printing.status).expect("layer pause offered");
+        let layer = offer.current_layer + 1;
+        service.send(Command::PauseAtLayer { layer });
+        let reached = wait_for(channels, |snapshot| {
+            snapshot.status.job.state == PrintState::Paused
+                || snapshot.status.job.current_layer.is_some_and(|current| current > layer)
+        })
+        .await;
+        if reached.status.job.state == PrintState::Paused {
+            return reached;
+        }
+    }
+    panic!("the print never paused at its next layer");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -796,6 +816,28 @@ async fn reconnects_on_request_although_the_connection_is_alive() {
     service.reconnect();
     wait_for(&mut channels, |snapshot| snapshot.connection == ConnectionState::Connecting).await;
     wait_for(&mut channels, ready).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paused_print_keeps_its_height_across_a_reconnect() {
+    let endpoint = start_fake().await;
+    let (service, mut channels) = start_service(endpoint, CredentialStore::in_memory());
+    wait_for(&mut channels, ready).await;
+
+    service.send(Command::StartPrint { filename: "calibration_cube.gcode".into() });
+    wait_for(&mut channels, |snapshot| snapshot.status.job.height.is_some()).await;
+    service.send(Command::PausePrint);
+    let paused = wait_for(&mut channels, |snapshot| {
+        snapshot.status.job.state == PrintState::Paused && snapshot.status.job.height.is_some()
+    })
+    .await;
+
+    // The live pad keeps above this height; Klipper reports it nowhere, so a reconnect must not lose it.
+    service.reconnect();
+    wait_for(&mut channels, |snapshot| snapshot.connection == ConnectionState::Connecting).await;
+    let again =
+        wait_for(&mut channels, |snapshot| ready(snapshot) && snapshot.status.job.state == PrintState::Paused).await;
+    assert_eq!(again.status.job.height, paused.status.job.height);
 }
 
 #[tokio::test(flavor = "multi_thread")]

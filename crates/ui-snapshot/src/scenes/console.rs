@@ -14,6 +14,9 @@ const ON_SCREEN_Q: (f32, f32) = (128.0, 226.0);
 
 const ON_SCREEN_S: (f32, f32) = (197.0, 293.0);
 
+/// The gap between Q and W: a tap there hits no key.
+const ON_SCREEN_GAP: (f32, f32) = (163.0, 226.0);
+
 const ON_SCREEN_BACKSPACE: (f32, f32) = (628.0, 428.0);
 
 const ON_SCREEN_ENTER: (f32, f32) = (731.0, 428.0);
@@ -47,10 +50,11 @@ pub(super) fn typing(session: &mut Session) -> Result<(), String> {
     session.key(Key::Return);
     expect_console_command(session, "STATUS")?;
 
-    // On-screen keys: the field must keep the focus while they are tapped. Q, backspace, S, enter.
+    // On-screen keys: the field must keep the focus while they are tapped, and after a tap between two keys (a shaky
+    // touch screen hits the gaps). Q, gap, backspace, S, enter.
     session.tap(x, y);
     session.pump(Duration::from_millis(300));
-    for (key_x, key_y) in [ON_SCREEN_Q, ON_SCREEN_BACKSPACE, ON_SCREEN_S, ON_SCREEN_ENTER] {
+    for (key_x, key_y) in [ON_SCREEN_Q, ON_SCREEN_GAP, ON_SCREEN_BACKSPACE, ON_SCREEN_S, ON_SCREEN_ENTER] {
         session.tap(key_x, key_y);
     }
     expect_console_command(session, "S")?;

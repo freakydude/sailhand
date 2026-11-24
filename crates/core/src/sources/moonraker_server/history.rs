@@ -47,6 +47,8 @@ pub struct FinishedJob {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct PrintHistory {
     pub last_prints: HashMap<String, LastPrint>,
+    /// When each file was last started, whatever became of that print; Unix seconds.
+    pub last_started: HashMap<String, f64>,
     pub newest: Option<FinishedJob>,
 }
 
@@ -61,7 +63,11 @@ pub fn list_call() -> Call {
 pub fn parse_print_history(result: &Value) -> PrintHistory {
     let jobs: Vec<HistoryJob> =
         result.get("jobs").and_then(|jobs| serde_json::from_value(jobs.clone()).ok()).unwrap_or_default();
-    PrintHistory { last_prints: last_completed_prints(&jobs), newest: jobs.first().and_then(HistoryJob::finished) }
+    PrintHistory {
+        last_prints: last_completed_prints(&jobs),
+        last_started: last_starts(&jobs),
+        newest: jobs.first().and_then(HistoryJob::finished),
+    }
 }
 
 #[derive(Deserialize)]
@@ -70,6 +76,8 @@ struct HistoryJob {
     filename: String,
     #[serde(default)]
     status: String,
+    #[serde(default)]
+    start_time: Option<f64>,
     #[serde(default)]
     end_time: Option<f64>,
     #[serde(default)]
@@ -120,6 +128,17 @@ fn last_completed_prints(jobs: &[HistoryJob]) -> HashMap<String, LastPrint> {
         });
     }
     last_prints
+}
+
+/// The start of the newest job per file, also of one that was cancelled or is still running.
+fn last_starts(jobs: &[HistoryJob]) -> HashMap<String, f64> {
+    let mut starts = HashMap::new();
+    for job in jobs {
+        if let Some(start) = job.start_time {
+            starts.entry(job.filename.clone()).or_insert(start);
+        }
+    }
+    starts
 }
 
 #[cfg(test)]
@@ -198,5 +217,17 @@ mod tests {
     #[test]
     fn history_without_jobs_is_empty() {
         assert_eq!(parse_print_history(&json!({})), PrintHistory::default());
+    }
+
+    #[test]
+    fn the_newest_start_of_each_file_counts_whatever_became_of_it() {
+        let history = parse_print_history(&json!({ "jobs": [
+            { "filename": "a.gcode", "status": "cancelled", "start_time": 300.0 },
+            { "filename": "b.gcode", "status": "completed", "start_time": 200.0, "end_time": 250.0 },
+            { "filename": "a.gcode", "status": "completed", "start_time": 100.0, "end_time": 150.0 },
+        ] }));
+
+        assert_eq!(history.last_started.get("a.gcode"), Some(&300.0));
+        assert_eq!(history.last_started.get("b.gcode"), Some(&200.0));
     }
 }

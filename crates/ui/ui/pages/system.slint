@@ -14,100 +14,100 @@ export component SystemPage inherits Rectangle {
     init => { Actions.refresh-system(); }
 
     VerticalLayout {
-    padding: Theme.padding;
-    spacing: Theme.spacing;
-    SystemTabs { }
-    HorizontalLayout {
+        padding: Theme.padding;
         spacing: Theme.spacing;
-        vertical-stretch: 1;
-
-        VerticalLayout {
-            width: 260px;
+        SystemTabs { }
+        HorizontalLayout {
             spacing: Theme.spacing;
-            Card {
-                title: @tr("Klipper");
-                icon: Icons.nav-printer;
-                // The address stands on the Printers tab, the state in the status bar.
-                HorizontalLayout {
-                    spacing: Theme.spacing;
-                    height: root.action-row-height;
-                    IconButton {
-                        icon: Icons.system-klipper-restart;
-                        text: @tr("Restart");
-                        enabled: Printer.is-connected && !Printer.host-actions-locked;
-                        clicked => { Confirm.ask(@tr("Restart Klipper"), @tr("Restarts Klipper and reloads the configuration; the MCUs keep running."), "restart-klipper", "", false); }
-                    }
-                    IconButton {
-                        icon: Icons.system-firmware-restart;
-                        text: @tr("Firmware restart");
-                        enabled: Printer.is-connected && !Printer.host-actions-locked;
-                        clicked => { Confirm.ask(@tr("Firmware restart"), @tr("Restarts Klipper and resets all MCUs, e.g. after a firmware update or an MCU error."), "firmware-restart", "", false); }
-                    }
-                }
-            }
-            Card {
-                title: @tr("Host");
-                icon: Icons.system-host;
-                HorizontalLayout {
-                    spacing: Theme.spacing;
-                    height: root.action-row-height;
-                    IconButton {
-                        icon: Icons.system-restart;
-                        text: @tr("Reboot");
-                        enabled: Printer.is-connected && !Printer.host-actions-locked;
-                        clicked => { Confirm.ask(@tr("Reboot host"), @tr("The printer host restarts. The connection is lost for a while."), "reboot-host", "", true); }
-                    }
-                    IconButton {
-                        icon: Icons.system-shutdown;
-                        text: @tr("Shutdown");
-                        enabled: Printer.is-connected && !Printer.host-actions-locked;
-                        clicked => { Confirm.ask(@tr("Shut down host"), @tr("The printer host powers off and must be switched on by hand."), "shutdown-host", "", true); }
-                    }
-                }
-                Text { text: @tr("Restart service"); color: Theme.muted; font-size: Theme.font-small; }
-                HorizontalLayout {
-                    spacing: Theme.spacing;
-                    height: root.action-row-height;
-                    for service in [{ id: "klipper", name: @tr("Klipper") }, { id: "moonraker", name: @tr("Moonraker") }]: IconButton {
-                        text: service.name;
-                        icon: Icons.system-restart;
-                        enabled: Printer.is-connected && !Printer.host-actions-locked;
-                        clicked => { Confirm.ask(@tr("Restart service"), service.name, "restart-service", service.id, false); }
-                    }
-                }
-                if Printer.host-actions-locked: IconLabel {
-                    icon: Icons.ui-lock;
-                    text: Printer.updates-busy ? @tr("Locked while updating")
-                        : Printer.is-printing ? @tr("Locked while printing") : @tr("Locked while Klipper is busy");
-                    color: StateIcons.severity-color(Severity.attention);
-                    font-size: Theme.font-small;
-                }
-            }
-            Rectangle { vertical-stretch: 1; }
-        }
+            vertical-stretch: 1;
 
-        VerticalLayout {
-            horizontal-stretch: 1;
-            spacing: Theme.spacing;
-            if Printer.has-power: Card {
-                title: @tr("Power devices");
-                icon: Icons.accessory-power-device;
-                for device in Printer.power-devices: ToggleRow {
-                    height: Theme.row-height-small;
-                    text: device.name;
-                    checked: device.on;
-                    enabled: !(device.locked && Printer.is-printing);
-                    toggled => {
-                        if (device.on) {
-                            Confirm.ask(@tr("Switch off"), device.name, "power-off", device.name, true);
-                        } else {
-                            Actions.set-power(device.name, true);
+            VerticalLayout {
+                width: 260px;
+                spacing: Theme.spacing;
+                Card {
+                    title: @tr("Klipper");
+                    icon: Icons.nav-printer;
+                    // The address stands on the Printers tab, the state in the status bar.
+                    HorizontalLayout {
+                        spacing: Theme.spacing;
+                        height: root.action-row-height;
+                        IconButton {
+                            icon: Icons.system-klipper-restart;
+                            text: @tr("Restart");
+                            enabled: Printer.is-connected && !Printer.host-actions-locked;
+                            clicked => { Confirm.ask(@tr("Restart Klipper"), @tr("Restarts Klipper and reloads the configuration; the MCUs keep running."), "restart-klipper", "", false); }
+                        }
+                        IconButton {
+                            icon: Icons.system-firmware-restart;
+                            text: @tr("Firmware restart");
+                            enabled: Printer.is-connected && !Printer.host-actions-locked;
+                            clicked => { Confirm.ask(@tr("Firmware restart"), @tr("Restarts Klipper and resets all MCUs, e.g. after a firmware update or an MCU error."), "firmware-restart", "", false); }
                         }
                     }
                 }
+                Card {
+                    title: @tr("Host");
+                    icon: Icons.system-host;
+                    HorizontalLayout {
+                        spacing: Theme.spacing;
+                        height: root.action-row-height;
+                        IconButton {
+                            icon: Icons.system-restart;
+                            text: @tr("Reboot");
+                            enabled: Printer.is-connected && !Printer.host-actions-locked;
+                            clicked => { Confirm.ask(@tr("Reboot host"), @tr("The printer host restarts. The connection is lost for a while."), "reboot-host", "", true); }
+                        }
+                        IconButton {
+                            icon: Icons.system-shutdown;
+                            text: @tr("Shutdown");
+                            enabled: Printer.is-connected && !Printer.host-actions-locked;
+                            clicked => { Confirm.ask(@tr("Shut down host"), @tr("The printer host powers off and must be switched on by hand."), "shutdown-host", "", true); }
+                        }
+                    }
+                    Text { text: @tr("Restart service"); color: Theme.muted; font-size: Theme.font-small; }
+                    HorizontalLayout {
+                        spacing: Theme.spacing;
+                        height: root.action-row-height;
+                        for service in [{ id: "klipper", name: @tr("Klipper") }, { id: "moonraker", name: @tr("Moonraker") }]: IconButton {
+                            text: service.name;
+                            icon: Icons.system-restart;
+                            enabled: Printer.is-connected && !Printer.host-actions-locked;
+                            clicked => { Confirm.ask(@tr("Restart service"), service.name, "restart-service", service.id, false); }
+                        }
+                    }
+                    if Printer.host-actions-locked: IconLabel {
+                        icon: Icons.ui-lock;
+                        text: Printer.updates-busy ? @tr("Locked while updating")
+                            : Printer.is-printing ? @tr("Locked while printing") : @tr("Locked while Klipper is busy");
+                        color: StateIcons.severity-color(Severity.attention);
+                        font-size: Theme.font-small;
+                    }
+                }
+                Rectangle { vertical-stretch: 1; }
             }
-            Rectangle { vertical-stretch: 1; }
+
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: Theme.spacing;
+                if Printer.has-power: Card {
+                    title: @tr("Power devices");
+                    icon: Icons.accessory-power-device;
+                    for device in Printer.power-devices: ToggleRow {
+                        height: Theme.row-height-small;
+                        text: device.name;
+                        checked: device.on;
+                        enabled: !(device.locked && Printer.is-printing);
+                        toggled => {
+                            if (device.on) {
+                                Confirm.ask(@tr("Switch off"), device.name, "power-off", device.name, true);
+                            } else {
+                                Actions.set-power(device.name, true);
+                            }
+                        }
+                    }
+                }
+                Rectangle { vertical-stretch: 1; }
+            }
         }
-    }
     }
 }

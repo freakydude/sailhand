@@ -115,6 +115,7 @@ fn layer_pauses_call_mainsails_macros_with_documented_parameters_only() {
     assert_eq!(pause_at(11, &both), Ok(vec![gcode("SET_PAUSE_NEXT_LAYER ENABLE=1")]));
     assert_eq!(pause_at(42, &both), Ok(vec![gcode("SET_PAUSE_AT_LAYER ENABLE=1 LAYER=42")]));
     assert!(pause_at(42, &["gcode_macro SET_PAUSE_NEXT_LAYER"]).is_err());
+    assert_eq!(pause_at(10, &both), Err(CommandError::LayerPassed(10)));
     assert!(resolved(Command::PauseAtLayer { layer: 42 }, &both).is_err());
     assert_eq!(
         resolved(Command::ClearLayerPause, &both),
@@ -228,8 +229,14 @@ fn a_preset_heats_the_bed_only_if_there_is_one() {
 }
 
 #[test]
-fn cooling_down_switches_every_heater_off() {
-    let status = status_with_targets(&[("extruder", 210.0), ("heater_bed", 60.0), ("heater_generic chamber", 40.0)]);
+fn cooling_down_switches_every_heater_off_and_leaves_temperature_fans() {
+    let mut status = status_with_targets(&[
+        ("extruder", 210.0),
+        ("heater_bed", 60.0),
+        ("heater_generic chamber", 40.0),
+        ("temperature_fan case", 40.0),
+    ]);
+    status.heaters[3].cools_only = true;
 
     let commands = Command::CoolDown.resolve(&printer(&[]), &status);
 
@@ -261,6 +268,15 @@ fn pid_tuning_needs_a_known_heater_and_a_target_it_takes() {
         Err(CommandError::UnknownHeater("temperature_fan case".into())),
         "the heater manager does not know it"
     );
+}
+
+#[test]
+fn save_config_and_a_mesh_change_are_refused_during_a_print() {
+    // SAVE_CONFIG restarts Klipper and ends the print; another mesh would change the leveling a pause resumes with.
+    assert!(Command::SaveConfig.interrupts_print());
+    assert!(Command::ClearBedMesh.loses_print_position());
+    assert!(Command::LoadBedMesh { profile: "default".into() }.loses_print_position());
+    assert!(!Command::SaveBedMesh { profile: "default".into() }.loses_print_position());
 }
 
 #[test]

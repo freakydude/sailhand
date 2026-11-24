@@ -84,7 +84,7 @@ pub struct Snapshot {
 }
 
 /// One-off requests for data that is not part of the running subscription.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Query {
     Files,
     /// Metadata and then the thumbnail of a file.

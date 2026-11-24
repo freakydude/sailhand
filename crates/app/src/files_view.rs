@@ -48,7 +48,7 @@ impl FileState {
         FileItem {
             path: file.path.as_str().into(),
             name: format::job_name(&file.path).into(),
-            modified: facts.modified.into(),
+            date: facts.date.into(),
             material: facts.material.into(),
             weight: facts.weight.into(),
             nozzle: facts.nozzle.into(),

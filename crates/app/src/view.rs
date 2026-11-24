@@ -22,7 +22,6 @@ use sailhand_core::sources::spoolman::Spool;
 use sailhand_core::{Provenance, Sourced};
 
 const NO_VALUE: &str = "-";
-const ORIGIN_PACE_ONLY: &str = "measured pace only";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JobTexts {
@@ -52,17 +51,14 @@ pub fn job_texts(
 ) -> JobTexts {
     let metadata = metadata.filter(|metadata| metadata.filename == job.filename);
     let expected = if job.state.is_active() { estimates::expected_print_seconds(metadata, last_print) } else { None };
-    let remaining = job
-        .state
-        .is_active()
-        .then(|| estimates::remaining_print_seconds(job, expected.map(|expected| expected.value)))
-        .flatten();
+    let remaining = job.state.is_active().then(|| estimates::remaining_print_time(job, expected)).flatten();
     JobTexts {
         name: if job.filename.is_empty() { String::new() } else { format::job_name(&job.filename) },
         elapsed: if job.filename.is_empty() { NO_VALUE.to_owned() } else { format::duration(job.print_duration) },
         total: if job.filename.is_empty() { NO_VALUE.to_owned() } else { format::duration(job.total_duration) },
-        remaining: remaining.map_or_else(|| NO_VALUE.to_owned(), format::duration),
-        eta: remaining.map_or_else(|| NO_VALUE.to_owned(), |seconds| format::finish_time(now, seconds)),
+        remaining: remaining.map_or_else(|| NO_VALUE.to_owned(), |left| show(left, format::duration)),
+        eta: remaining
+            .map_or_else(|| NO_VALUE.to_owned(), |left| show(left, |seconds| format::finish_time(now, seconds))),
         layers: layers(job, metadata),
         heights: heights(job, metadata),
         filament: filament(job, metadata, spool),
@@ -70,7 +66,7 @@ pub fn job_texts(
         expectation_origin: job
             .state
             .is_active()
-            .then(|| expected.map_or(ORIGIN_PACE_ONLY, |expected| expected.origin)),
+            .then(|| expected.map_or(estimates::ORIGIN_PACE_ONLY, |expected| expected.origin)),
     }
 }
 
@@ -141,7 +137,9 @@ fn filament(job: &PrintJob, metadata: Option<&FileMetadata>, spool: Option<&Spoo
 fn filament_length(job: &PrintJob, metadata: Option<&FileMetadata>) -> String {
     let total = metadata.and_then(|metadata| metadata.filament_total);
     match (job.state, total) {
-        (PrintState::Standby, Some(total)) => format::filament_length(total),
+        (PrintState::Standby, Some(total)) => {
+            show(Sourced::estimated(total, estimates::ORIGIN_SLICER_ESTIMATE), format::filament_length)
+        }
         (PrintState::Complete, _) if job.filament_used > 0.0 => format::filament_length(job.filament_used),
         (_, Some(total)) if job.filament_used > 0.0 => format::filament_progress(job.filament_used, total),
         _ if job.filament_used > 0.0 => format::filament_length(job.filament_used),
@@ -214,7 +212,6 @@ fn stands_at(job: &PrintJob) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
-/// What is left of a spool, for example `613 g`; empty without a weight.
 /// The grams left in a lane: as Spoolman books them, or with `~` where the source counts them down itself (AFC).
 pub fn lane_remaining(left: Option<Remaining>) -> String {
     match left {
@@ -224,6 +221,7 @@ pub fn lane_remaining(left: Option<Remaining>) -> String {
     }
 }
 
+/// What is left of a spool, for example `613 g`; empty without a weight.
 pub fn spool_remaining(spool: &Spool) -> String {
     spool.remaining_weight.map(format::filament_weight).unwrap_or_default()
 }
@@ -294,7 +292,8 @@ pub fn shared_tools_text(tools: &[usize]) -> String {
 /// What a row of the file list shows; an empty text is a fact the file does not have.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileFacts {
-    pub modified: String,
+    /// When the file was uploaded or last started, whichever is later.
+    pub date: String,
     /// The slicer's materials of the tools the print uses, each once (`PLA, PETG`).
     pub material: String,
     pub weight: String,
@@ -308,7 +307,7 @@ pub struct FileFacts {
 /// The facts of a file for its row. Values of the last completed print win over what the slicer predicted;
 /// predictions are marked with `~`. The temperatures are the slicer's settings, not predictions.
 pub fn file_facts(info: &FileInfo) -> FileFacts {
-    let mut facts = FileFacts { modified: format::unix_date(info.entry.modified), ..FileFacts::default() };
+    let mut facts = FileFacts { date: format::unix_date(info.latest), ..FileFacts::default() };
     if let Some(metadata) = info.metadata {
         facts.material = file_materials(metadata);
         facts.weight = estimates::filament_weight_grams(metadata, info.last_print, info.spool)
@@ -595,8 +594,8 @@ mod tests {
 
         assert_eq!(texts.name, "cube");
         assert_eq!(texts.elapsed, "6 min 00 s");
-        assert_eq!(texts.remaining, "54 min 00 s");
-        assert_eq!(texts.eta, "12:54");
+        assert_eq!(texts.remaining, "~54 min 00 s");
+        assert_eq!(texts.eta, "~12:54");
         assert_eq!(texts.layers, "3 / ~100");
         assert_eq!(texts.filament, "1.0 / 5.0 m");
     }
@@ -615,6 +614,7 @@ mod tests {
         let texts = job_texts(&job, Some(&metadata("a.gcode")), Some(&last_print), None, now());
 
         assert_eq!(texts.remaining, "1 h 03 min");
+        assert!(!texts.eta.starts_with('~'), "{}", texts.eta);
         assert_eq!(texts.expectation_origin, Some(estimates::ORIGIN_LAST_PRINT));
     }
 
@@ -630,9 +630,9 @@ mod tests {
 
         let texts = job_texts(&job, None, None, None, now());
 
-        assert_eq!(texts.remaining, "30 min 00 s");
+        assert_eq!(texts.remaining, "~30 min 00 s");
         assert_eq!(texts.layers, "-");
-        assert_eq!(texts.expectation_origin, Some(ORIGIN_PACE_ONLY));
+        assert_eq!(texts.expectation_origin, Some(estimates::ORIGIN_PACE_ONLY));
     }
 
     #[test]
@@ -645,7 +645,7 @@ mod tests {
         assert_eq!(texts.eta, "-");
         assert_eq!(texts.expectation_origin, None);
         assert_eq!(texts.layers, "~100");
-        assert_eq!(texts.filament, "5.0 m");
+        assert_eq!(texts.filament, "~5.0 m");
     }
 
     #[test]
@@ -831,7 +831,7 @@ mod tests {
 
     fn facts_of(metadata: Option<&FileMetadata>, last_print: Option<&LastPrint>) -> FileFacts {
         let entry = FileEntry { path: "a.gcode".into(), modified: 1_700_000_000.0, size: 100 };
-        file_facts(&FileInfo { entry: &entry, metadata, last_print, spool: None })
+        file_facts(&FileInfo { entry: &entry, metadata, last_print, latest: entry.modified, spool: None })
     }
 
     fn slicer_settings() -> FileMetadata {
@@ -850,7 +850,7 @@ mod tests {
         assert_eq!(
             facts,
             FileFacts {
-                modified: format::unix_date(1_700_000_000.0),
+                date: format::unix_date(1_700_000_000.0),
                 material: "PLA".into(),
                 weight: "~30 g".into(),
                 nozzle: "0.4".into(),
@@ -932,7 +932,7 @@ mod tests {
     fn file_without_metadata_shows_only_its_date() {
         let facts = facts_of(None, None);
 
-        assert_eq!(facts, FileFacts { modified: format::unix_date(1_700_000_000.0), ..FileFacts::default() });
+        assert_eq!(facts, FileFacts { date: format::unix_date(1_700_000_000.0), ..FileFacts::default() });
     }
 
     #[test]

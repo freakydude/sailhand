@@ -69,26 +69,31 @@ impl SettingsStore {
         }
     }
 
-    /// Changes only what differs from the file. A file that cannot be read is left alone (the error says why),
-    /// rather than replaced by the settings in memory.
-    pub fn save(&self, settings: &Settings) -> Result<(), SettingsError> {
-        let (mut file, new) = match self.read()? {
+    /// Writes what changed between `before` (the settings as last read or written) and `after`; everything else in
+    /// the file stays as it is (see [`file_format::write`]). A file that cannot be read is left alone (the error says
+    /// why), rather than replaced by the settings in memory. A missing file is written in full.
+    pub fn save_changes(&self, before: &Settings, after: &Settings) -> Result<(), SettingsError> {
+        self.write(Some(before), after)
+    }
+
+    fn write(&self, before: Option<&Settings>, after: &Settings) -> Result<(), SettingsError> {
+        let (mut file, before) = match self.read()? {
             Some(text) => {
                 let file = self.parse(&text)?;
                 // A value that cannot be read would be replaced by the default in memory: keep what was written.
                 file_format::read(&file).map_err(|message| self.format_error(message))?;
-                (file, false)
+                (file, before)
             }
-            None => (ConfigFile::new(HEADER), true),
+            None => (ConfigFile::new(HEADER), None),
         };
-        file_format::write(settings, &mut file, new);
+        file_format::write(before, after, &mut file);
         write_atomically(&self.path, &file.render(), false)
             .map_err(|source| SettingsError::Io { path: self.path.clone(), source })
     }
 
     fn create(&self) -> Result<Settings, SettingsError> {
         let settings = Settings::default();
-        self.save(&settings)?;
+        self.write(None, &settings)?;
         Ok(settings)
     }
 
@@ -106,9 +111,17 @@ impl SettingsStore {
     }
 
     fn set_aside(&self) -> Result<(), SettingsError> {
-        let mut name = self.path.file_name().unwrap_or_default().to_os_string();
-        name.push(format!(".{SET_ASIDE_SUFFIX}"));
-        let aside = self.path.with_file_name(name);
+        let aside = (0..)
+            .map(|number| {
+                let mut name = self.path.file_name().unwrap_or_default().to_os_string();
+                name.push(format!(".{SET_ASIDE_SUFFIX}"));
+                if number > 0 {
+                    name.push(format!(".{number}"));
+                }
+                self.path.with_file_name(name)
+            })
+            .find(|candidate| !candidate.exists())
+            .expect("an unbounded range always yields a free name");
         std::fs::rename(&self.path, &aside).map_err(|source| SettingsError::Io { path: aside.clone(), source })?;
         log::warn!(
             "settings: {} was in the old TOML format; renamed it to {} and started with the defaults",
@@ -132,15 +145,46 @@ impl SettingsStore {
     }
 }
 
-/// A file Sailhand wrote up to now in TOML: not readable as INI, and it has a `[[list]]` or a value before the first
-/// section (Sailhand wrote `moonraker = "…"` at the top).
+/// The settings file as Sailhand last read or wrote it, so that saving writes only what changed on the screen since.
+#[derive(Debug)]
+pub struct SettingsFile {
+    store: SettingsStore,
+    saved: Settings,
+}
+
+impl SettingsFile {
+    /// `loaded` is what [`SettingsStore::load_or_create`] returned (or the defaults it fell back to).
+    pub fn new(store: SettingsStore, loaded: Settings) -> Self {
+        Self { store, saved: loaded }
+    }
+
+    pub fn path(&self) -> &Path {
+        self.store.path()
+    }
+
+    /// Writes what changed since the last load or save; leaves the file untouched when nothing did.
+    pub fn save(&mut self, settings: &Settings) -> Result<(), SettingsError> {
+        if *settings == self.saved {
+            return Ok(());
+        }
+        self.store.save_changes(&self.saved, settings)?;
+        self.saved = settings.clone();
+        Ok(())
+    }
+}
+
+/// A file Sailhand wrote up to now in TOML: not readable as INI, and it has a `[[list]]` or starts with a quoted
+/// value (Sailhand wrote `moonraker = "…"` at the top). A hand-edited INI with a stray line is reported instead.
 fn is_old_toml(text: &str) -> bool {
     if ConfigFile::parse(text).is_ok() {
         return false;
     }
     let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with(['#', ';']));
-    let starts_with_value = lines.next().is_some_and(|first| !first.starts_with('['));
-    starts_with_value || text.lines().any(|line| line.trim_start().starts_with("[["))
+    let starts_with_quoted_value = lines
+        .next()
+        .and_then(|first| first.split_once('='))
+        .is_some_and(|(_, value)| value.trim_start().starts_with('"'));
+    starts_with_quoted_value || text.lines().any(|line| line.trim_start().starts_with("[["))
 }
 
 #[cfg(test)]
@@ -196,6 +240,7 @@ off_when_idle_minutes: 5
 #*# temperature = 5
 #*# extrude_mm = 10
 #*# extrude_speed = 5
+#*# drive_speed = 50
 #*#
 #*# [printer voron]
 #*# uuid = 29f7565a940247049493e8ff2a0d0c87
@@ -256,7 +301,9 @@ off_when_idle_minutes: 5
     fn saving_unchanged_settings_leaves_the_file_as_it_was() {
         let (_dir, store) = store_with(THREE_PRINTERS);
 
-        store.save(&store.load().unwrap()).unwrap();
+        let loaded = store.load().unwrap();
+
+        store.save_changes(&loaded, &loaded).unwrap();
 
         assert_eq!(file_text(&store), THREE_PRINTERS);
     }
@@ -264,12 +311,13 @@ off_when_idle_minutes: 5
     #[test]
     fn changes_on_the_screen_touch_only_their_lines() {
         let (_dir, store) = store_with(THREE_PRINTERS);
-        let mut settings = store.load().unwrap();
+        let loaded = store.load().unwrap();
+        let mut settings = loaded.clone();
         settings.backlight.brightness = Some(40);
         settings.forget_printer("http://ratrig.local:7125");
         settings.printer_mut("http://192.168.40.6:7125").unwrap().hidden_macros.clear();
 
-        store.save(&settings).unwrap();
+        store.save_changes(&loaded, &settings).unwrap();
 
         let expected = THREE_PRINTERS
             .replace("hidden_macros:\n    LOAD_FILAMENT\n    UNLOAD_FILAMENT\n", "")
@@ -287,7 +335,7 @@ off_when_idle_minutes: 5
         settings.choose_printer(&Endpoint::parse("voron.local:7125").unwrap(), "voron", None);
         settings.forget_printer("http://voron.local:7125");
 
-        store.save(&settings).unwrap();
+        store.save_changes(&Settings::default(), &settings).unwrap();
 
         assert!(file_text(&store).contains("#*# [sailhand]\n#*# moonraker = http://voron.local:7125\n"));
         assert_eq!(store.load().unwrap().moonraker.as_deref(), Some("http://voron.local:7125"));
@@ -317,10 +365,11 @@ off_when_idle_minutes: 5
     #[test]
     fn the_first_printer_is_written_once_it_is_kept() {
         let (_dir, store) = temporary_store();
-        let mut settings = store.load_or_create().unwrap();
+        let loaded = store.load_or_create().unwrap();
+        let mut settings = loaded.clone();
         settings.keep_first_printer(&Endpoint::parse(DEFAULT_MOONRAKER).unwrap());
 
-        store.save(&settings).unwrap();
+        store.save_changes(&loaded, &settings).unwrap();
 
         assert!(file_text(&store).contains("\n[printer 127.0.0.1]\nmoonraker: http://127.0.0.1:7125\n"));
         assert_eq!(store.load().unwrap(), settings);
@@ -340,16 +389,40 @@ off_when_idle_minutes: 5
     }
 
     #[test]
+    fn a_stray_line_above_the_first_section_is_reported_not_taken_for_toml() {
+        let edited = "fullscreen: True\n[sailhand]\nfullscreen: False\n";
+        let (_dir, store) = store_with(edited);
+
+        assert!(store.load_or_create().is_err());
+        assert_eq!(file_text(&store), edited);
+        assert!(!store.path().with_file_name("settings.conf.old").exists());
+    }
+
+    #[test]
+    fn setting_aside_keeps_an_earlier_old_file() {
+        let old = "moonraker = \"http://192.168.40.6:7125\"\n";
+        let (_dir, store) = store_with(old);
+        let earlier = store.path().with_file_name("settings.conf.old");
+        std::fs::write(&earlier, "earlier").unwrap();
+
+        store.load_or_create().unwrap();
+
+        assert_eq!(std::fs::read_to_string(earlier).unwrap(), "earlier");
+        assert_eq!(std::fs::read_to_string(store.path().with_file_name("settings.conf.old.1")).unwrap(), old);
+    }
+
+    #[test]
     fn a_broken_file_is_reported_and_not_overwritten() {
         let (_dir, store) = store_with("[sailhand]\nfullscreen: tru\n");
 
         let error = store.load_or_create().unwrap_err().to_string();
 
         assert!(error.contains("[sailhand] fullscreen (line 2)"), "{error}");
-        assert!(matches!(store.save(&Settings::default()), Err(SettingsError::Format { .. })));
+        let changed = Settings { fullscreen: true, ..Settings::default() };
+        assert!(matches!(store.save_changes(&Settings::default(), &changed), Err(SettingsError::Format { .. })));
         assert_eq!(file_text(&store), "[sailhand]\nfullscreen: tru\n");
         let (_dir, store) = store_with("[sailhand\n");
-        assert!(matches!(store.save(&Settings::default()), Err(SettingsError::Format { .. })));
+        assert!(matches!(store.save_changes(&Settings::default(), &changed), Err(SettingsError::Format { .. })));
         assert_eq!(file_text(&store), "[sailhand\n");
     }
 
@@ -391,12 +464,91 @@ off_when_idle_minutes: 5
         settings.backlight.off_when_idle_minutes = Some(5);
         settings.backlight.off_when_printing_minutes = Some(30);
 
-        store.save(&settings).unwrap();
+        store.save_changes(&Settings::default(), &settings).unwrap();
         let loaded = store.load().unwrap().backlight;
 
         assert_eq!(loaded, settings.backlight);
         let timeouts = loaded.timeouts();
         assert_eq!(timeouts.idle, Some(std::time::Duration::from_secs(300)));
         assert_eq!(timeouts.printing, Some(std::time::Duration::from_secs(1800)));
+    }
+
+    /// Starts Sailhand on THREE_PRINTERS, then lets `hand` edit the file text while it runs.
+    fn running_on_three_printers(hand: impl FnOnce(&str) -> String) -> (tempfile::TempDir, SettingsFile, Settings) {
+        let (dir, store) = store_with(THREE_PRINTERS);
+        let loaded = store.load().unwrap();
+        std::fs::write(store.path(), hand(THREE_PRINTERS)).unwrap();
+        (dir, SettingsFile::new(store, loaded.clone()), loaded)
+    }
+
+    fn settings_text(file: &SettingsFile) -> String {
+        std::fs::read_to_string(file.path()).unwrap()
+    }
+
+    #[test]
+    fn a_preset_added_by_hand_stays_when_the_screen_saves() {
+        let with_asa =
+            |text: &str| text.replace("[step_choices]", "[preset ASA]\nextruder: 260\nbed: 100\n\n[step_choices]");
+        let (_dir, mut file, mut settings) = running_on_three_printers(with_asa);
+        settings.fullscreen = false;
+
+        file.save(&settings).unwrap();
+
+        let text = settings_text(&file);
+        assert!(text.contains("[preset ASA]\nextruder: 260\nbed: 100\n"), "{text}");
+        assert!(text.contains("fullscreen: False"), "{text}");
+    }
+
+    #[test]
+    fn a_comment_beside_a_changed_value_stays() {
+        let commented = |text: &str| text.replace("brightness: 80", "brightness: 80 # dim at night");
+        let (_dir, mut file, mut settings) = running_on_three_printers(commented);
+        settings.backlight.brightness = Some(40);
+
+        file.save(&settings).unwrap();
+
+        let text = settings_text(&file);
+        assert!(text.contains("brightness: 40 # dim at night"), "{text}");
+    }
+
+    #[test]
+    fn a_value_changed_by_hand_after_the_start_stays() {
+        let edited = |text: &str| text.replace("off_when_idle_minutes: 5", "off_when_idle_minutes: 10");
+        let (_dir, mut file, mut settings) = running_on_three_printers(edited);
+        settings.backlight.brightness = Some(40);
+        settings.steps.drive_speed = 150.0;
+
+        file.save(&settings).unwrap();
+
+        let text = settings_text(&file);
+        assert!(text.contains("off_when_idle_minutes: 10"), "{text}");
+        assert!(text.contains("brightness: 40"), "{text}");
+        assert!(text.contains("#*# drive_speed = 150\n"), "{text}");
+    }
+
+    #[test]
+    fn printers_added_by_hand_stay_and_only_one_removed_on_the_screen_goes() {
+        let extra = |text: &str| {
+            text.replace("[preset PLA]", "[printer garage]\nmoonraker: http://garage.local:7125\n\n[preset PLA]")
+        };
+        let (_dir, mut file, mut settings) = running_on_three_printers(extra);
+        settings.forget_printer("http://ratrig.local:7125");
+
+        file.save(&settings).unwrap();
+
+        let text = settings_text(&file);
+        assert!(text.contains("[printer garage]\nmoonraker: http://garage.local:7125\n"), "{text}");
+        assert!(!text.contains("[printer ratrig]"), "{text}");
+    }
+
+    #[test]
+    fn nothing_is_written_without_a_change() {
+        let edited = |text: &str| text.replace("move_mm: 0.1, 1, 10, 50, 100", "move_mm: 0.1, 1, 10 # short");
+        let (_dir, mut file, settings) = running_on_three_printers(edited);
+        let before = settings_text(&file);
+
+        file.save(&settings).unwrap();
+
+        assert_eq!(settings_text(&file), before);
     }
 }

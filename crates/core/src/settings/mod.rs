@@ -4,7 +4,7 @@
 mod file_format;
 mod store;
 
-pub use store::{SettingsError, SettingsStore};
+pub use store::{SettingsError, SettingsFile, SettingsStore};
 
 use crate::backlight::BacklightSettings;
 use crate::moonraker::Endpoint;
@@ -174,6 +174,8 @@ pub struct Steps {
     pub temperature: f64,
     pub extrude_mm: f64,
     pub extrude_speed: f64,
+    /// Top speed of the live pad, mm/s.
+    pub drive_speed: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -208,7 +210,14 @@ impl Default for Settings {
 
 impl Default for Steps {
     fn default() -> Self {
-        Self { move_mm: 10.0, z_offset_mm: 0.025, temperature: 5.0, extrude_mm: 10.0, extrude_speed: 5.0 }
+        Self {
+            move_mm: 10.0,
+            z_offset_mm: 0.025,
+            temperature: 5.0,
+            extrude_mm: 10.0,
+            extrude_speed: 5.0,
+            drive_speed: 50.0,
+        }
     }
 }
 

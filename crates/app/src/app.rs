@@ -12,7 +12,7 @@ use crate::{AppWindow, UiSettings};
 use sailhand_core::backlight::{BacklightBackend, BacklightService};
 use sailhand_core::network::{NetworkBackend, NetworkService};
 use sailhand_core::printers::{DiscoveryBackend, DiscoveryService};
-use sailhand_core::settings::{SettingsError, SettingsStore};
+use sailhand_core::settings::{SettingsError, SettingsFile, SettingsStore};
 use sailhand_core::{CredentialStore, Endpoint, PrinterService};
 #[cfg(not(target_os = "android"))]
 use slint::winit_030::winit::event::{ElementState, KeyEvent, WindowEvent};
@@ -76,10 +76,11 @@ impl Application {
             Some(path) => SettingsStore::new(path),
             None => SettingsStore::default_location()?,
         };
-        let mut settings = store.load_or_create().unwrap_or_else(|error| {
+        let loaded = store.load_or_create().unwrap_or_else(|error| {
             log::warn!("{error}; using defaults");
             sailhand_core::Settings::default()
         });
+        let mut settings = loaded.clone();
         crate::logging::set_verbose(settings.verbose_log);
         let renderer = if options.framebuffer {
             "software (framebuffer fallback)".to_owned()
@@ -124,7 +125,7 @@ impl Application {
         let backlight = BacklightController::bind(&window, backlight_service.clone(), &presenter);
         let settings = SettingsController::bind(
             &window,
-            store,
+            SettingsFile::new(store, loaded),
             settings,
             &endpoint,
             Bridges {

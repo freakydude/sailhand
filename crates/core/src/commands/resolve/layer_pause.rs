@@ -5,6 +5,10 @@ use crate::sources::{PrinterStatus, Sources};
 
 pub(super) fn pause_at(sources: &Sources, status: &PrinterStatus, layer: u32) -> Result<Vec<Command>, CommandError> {
     let current = status.job.current_layer.ok_or(CommandError::NoLayerReport)?;
+    // The print may have reached the layer while the dialog was open.
+    if layer <= current {
+        return Err(CommandError::LayerPassed(layer));
+    }
     sources
         .layer_pause
         .and_then(|macros| macros.pause_at(layer, current))

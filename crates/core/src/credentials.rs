@@ -112,26 +112,31 @@ impl CredentialStore {
         })
     }
 
+    /// Changes the file as it is on disk; an unreadable one stays as it is (it may hold logins worth repairing by hand).
     fn change(&self, edit: impl FnOnce(&mut CredentialFile)) -> std::io::Result<()> {
         let Some(path) = &self.path else { return Ok(()) };
-        let mut file = self.read();
+        let mut file = self.load()?;
         edit(&mut file);
         let text = serde_json::to_string_pretty(&file).map_err(std::io::Error::other)?;
         write_atomically(path, &text, true)
     }
 
+    /// For connecting: an unreadable file counts as empty.
     fn read(&self) -> CredentialFile {
-        let Some(path) = &self.path else { return CredentialFile::default() };
+        self.load().unwrap_or_else(|error| {
+            log::warn!("ignoring the credentials: {error}");
+            CredentialFile::default()
+        })
+    }
+
+    fn load(&self) -> std::io::Result<CredentialFile> {
+        let Some(path) = &self.path else { return Ok(CredentialFile::default()) };
         match std::fs::read_to_string(path) {
-            Ok(text) => serde_json::from_str(&text).unwrap_or_else(|error| {
-                log::warn!("ignoring unreadable {}: {error}", path.display());
-                CredentialFile::default()
+            Ok(text) => serde_json::from_str(&text).map_err(|error| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, format!("unreadable {}: {error}", path.display()))
             }),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => CredentialFile::default(),
-            Err(error) => {
-                log::warn!("cannot read {}: {error}", path.display());
-                CredentialFile::default()
-            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(CredentialFile::default()),
+            Err(error) => Err(std::io::Error::new(error.kind(), format!("cannot read {}: {error}", path.display()))),
         }
     }
 }
@@ -270,5 +275,17 @@ mod tests {
         store.store(&endpoint, Some(login())).unwrap();
 
         assert_eq!(store.credential(&endpoint), None);
+    }
+
+    #[test]
+    fn an_unreadable_file_is_not_overwritten_by_a_change() {
+        let (_dir, store) = temporary_store();
+        let path = store.path.clone().unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "{ broken").unwrap();
+        let endpoint = Endpoint::parse("voron.local").unwrap();
+
+        assert!(store.trust_certificate(&endpoint, CertificateFingerprint::of(b"certificate")).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ broken");
     }
 }

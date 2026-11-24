@@ -53,8 +53,13 @@ pub struct AxisTarget {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlannedMove {
     pub targets: Vec<AxisTarget>,
+    /// Feed rate for the `G1` in mm/s: the planned speed divided by the speed factor (M220), which Klipper multiplies
+    /// into every feed rate (klippy/gcode_move.py `cmd_G1`), so the toolhead runs as planned and `seconds` holds.
     pub speed: f64,
     pub seconds: f64,
+    /// Outside the axis range: Klipper refuses it. Sent all the same for Klipper's message, but never counted as
+    /// pending, or the next step would start from a place the toolhead never reaches.
+    pub refused: bool,
 }
 
 /// What Klipper allows a move: `[printer]` and the toolhead status.
@@ -117,7 +122,10 @@ pub fn jog(motion: &Motion, axis: Axis, distance: f64, limits: &MoveLimits) -> O
 pub fn move_to(motion: &Motion, axis: Axis, position: f64, limits: &MoveLimits) -> PlannedMove {
     let gcode = position + entry_offset(motion, axis) - offset(motion, axis);
     let target = AxisTarget { axis, gcode, toolhead: toolhead_of(motion, axis, gcode) };
-    planned(motion, vec![target], move_speed(axis), limits)
+    PlannedMove {
+        refused: outside_range(motion, axis, position),
+        ..planned(motion, vec![target], move_speed(axis), limits)
+    }
 }
 
 /// Where a typed position starts: X and Y where the toolhead stands, Z as the G-code height.
@@ -187,7 +195,12 @@ fn planned(motion: &Motion, targets: Vec<AxisTarget>, speed: f64, limits: &MoveL
         delta[target.axis.index()] = target.gcode - motion.gcode_position[target.axis.index()];
     }
     let seconds = Profile::new(delta, speed, limits).seconds(norm(delta));
-    PlannedMove { targets, speed, seconds }
+    PlannedMove { targets, speed: speed / feed_factor(motion), seconds, refused: false }
+}
+
+/// Klipper's speed factor (M220 as a ratio); 1 until reported.
+fn feed_factor(motion: &Motion) -> f64 {
+    if motion.speed_factor > 0.0 { motion.speed_factor } else { 1.0 }
 }
 
 /// How Klipper drives a single move from rest to rest: klippy/toolhead.py `Move` and `LookAheadQueue.flush` with
@@ -363,6 +376,7 @@ mod tests {
         let target = single(Some(move_to(&motion, Axis::X, 0.0, &STEADY)));
         assert!(target.toolhead.abs() < 1e-9 && (target.gcode - 0.4).abs() < 1e-9);
         assert!(outside_range(&motion, Axis::X, -0.1) && !outside_range(&motion, Axis::X, 0.0));
+        assert!(move_to(&motion, Axis::X, -0.1, &STEADY).refused && !move_to(&motion, Axis::X, 0.0, &STEADY).refused);
 
         let target = single(Some(move_to(&motion, Axis::Z, 10.0, &STEADY)));
         assert_eq!(target.gcode, 10.0);
@@ -387,6 +401,15 @@ mod tests {
         // Z alone: max_z_accel 500 and max_z_velocity 40.
         let z = Profile::new([0.0, 0.0, -1.0], 100.0, &VORON);
         assert_eq!((z.speed, z.accel, z.cruise_accel), (40.0, 500.0, 500.0));
+    }
+
+    #[test]
+    fn the_feed_rate_makes_up_for_the_speed_factor_so_the_planned_time_holds() {
+        let at_full = jog(&motion(), Axis::X, 10.0, &STEADY).expect("a move");
+        let halved = Motion { speed_factor: 0.5, ..motion() };
+        let at_half = jog(&halved, Axis::X, 10.0, &STEADY).expect("a move");
+        assert_eq!(at_half.speed, 2.0 * at_full.speed);
+        assert_eq!(at_half.seconds, at_full.seconds);
     }
 
     #[test]

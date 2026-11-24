@@ -2,7 +2,7 @@
 
 use super::Snapshot;
 use super::dispatch::console_line;
-use super::queries::update_status_events;
+use super::queries::{SessionQueries, update_status_events};
 use super::trail;
 use super::{
     ACCESS_CHECK_INTERVAL, Access, CLIENT_NAME, Event, KLIPPY_POLL_INTERVAL, Outputs, PARALLEL_FILE_DETAILS, Query,
@@ -35,6 +35,7 @@ pub(super) async fn run(
 ) {
     // A printer that stays off would otherwise fill the log (an SD card) with the same failure on every retry.
     let mut reported_failure: Option<String> = None;
+    let mut watches = PrintWatches::default();
     loop {
         publish_connection(&outputs, &endpoint, ConnectionState::Connecting);
         let end = match open(&endpoint, &credentials).await {
@@ -42,7 +43,8 @@ pub(super) async fn run(
                 reported_failure = None;
                 log::info!("connected to {}", endpoint.websocket_url());
                 let (wled_answers, wled_answers_rx) = mpsc::unbounded_channel();
-                let session = Session::new(opened, endpoint.clone(), &credentials, &outputs, wled_answers);
+                let session =
+                    Session::new(opened, endpoint.clone(), &credentials, &outputs, &mut watches, wled_answers);
                 session.run(notifications, wled_answers_rx, &mut requests).await
             }
             Err(OpenError::Untrusted(certificate)) => {
@@ -72,7 +74,12 @@ pub(super) async fn run(
         };
         match retry {
             Retry::Same => {}
-            Retry::SwitchTo(next) => endpoint = next,
+            Retry::SwitchTo(next) => {
+                if next != endpoint {
+                    watches = PrintWatches::default();
+                }
+                endpoint = next;
+            }
             Retry::Shutdown => return,
         }
     }
@@ -262,6 +269,7 @@ pub(super) struct Session<'a> {
     pub(super) klippy_ready: bool,
     /// The Klippy state the log last noted.
     pub(super) logged_klippy: Option<KlippyState>,
+    pub(super) logged_moonraker: bool,
     pub(super) job_filename: String,
     pub(super) job_state: PrintState,
     /// Targets sent but not yet reported back; the snapshot shows them.
@@ -270,16 +278,25 @@ pub(super) struct Session<'a> {
     pub(super) pending_moves: PendingMoves,
     /// What each fan's tachometer has measured since Klipper started; the snapshot marks the stalled ones.
     pub(super) fan_watch: FanWatch,
-    pub(super) height_watch: HeightWatch,
-    pub(super) job_watch: JobWatch,
+    pub(super) watches: &'a mut PrintWatches,
     /// The spools the lanes keep (gates, tool macros) at the last look; `None` until Spoolman was asked once.
     pub(super) spoolman_lane_spools: Option<Vec<u32>>,
     /// Limits the file details in flight, so a long file list does not flood Moonraker.
     pub(super) file_details: Arc<Semaphore>,
+    /// The queries in flight; their answers end with the session.
+    pub(super) queries: SessionQueries,
     /// Moonraker's WLED strips; part of the snapshot's lights.
     pub(super) wled: Vec<WledStrip>,
     /// The answers of the commands to a WLED strip, which carry its new state.
     pub(super) wled_answers: mpsc::UnboundedSender<Vec<WledStrip>>,
+}
+
+/// What the session learns about a print over time and must keep across reconnects to the same printer: the height a
+/// paused print reached (the floor of the live pad, which Klipper reports nowhere) and the last job.
+#[derive(Debug, Default)]
+pub(super) struct PrintWatches {
+    height: HeightWatch,
+    job: JobWatch,
 }
 
 impl<'a> Session<'a> {
@@ -288,6 +305,7 @@ impl<'a> Session<'a> {
         endpoint: Endpoint,
         credentials: &'a CredentialStore,
         outputs: &'a Outputs,
+        watches: &'a mut PrintWatches,
         wled_answers: mpsc::UnboundedSender<Vec<WledStrip>>,
     ) -> Self {
         Self {
@@ -303,15 +321,16 @@ impl<'a> Session<'a> {
             components: ServerComponents::default(),
             klippy_ready: false,
             logged_klippy: None,
+            logged_moonraker: false,
             job_filename: String::new(),
             job_state: PrintState::default(),
             pending_targets: PendingTargets::default(),
             pending_moves: PendingMoves::default(),
             fan_watch: FanWatch::default(),
-            height_watch: HeightWatch::default(),
-            job_watch: JobWatch::default(),
+            watches,
             spoolman_lane_spools: None,
             file_details: Arc::new(Semaphore::new(PARALLEL_FILE_DETAILS)),
+            queries: SessionQueries::new(),
             wled: Vec::new(),
             wled_answers,
         }
@@ -465,7 +484,11 @@ impl<'a> Session<'a> {
 
     async fn refresh_klippy(&mut self) -> Result<(), CallError> {
         let info = server_info::parse_server_info(&self.connection.call("server.info", None).await?);
-        log_fact("Moonraker", &info.moonraker_version);
+        // Asked every few seconds while Klipper is not ready (e.g. its power supply is off): logged once per connection.
+        if !self.logged_moonraker {
+            log_fact("Moonraker", &info.moonraker_version);
+            self.logged_moonraker = true;
+        }
         self.components = ServerComponents::from_names(info.components.iter().map(String::as_str));
         let state =
             if info.klippy_connected { KlippyState::parse(&info.klippy_state) } else { KlippyState::Disconnected };
@@ -655,10 +678,10 @@ impl<'a> Session<'a> {
         let now = Instant::now();
         self.pending_targets.apply(&mut status.heaters, now);
         self.fan_watch.apply(&mut status.fans, now);
-        self.height_watch.apply(&mut status.job, status.motion.gcode_position[2], now);
+        self.watches.height.apply(&mut status.job, status.motion.gcode_position[2], now);
         self.pending_moves.apply(&mut status.motion, now);
         let unix_now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64());
-        status.previous_job = self.job_watch.apply(&mut status.job, unix_now).map(Box::new);
+        status.previous_job = self.watches.job.apply(&mut status.job, unix_now).map(Box::new);
         status.leds.extend(self.wled.iter().map(WledStrip::led));
         status
     }

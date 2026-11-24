@@ -213,7 +213,7 @@ export component StatusBar inherits Rectangle {
                 }
 
                 if Printer.unread-errors > 0: UnreadCounter {
-                    y: (parent.height - self.height) / 2;
+                    cross-axis-self-alignment: center;
                     count: Printer.unread-errors;
                 }
             }
@@ -251,7 +251,7 @@ export component StatusBar inherits Rectangle {
         // Opens the light panel; lit while the main light (chamber or case light) is on. A controllable backlight
         // of the display is reason enough, also without a ready printer.
         if (Printer.leds.length > 0 && Printer.ready) || Backlight.available: Rectangle {
-            width: 44px;
+            width: Theme.touch;
             border-radius: Theme.radius;
             background: light-touch.pressed ? Theme.surface-raised : transparent;
             accessible-role: button;

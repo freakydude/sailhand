@@ -22,8 +22,10 @@ pub(super) fn preset(status: &PrinterStatus, extruder: f64, bed: f64) -> Vec<Com
     commands
 }
 
+/// Switches the heaters off. A `temperature_fan` keeps its target: at 0 it would run at full speed
+/// (klippy/extras/temperature_fan.py: below the measured temperature the control drives `max_speed`).
 pub(super) fn cool_down(status: &PrinterStatus) -> Vec<Command> {
-    status.heaters.iter().map(|heater| target(&heater.object, 0.0)).collect()
+    status.heaters.iter().filter(|heater| !heater.cools_only).map(|heater| target(&heater.object, 0.0)).collect()
 }
 
 pub(super) fn step(status: &PrinterStatus, heater: &str, step: f64) -> Result<Vec<Command>, CommandError> {

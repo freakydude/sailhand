@@ -215,6 +215,7 @@ export component BedMeshProfilesDialog inherits Scrim {
                         icon: Icons.print-load;
                         text: profile;
                         checked: profile == Printer.bed-mesh-active;
+                        enabled: !Printer.position-locked;
                         clicked => {
                             Actions.load-bed-mesh(profile);
                             MeshDialogs.profiles-open = false;

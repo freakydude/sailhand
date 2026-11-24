@@ -132,6 +132,7 @@ component AxesTab inherits Rectangle {
                     values: UiSettings.drive-speeds;
                     unit: Units.speed-symbol;
                     selected <=> UiSettings.drive-speed;
+                    changed => { UiSettings.steps-changed(); }
                 }
             }
         }
@@ -216,13 +217,14 @@ export component MotionPage inherits Rectangle {
                 checked: root.tab == MotionTab.calibrate;
                 clicked => { Navigation.motion-tab = MotionTab.calibrate; }
             }
-        }
-        // While paused: moving and extruding stay possible, what would lose the print's position does not.
-        if Printer.position-locked && (root.tab == MotionTab.axes || root.tab == MotionTab.calibrate): Note {
-            text: @tr("Print paused: homing, leveling, calibrating and motors off stay off until the print ends.");
-            horizontal-alignment: center;
-            height: Theme.font-small * 2;
-            vertical-alignment: center;
+            // While paused: moving and extruding stay possible, what would lose the print's position does not. Beside
+            // the tabs, so the axes keep their full height.
+            if Printer.position-locked && (root.tab == MotionTab.axes || root.tab == MotionTab.calibrate): Note {
+                horizontal-stretch: 1;
+                text: @tr("Locked while paused: homing, leveling, calibration, motors off");
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
         }
         if root.tab == MotionTab.axes: AxesTab {
             vertical-stretch: 1;

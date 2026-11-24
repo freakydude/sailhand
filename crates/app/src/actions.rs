@@ -68,7 +68,7 @@ fn bind_motion(window: &AppWindow, actions: &Actions, service: &PrinterService, 
     actions.on_disable_motors(send(service, || Command::DisableMotors));
     actions.on_level(send(service, || Command::Level));
     actions.on_adjust_z_offset(with(service, |service, delta: f32| {
-        service.send(Command::AdjustZOffset { delta: round_offset(delta) })
+        service.send(Command::AdjustZOffset { delta: slint_decimal(delta) })
     }));
     actions.on_reset_z_offset(send(service, || Command::ResetZOffset));
     actions.on_apply_z_offset(send(service, || Command::ApplyZOffset));
@@ -169,7 +169,7 @@ fn bind_calibration(actions: &Actions, service: &PrinterService, presenter: &Rc<
     let (probe_service, probe_presenter) = (service.clone(), Rc::clone(presenter));
     actions.on_test_z(move |distance: f32| {
         probe_presenter.probe_moved();
-        probe_service.send(Command::TestZ { step: TestZ::By(round_offset(distance)) })
+        probe_service.send(Command::TestZ { step: TestZ::By(slint_decimal(distance)) })
     });
     let (probe_service, probe_presenter) = (service.clone(), Rc::clone(presenter));
     actions.on_probe_fine(move |direction: i32| {
@@ -548,9 +548,10 @@ fn parse_axis(axis: &str) -> Option<Axis> {
     }
 }
 
-/// Slint computes in f32; small steps like 0.005 are smoothed to five decimal places.
-fn round_offset(value: f32) -> f64 {
-    (f64::from(value) * 100_000.0).round() / 100_000.0
+/// A number from Slint (f32) as the decimal it was written as: 0.025, not 0.02500000037252903, for commands and the
+/// settings file. The shortest text that reads back as the same f32 is that decimal.
+pub(crate) fn slint_decimal(value: f32) -> f64 {
+    value.to_string().parse().unwrap_or(f64::from(value))
 }
 
 #[cfg(test)]
@@ -568,8 +569,8 @@ mod tests {
     fn axis_names_and_rounding() {
         assert_eq!(parse_axis("y"), Some(Axis::Y));
         assert_eq!(parse_axis("e"), None);
-        assert_eq!(round_offset(0.005_f32), 0.005);
-        assert_eq!(round_offset(-0.025_f32), -0.025);
+        assert_eq!(slint_decimal(0.005_f32), 0.005);
+        assert_eq!(slint_decimal(-0.025_f32), -0.025);
     }
 
     #[test]

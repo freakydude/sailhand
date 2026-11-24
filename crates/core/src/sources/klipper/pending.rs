@@ -47,6 +47,9 @@ pub struct PendingMoves {
 
 impl PendingMoves {
     pub fn request(&mut self, planned: &PlannedMove, now: Instant) {
+        if planned.refused {
+            return;
+        }
         for target in &planned.targets {
             self.axes[target.axis.index()] = Some((*target, now));
         }
@@ -89,6 +92,7 @@ mod tests {
             targets: vec![AxisTarget { axis: Axis::Z, gcode: z, toolhead: z + 0.07 }],
             speed: 10.0,
             seconds: 0.0,
+            refused: false,
         };
         let mut pending = PendingMoves::default();
         pending.request(&to(5.1), start);
@@ -113,6 +117,7 @@ mod tests {
             targets: vec![AxisTarget { axis: Axis::X, gcode: 1.0, toolhead: 1.0 }],
             speed: 10.0,
             seconds,
+            refused: false,
         };
         let queued = |pending: &mut PendingMoves, at: Duration| {
             let mut motion = Motion::default();
@@ -150,5 +155,23 @@ mod tests {
         let mut heaters = reported(50.0);
         pending.apply(&mut heaters, start + PENDING_TARGET_TIMEOUT + Duration::from_secs(1));
         assert_eq!(heaters[0].target, 50.0);
+    }
+
+    #[test]
+    fn a_move_klipper_refuses_is_not_shown_as_pending() {
+        let start = Instant::now();
+        let refused = PlannedMove {
+            targets: vec![AxisTarget { axis: Axis::X, gcode: 500.0, toolhead: 500.0 }],
+            speed: 10.0,
+            seconds: 1.0,
+            refused: true,
+        };
+        let mut pending = PendingMoves::default();
+        pending.request(&refused, start);
+
+        let mut motion =
+            Motion { position: [100.0, 0.0, 0.0, 0.0], gcode_position: [100.0, 0.0, 0.0, 0.0], ..Motion::default() };
+        pending.apply(&mut motion, start + Duration::from_millis(100));
+        assert_eq!((motion.position[0], motion.queued_seconds), (100.0, 0.0));
     }
 }

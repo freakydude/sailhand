@@ -1,15 +1,16 @@
 //! Connects `UiSettings` with the settings file and applies changes immediately.
 
+use crate::actions::slint_decimal;
 use crate::items::float_model;
 use crate::network_controller::NetworkController;
 use crate::presenter::Presenter;
 use crate::{AppWindow, Backlight, PresetItem, UiSettings};
 use sailhand_core::backlight::{BacklightService, BacklightSettings, usable_brightness};
-use sailhand_core::settings::{MAX_SHOWN_PRESETS, SavedPrinter, Settings, SettingsStore, TemperaturePreset};
+use sailhand_core::settings::{MAX_SHOWN_PRESETS, SavedPrinter, Settings, SettingsFile, TemperaturePreset};
 use sailhand_core::sources::klipper::moves::DRIVE_INTERVAL;
 use sailhand_core::step_choices::{StepLists, mirrored_row, nearest_step};
 use sailhand_core::{Endpoint, PrinterService};
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -23,7 +24,7 @@ pub struct Bridges {
 
 pub struct SettingsController {
     window: slint::Weak<AppWindow>,
-    store: SettingsStore,
+    file: RefCell<SettingsFile>,
     /// File contents; an address from the command line is not saved.
     settings: RefCell<Settings>,
     /// The address in use (`Endpoint::display`), also when it came from the command line.
@@ -38,7 +39,7 @@ pub struct SettingsController {
 impl SettingsController {
     pub fn bind(
         window: &AppWindow,
-        store: SettingsStore,
+        file: SettingsFile,
         settings: Settings,
         endpoint: &Endpoint,
         bridges: Bridges,
@@ -46,7 +47,7 @@ impl SettingsController {
         let Bridges { service, presenter, network, backlight } = bridges;
         let controller = Rc::new(Self {
             window: window.as_weak(),
-            store,
+            file: RefCell::new(file),
             settings: RefCell::new(settings),
             active: RefCell::new(endpoint.display()),
             service,
@@ -91,6 +92,7 @@ impl SettingsController {
         ui.set_log_export_available(cfg!(target_os = "android"));
         ui.set_hide_temperature_reports(settings.hide_temperature_reports);
         ui.set_move_step(settings.steps.move_mm as f32);
+        ui.set_drive_speed(settings.steps.drive_speed as f32);
         ui.set_drive_interval(DRIVE_INTERVAL.as_millis() as i64);
         ui.set_z_offset_step(settings.steps.z_offset_mm as f32);
         ui.set_temperature_step(settings.steps.temperature as f32);
@@ -100,7 +102,7 @@ impl SettingsController {
         show_step_lists(&ui, &lists);
         self.presenter.set_extrude_choices(lists.extrude_mm);
         if cfg!(not(target_os = "android")) {
-            ui.set_settings_file(self.store.path().display().to_string().into());
+            ui.set_settings_file(self.file.borrow().path().display().to_string().into());
         }
         ui.set_version(sailhand_core::version_label().into());
         let backlight = window.global::<Backlight>();
@@ -182,11 +184,12 @@ impl SettingsController {
         let Some(window) = self.window.upgrade() else { return };
         let ui = window.global::<UiSettings>();
         self.update(|settings| {
-            settings.steps.move_mm = f64::from(ui.get_move_step());
-            settings.steps.z_offset_mm = f64::from(ui.get_z_offset_step());
-            settings.steps.temperature = f64::from(ui.get_temperature_step());
-            settings.steps.extrude_mm = f64::from(ui.get_extrude_length());
-            settings.steps.extrude_speed = f64::from(ui.get_extrude_speed());
+            settings.steps.move_mm = slint_decimal(ui.get_move_step());
+            settings.steps.z_offset_mm = slint_decimal(ui.get_z_offset_step());
+            settings.steps.temperature = slint_decimal(ui.get_temperature_step());
+            settings.steps.extrude_mm = slint_decimal(ui.get_extrude_length());
+            settings.steps.extrude_speed = slint_decimal(ui.get_extrude_speed());
+            settings.steps.drive_speed = slint_decimal(ui.get_drive_speed());
         });
     }
 
@@ -259,7 +262,7 @@ impl SettingsController {
     fn update(&self, change: impl FnOnce(&mut Settings)) {
         let mut settings = self.settings.borrow_mut();
         change(&mut settings);
-        if let Err(error) = self.store.save(&settings) {
+        if let Err(error) = self.file.borrow_mut().save(&settings) {
             log::warn!("{error}");
             self.presenter.show_notice(&error.to_string(), true);
         }
@@ -309,8 +312,10 @@ fn show_step_lists(ui: &UiSettings<'_>, lists: &StepLists) {
     ui.set_temperature_steps(float_model(&lists.temperature));
     ui.set_extrude_speeds(float_model(&lists.extrude_speed));
     ui.set_manual_probe_steps(float_model(&mirrored_row(&lists.manual_probe_mm)));
-    ui.set_move_step(nearest_step(&lists.move_mm, f64::from(ui.get_move_step())) as f32);
-    ui.set_z_offset_step(nearest_step(&lists.z_offset_mm, f64::from(ui.get_z_offset_step())) as f32);
-    ui.set_temperature_step(nearest_step(&lists.temperature, f64::from(ui.get_temperature_step())) as f32);
-    ui.set_extrude_speed(nearest_step(&lists.extrude_speed, f64::from(ui.get_extrude_speed())) as f32);
+    ui.set_move_step(nearest_step(&lists.move_mm, slint_decimal(ui.get_move_step())) as f32);
+    ui.set_z_offset_step(nearest_step(&lists.z_offset_mm, slint_decimal(ui.get_z_offset_step())) as f32);
+    ui.set_temperature_step(nearest_step(&lists.temperature, slint_decimal(ui.get_temperature_step())) as f32);
+    ui.set_extrude_speed(nearest_step(&lists.extrude_speed, slint_decimal(ui.get_extrude_speed())) as f32);
+    let drive_speeds: Vec<f64> = ui.get_drive_speeds().iter().map(slint_decimal).collect();
+    ui.set_drive_speed(nearest_step(&drive_speeds, slint_decimal(ui.get_drive_speed())) as f32);
 }

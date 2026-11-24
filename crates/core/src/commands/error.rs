@@ -21,6 +21,8 @@ pub enum CommandError {
     NoAxisRange,
     #[error("this printer has no macro to pause at a layer")]
     NoLayerPause,
+    #[error("layer {0} is already printing")]
+    LayerPassed(u32),
     #[error("the print file reports no layers")]
     NoLayerReport,
     #[error("this printer has no MMU")]
