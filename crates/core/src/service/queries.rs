@@ -14,6 +14,7 @@ use crate::sources::moonraker_server::temperature_store;
 use crate::sources::moonraker_server::update_manager;
 use crate::sources::spoolman;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -31,7 +32,7 @@ impl Session<'_> {
             authorized: self.access.is_authorized(),
         };
         let events = self.outputs.events.clone();
-        let gate = self.queries.pass();
+        let gate = self.queries.pass(&query);
         let lane_spools = self.spoolman_lane_spools.clone().unwrap_or_default();
         let file_details = matches!(query, Query::FileDetails { .. });
         let permits = file_details.then(|| self.file_details.clone());
@@ -56,23 +57,36 @@ impl Session<'_> {
 
 /// The queries of one session. Their answers pass only while the session lives: after a switch to another printer (or
 /// a reconnect) a late answer would land in the caches of the one shown now. Ending the session also stops the
-/// queries still running.
+/// queries still running. Of two runs of the same query the answer of the later one wins: each run makes several
+/// calls, so an earlier run can finish last and would bring back a state already replaced (an active spool set
+/// while it ran).
 pub(super) struct SessionQueries {
-    open: Arc<Mutex<bool>>,
+    answers: Arc<Mutex<Answers>>,
     tasks: Mutex<JoinSet<()>>,
+}
+
+#[derive(Default)]
+struct Answers {
+    closed: bool,
+    last_started: u64,
+    /// Per query the start number of the run whose answer passed last.
+    last_passed: HashMap<Query, u64>,
 }
 
 impl SessionQueries {
     pub(super) fn new() -> Self {
-        Self { open: Arc::new(Mutex::new(true)), tasks: Mutex::default() }
+        Self { answers: Arc::default(), tasks: Mutex::default() }
     }
 
-    fn pass(&self) -> AnswerPass {
-        AnswerPass(self.open.clone())
+    /// Call when the query starts: its number orders it against other runs of the same query.
+    fn pass(&self, query: &Query) -> AnswerPass {
+        let mut answers = lock(&self.answers);
+        answers.last_started += 1;
+        AnswerPass { answers: self.answers.clone(), query: query.clone(), started: answers.last_started }
     }
 
     fn spawn(&self, query: impl Future<Output = ()> + Send + 'static) {
-        let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut tasks = lock(&self.tasks);
         while tasks.try_join_next().is_some() {}
         tasks.spawn(query);
     }
@@ -80,28 +94,39 @@ impl SessionQueries {
 
 impl Drop for SessionQueries {
     fn drop(&mut self) {
-        *lock(&self.open) = false;
+        lock(&self.answers).closed = true;
     }
 }
 
-/// Lets a query's answer through while its session lives.
-struct AnswerPass(Arc<Mutex<bool>>);
+/// Lets a query's answer through while its session lives and no later run of the query has answered.
+struct AnswerPass {
+    answers: Arc<Mutex<Answers>>,
+    query: Query,
+    started: u64,
+}
 
 impl AnswerPass {
     /// Holds the lock while sending, so an answer is either queued before the session ends (and thus before the next
-    /// session's events) or not at all.
+    /// session's events) or not at all, and two runs of a query queue in the order they decided.
     fn send(&self, events: &mpsc::UnboundedSender<Event>, answer: Vec<Event>) {
-        let open = lock(&self.0);
-        if *open {
-            answer.into_iter().for_each(|event| {
-                let _ = events.send(event);
-            });
+        let mut answers = lock(&self.answers);
+        if answers.closed {
+            return;
         }
+        let last_passed = answers.last_passed.entry(self.query.clone()).or_default();
+        if *last_passed > self.started {
+            log::debug!("dropped the answer to {:?}: a later run answered first", self.query);
+            return;
+        }
+        *last_passed = self.started;
+        answer.into_iter().for_each(|event| {
+            let _ = events.send(event);
+        });
     }
 }
 
-fn lock(open: &Mutex<bool>) -> MutexGuard<'_, bool> {
-    open.lock().unwrap_or_else(PoisonError::into_inner)
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// The Moonraker component a query needs, when this Moonraker has not loaded it; without it the method is unknown.
@@ -214,13 +239,32 @@ mod tests {
     async fn answers_pass_only_while_the_session_lives() {
         let (events, mut received) = mpsc::unbounded_channel();
         let queries = SessionQueries::new();
-        let pass = queries.pass();
+        let pass = queries.pass(&Query::Spoolman);
         pass.send(&events, vec![Event::SpoolmanChanged]);
 
         drop(queries);
         pass.send(&events, vec![Event::SpoolmanChanged]);
 
         assert_eq!(received.try_recv(), Ok(Event::SpoolmanChanged));
+        assert!(received.try_recv().is_err());
+    }
+
+    /// CI 2026-11-24: a Spoolman query started before a load answered after the one the load's
+    /// `notify_active_spool_set` started, and brought the old active spool back.
+    #[tokio::test]
+    async fn an_earlier_run_of_a_query_answering_last_is_dropped() {
+        let (events, mut received) = mpsc::unbounded_channel();
+        let queries = SessionQueries::new();
+        let earlier = queries.pass(&Query::Spoolman);
+        let other_query = queries.pass(&Query::Files);
+        let later = queries.pass(&Query::Spoolman);
+
+        later.send(&events, vec![Event::UpdateManagerBusy(false)]);
+        earlier.send(&events, vec![Event::UpdateManagerBusy(true)]);
+        other_query.send(&events, vec![Event::Files(Vec::new())]);
+
+        assert_eq!(received.try_recv(), Ok(Event::UpdateManagerBusy(false)));
+        assert_eq!(received.try_recv(), Ok(Event::Files(Vec::new())), "another query keeps its answer");
         assert!(received.try_recv().is_err());
     }
 
