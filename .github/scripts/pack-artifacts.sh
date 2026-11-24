@@ -18,7 +18,7 @@ if [[ "$name" == *linux* ]]; then
 }
 EOF
   # upload-artifact loses the execute bits; Moonraker restores them from the zip when extracting.
-  chmod 0755 "$name/sailhand" "$name/install.sh" "$name/uninstall.sh"
+  chmod 0755 "$name/sailhand" "$name/install.sh" "$name/uninstall.sh" "$name/touch-calibrate.sh"
   bash "$scripts/build-deb.sh" "$name" "$version"
   bash "$scripts/build-arch.sh" "$name" "$version"
 fi
