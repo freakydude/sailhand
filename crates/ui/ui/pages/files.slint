@@ -16,7 +16,8 @@ component FileChip inherits IconLabel {
 
 component FileRow inherits Rectangle {
     in property <string> name;
-    in property <string> modified;
+    // Uploaded or last started, whichever is later; the list is sorted by it.
+    in property <string> date;
     in property <string> material;
     in property <string> weight;
     in property <string> nozzle;
@@ -67,7 +68,7 @@ component FileRow inherits Rectangle {
                     color: Theme.foreground;
                 }
                 Text {
-                    text: root.modified;
+                    text: root.date;
                     color: Theme.muted;
                     font-size: Theme.font-small;
                     horizontal-alignment: right;
@@ -143,7 +144,7 @@ export component FileBrowser inherits Rectangle {
                 height: root.row-height;
                 width: list.row-width;
                 name: file.name;
-                modified: file.modified;
+                date: file.date;
                 material: file.material;
                 weight: file.weight;
                 nozzle: file.nozzle;

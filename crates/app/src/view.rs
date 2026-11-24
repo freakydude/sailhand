@@ -292,7 +292,8 @@ pub fn shared_tools_text(tools: &[usize]) -> String {
 /// What a row of the file list shows; an empty text is a fact the file does not have.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FileFacts {
-    pub modified: String,
+    /// When the file was uploaded or last started, whichever is later.
+    pub date: String,
     /// The slicer's materials of the tools the print uses, each once (`PLA, PETG`).
     pub material: String,
     pub weight: String,
@@ -306,7 +307,7 @@ pub struct FileFacts {
 /// The facts of a file for its row. Values of the last completed print win over what the slicer predicted;
 /// predictions are marked with `~`. The temperatures are the slicer's settings, not predictions.
 pub fn file_facts(info: &FileInfo) -> FileFacts {
-    let mut facts = FileFacts { modified: format::unix_date(info.entry.modified), ..FileFacts::default() };
+    let mut facts = FileFacts { date: format::unix_date(info.latest), ..FileFacts::default() };
     if let Some(metadata) = info.metadata {
         facts.material = file_materials(metadata);
         facts.weight = estimates::filament_weight_grams(metadata, info.last_print, info.spool)
@@ -830,7 +831,7 @@ mod tests {
 
     fn facts_of(metadata: Option<&FileMetadata>, last_print: Option<&LastPrint>) -> FileFacts {
         let entry = FileEntry { path: "a.gcode".into(), modified: 1_700_000_000.0, size: 100 };
-        file_facts(&FileInfo { entry: &entry, metadata, last_print, spool: None })
+        file_facts(&FileInfo { entry: &entry, metadata, last_print, latest: entry.modified, spool: None })
     }
 
     fn slicer_settings() -> FileMetadata {
@@ -849,7 +850,7 @@ mod tests {
         assert_eq!(
             facts,
             FileFacts {
-                modified: format::unix_date(1_700_000_000.0),
+                date: format::unix_date(1_700_000_000.0),
                 material: "PLA".into(),
                 weight: "~30 g".into(),
                 nozzle: "0.4".into(),
@@ -931,7 +932,7 @@ mod tests {
     fn file_without_metadata_shows_only_its_date() {
         let facts = facts_of(None, None);
 
-        assert_eq!(facts, FileFacts { modified: format::unix_date(1_700_000_000.0), ..FileFacts::default() });
+        assert_eq!(facts, FileFacts { date: format::unix_date(1_700_000_000.0), ..FileFacts::default() });
     }
 
     #[test]

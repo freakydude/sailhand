@@ -469,7 +469,8 @@ export struct ScrewItem {
 export struct FileItem {
     path: string,
     name: string,
-    modified: string,
+    // Uploaded or last started, whichever is later.
+    date: string,
     // The slicer's filament type, one per tool for files with several (`PLA;PETG`).
     material: string,
     // Filament the print takes, e.g. "52 g" or "~270 g".

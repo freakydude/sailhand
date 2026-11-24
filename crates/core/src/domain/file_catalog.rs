@@ -15,6 +15,8 @@ pub struct FileInfo<'a> {
     pub entry: &'a FileEntry,
     pub metadata: Option<&'a FileMetadata>,
     pub last_print: Option<&'a LastPrint>,
+    /// When the file was uploaded or last started, whichever is later (Unix seconds); the list is sorted by it.
+    pub latest: f64,
     /// The one spool the last print used, if Spoolman is known to have it.
     pub spool: Option<&'a Spool>,
 }
@@ -57,11 +59,16 @@ impl FileCatalog {
     /// Newest first: a file counts as new when it was uploaded or last printed, whichever came later, so a file
     /// printed again is found at the top.
     fn sort(&mut self) {
-        let last_started = &self.last_started;
-        let newest =
-            |entry: &FileEntry| last_started.get(&entry.path).map_or(entry.modified, |start| start.max(entry.modified));
-        self.entries
-            .sort_by(|left, right| newest(right).total_cmp(&newest(left)).then_with(|| left.path.cmp(&right.path)));
+        let mut entries = std::mem::take(&mut self.entries);
+        entries.sort_by(|left, right| {
+            self.latest(right).total_cmp(&self.latest(left)).then_with(|| left.path.cmp(&right.path))
+        });
+        self.entries = entries;
+    }
+
+    /// When the file was uploaded or last started, whichever is later.
+    fn latest(&self, entry: &FileEntry) -> f64 {
+        self.last_started.get(&entry.path).map_or(entry.modified, |start| start.max(entry.modified))
     }
 
     pub fn entries(&self) -> &[FileEntry] {
@@ -119,7 +126,7 @@ impl FileCatalog {
         let spool = last_print
             .filter(|last_print| last_print.spool_ids.len() == 1)
             .and_then(|last_print| self.spools.get(&last_print.spool_ids[0]));
-        FileInfo { entry, metadata: self.metadata(&entry.path), last_print, spool }
+        FileInfo { entry, metadata: self.metadata(&entry.path), last_print, latest: self.latest(entry), spool }
     }
 }
 
@@ -224,6 +231,8 @@ mod tests {
 
         let order: Vec<&str> = catalog.entries().iter().map(|entry| entry.path.as_str()).collect();
         assert_eq!(order, ["old.gcode", "new.gcode", "mid.gcode"]);
+        assert_eq!(catalog.info(&catalog.entries()[0]).latest, 400.0);
+        assert_eq!(catalog.info(&catalog.entries()[2]).latest, 200.0, "an older start does not count");
         catalog.set_entries(vec![
             uploaded("mid.gcode", 200.0),
             uploaded("old.gcode", 100.0),
