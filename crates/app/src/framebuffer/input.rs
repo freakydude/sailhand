@@ -9,6 +9,7 @@
 
 use super::InputTarget;
 use super::rotation::Rotation;
+use super::touch::Touch;
 use input::event::keyboard::{KeyState, KeyboardEventTrait};
 use input::event::pointer::ButtonState;
 use input::event::touch::{TouchEventPosition, TouchEventSlot, TouchEventTrait};
@@ -29,6 +30,9 @@ pub struct Input {
     target: InputTarget,
     /// The seat slot of the finger that acts as the pointer.
     finger: Option<u32>,
+    /// That finger from going down to lifting.
+    touch: Touch,
+    /// Where the pointer is for the UI.
     position: LogicalPosition,
     rotation: Rotation,
     /// The framebuffer, which is where the touch device reports; the window is turned against it by `rotation`.
@@ -39,7 +43,15 @@ impl Input {
     pub fn open(target: InputTarget, rotation: Rotation, panel: PhysicalSize) -> Result<Self, String> {
         let mut libinput = Libinput::new_with_udev(Devices);
         libinput.udev_assign_seat("seat0").map_err(|()| "libinput cannot use seat0".to_owned())?;
-        Ok(Self { libinput, target, finger: None, position: LogicalPosition::default(), rotation, panel })
+        Ok(Self {
+            libinput,
+            target,
+            finger: None,
+            touch: Touch::default(),
+            position: LogicalPosition::default(),
+            rotation,
+            panel,
+        })
     }
 
     /// Reads the waiting events and hands them to `window`.
@@ -50,7 +62,7 @@ impl Input {
         }
         while let Some(event) = self.libinput.next() {
             let swallowed = self.wakes_the_screen(&event);
-            log_touch(&event, self.panel, self.touch_place(window), self.position, swallowed);
+            log_touch(&event, self.panel, self.touch_place(window), &self.touch, swallowed);
             if swallowed {
                 continue;
             }
@@ -80,10 +92,12 @@ impl Input {
             Event::Touch(TouchEvent::Down(down)) if self.finger.is_none() => {
                 self.finger = Some(down.seat_slot());
                 self.position = place(down.x_transformed(size.width), down.y_transformed(size.height));
+                self.touch = Touch::down(self.position);
                 vec![WindowEvent::PointerPressed { position: self.position, button: left }]
             }
             Event::Touch(TouchEvent::Motion(motion)) if self.finger == Some(motion.seat_slot()) => {
                 self.position = place(motion.x_transformed(size.width), motion.y_transformed(size.height));
+                self.touch.moved(self.position);
                 vec![WindowEvent::PointerMoved { position: self.position }]
             }
             Event::Touch(TouchEvent::Up(up)) if self.finger == Some(up.seat_slot()) => self.lift(),
@@ -144,13 +158,12 @@ fn input_activity(event: &Event) -> Option<bool> {
 }
 
 /// Verbose log of a touch going down or up: where (in layout pixels, as in the .slint files) and how long after the
-/// driver the event loop read it. The release happens where the finger last was (`last`); a release off the key that
-/// was pressed is no tap, so a shaky panel shows here as a release far from its press.
+/// driver the event loop read it; on lifting also how far the finger wandered (`touch`), which shows a shaky panel.
 fn log_touch(
     event: &Event,
     panel: PhysicalSize,
     place: impl Fn(f64, f64) -> (f64, f64),
-    last: LogicalPosition,
+    touch: &Touch,
     swallowed: bool,
 ) {
     if !log::log_enabled!(log::Level::Debug) {
@@ -163,8 +176,7 @@ fn log_touch(
             log::debug!("touch down at {x:.0},{y:.0}, read {} ms late{note}", lateness_ms(down.time_usec()));
         }
         Event::Touch(TouchEvent::Up(up)) => {
-            let (x, y) = (last.x, last.y);
-            log::debug!("touch up at {x:.0},{y:.0}, read {} ms late{note}", lateness_ms(up.time_usec()));
+            log::debug!("touch up {}, read {} ms late{note}", touch.describe(), lateness_ms(up.time_usec()));
         }
         _ => {}
     }
