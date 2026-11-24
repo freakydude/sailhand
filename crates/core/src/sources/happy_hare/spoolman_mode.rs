@@ -41,11 +41,6 @@ impl SpoolmanMode {
             Self::Pull => false,
         }
     }
-
-    /// Happy Hare sets Moonraker's active spool after loading a gate and clears it when unloading starts.
-    pub fn sets_active_spool(self) -> bool {
-        self != Self::Off
-    }
 }
 
 #[cfg(test)]
@@ -73,10 +68,10 @@ mod tests {
     }
 
     #[test]
-    fn only_off_has_no_spools_at_the_gates_and_sets_no_active_spool() {
+    fn only_off_has_no_spools_at_the_gates() {
         for mode in [SpoolmanMode::Readonly, SpoolmanMode::Push, SpoolmanMode::Pull] {
-            assert!(mode.spools_at_gates() && mode.sets_active_spool());
+            assert!(mode.spools_at_gates());
         }
-        assert!(!SpoolmanMode::Off.spools_at_gates() && !SpoolmanMode::Off.sets_active_spool());
+        assert!(!SpoolmanMode::Off.spools_at_gates());
     }
 }

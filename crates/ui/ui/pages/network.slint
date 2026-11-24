@@ -124,7 +124,7 @@ component AdapterRow inherits Rectangle {
             }
             if !(root.connected && root.adapter.wireless): Text {
                 text: root.connected ? root.adapter.address
-                    : root.connecting ? @tr("Connecting")
+                    : root.connecting ? @tr("Connecting …")
                     : root.unavailable ? (root.adapter.wireless
                         ? (Network.wifi-enabled ? @tr("Not available") : @tr("Switched off"))
                         : @tr("No cable"))
@@ -174,7 +174,7 @@ component WifiCard inherits Card {
 
     HorizontalLayout {
         spacing: Theme.spacing;
-        height: Theme.row-height-small;
+        height: Theme.touch;
         ToggleRow {
             horizontal-stretch: 1;
             icon: Network.wifi-enabled ? Icons.system-network : Icons.network-wifi-off;
@@ -270,7 +270,7 @@ component EthernetCard inherits Card {
         label: @tr("State");
         label-width: root.label-width;
         value: root.adapter.status == AdapterStatus.connected ? @tr("Connected")
-            : root.adapter.status == AdapterStatus.connecting ? @tr("Connecting")
+            : root.adapter.status == AdapterStatus.connecting ? @tr("Connecting …")
             : root.adapter.status == AdapterStatus.disconnected ? @tr("Disconnected") : @tr("No cable");
     }
     FactRow {
@@ -369,8 +369,10 @@ component HostNetworkCard inherits Card {
     Rectangle { vertical-stretch: 1; }
 }
 
-export component NetworkSection inherits Rectangle {
-    in property <length> adapters-width: 248px;
+// The dialogs for joining a Wi-Fi network: password, or name and password of a hidden one. They belong to the whole
+// page (not to `NetworkSection`), so that they cover the content area like every other dialog and survive switching
+// sections.
+export component WifiConnectDialogs inherits Rectangle {
     property <string> password-title;
 
     // Asks for confirmation while printing, otherwise connects right away.
@@ -385,35 +387,23 @@ export component NetworkSection inherits Rectangle {
         }
     }
 
-    if Network.managed: HorizontalLayout {
-        spacing: Theme.spacing;
-        AdaptersCard {
-            width: root.adapters-width;
-        }
-        if Network.selected.interface != "" && Network.selected.wireless: WifiCard {
-            horizontal-stretch: 1;
-            choose(network) => {
-                if (network.known || !network.secured) {
-                    root.start-connect(network.ssid, "", false);
-                } else {
-                    root.password-title = @tr("Password for {}", network.ssid);
-                    Network.pending-ssid = network.ssid;
-                    Network.pending-hidden = false;
-                    password.text = "";
-                    password.open = true;
-                }
-            }
-            hidden-network => {
-                ssid.text = "";
-                ssid.open = true;
-            }
-        }
-        if Network.selected.interface != "" && !Network.selected.wireless: EthernetCard {
-            horizontal-stretch: 1;
+    // A tapped network: known and open ones connect, the others ask for the password first.
+    public function choose(network: WifiItem) {
+        if (network.known || !network.secured) {
+            root.start-connect(network.ssid, "", false);
+        } else {
+            root.password-title = @tr("Password for {}", network.ssid);
+            Network.pending-ssid = network.ssid;
+            Network.pending-hidden = false;
+            password.text = "";
+            password.open = true;
         }
     }
 
-    if !Network.managed: HostNetworkCard { }
+    public function ask-hidden() {
+        ssid.text = "";
+        ssid.open = true;
+    }
 
     ssid := TextEntryDialog {
         title: @tr("Network name");
@@ -433,4 +423,28 @@ export component NetworkSection inherits Rectangle {
         secret: true;
         accepted(text) => { root.start-connect(Network.pending-ssid, text, Network.pending-hidden); }
     }
+}
+
+export component NetworkSection inherits Rectangle {
+    in property <length> adapters-width: 248px;
+    // A network was tapped, or "Hidden": `WifiConnectDialogs` asks what is missing.
+    callback choose(WifiItem);
+    callback hidden-network;
+
+    if Network.managed: HorizontalLayout {
+        spacing: Theme.spacing;
+        AdaptersCard {
+            width: root.adapters-width;
+        }
+        if Network.selected.interface != "" && Network.selected.wireless: WifiCard {
+            horizontal-stretch: 1;
+            choose(network) => { root.choose(network); }
+            hidden-network => { root.hidden-network(); }
+        }
+        if Network.selected.interface != "" && !Network.selected.wireless: EthernetCard {
+            horizontal-stretch: 1;
+        }
+    }
+
+    if !Network.managed: HostNetworkCard { }
 }

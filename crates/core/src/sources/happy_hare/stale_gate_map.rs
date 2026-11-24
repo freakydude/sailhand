@@ -9,7 +9,7 @@
 //! but kept its material, name and spool.
 //!
 //! So when `gate_status` or `gate_color_rgb` changes, the fields Happy Hare clears in place are queried once more.
-//! Remove this module and its one call in `service.rs` once Happy Hare copies every list before changing it.
+//! Remove this module and its one call in `service/session.rs` (`requery_stale_gate_map`) once Happy Hare copies every list before changing it.
 
 use serde_json::{Value, json};
 

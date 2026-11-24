@@ -79,7 +79,7 @@ fn decimals(scaled: f64, unit: &Unit, fit: Fit) -> u32 {
     for_resolution.min(fit.width.saturating_sub(integer_digits)).min(fit.significant.saturating_sub(leading_digits))
 }
 
-fn fixed(value: f64, decimals: u32) -> String {
+pub(super) fn fixed(value: f64, decimals: u32) -> String {
     let text = format!("{value:.0$}", decimals as usize);
     // `-0.0` rounds to `-0`; a value that small is no direction.
     if text.trim_start_matches(['-', '0', '.']).is_empty() { text.trim_start_matches('-').to_owned() } else { text }

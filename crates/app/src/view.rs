@@ -141,7 +141,9 @@ fn filament(job: &PrintJob, metadata: Option<&FileMetadata>, spool: Option<&Spoo
 fn filament_length(job: &PrintJob, metadata: Option<&FileMetadata>) -> String {
     let total = metadata.and_then(|metadata| metadata.filament_total);
     match (job.state, total) {
-        (PrintState::Standby, Some(total)) => format::filament_length(total),
+        (PrintState::Standby, Some(total)) => {
+            show(Sourced::estimated(total, estimates::ORIGIN_SLICER_ESTIMATE), format::filament_length)
+        }
         (PrintState::Complete, _) if job.filament_used > 0.0 => format::filament_length(job.filament_used),
         (_, Some(total)) if job.filament_used > 0.0 => format::filament_progress(job.filament_used, total),
         _ if job.filament_used > 0.0 => format::filament_length(job.filament_used),
@@ -214,7 +216,6 @@ fn stands_at(job: &PrintJob) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
-/// What is left of a spool, for example `613 g`; empty without a weight.
 /// The grams left in a lane: as Spoolman books them, or with `~` where the source counts them down itself (AFC).
 pub fn lane_remaining(left: Option<Remaining>) -> String {
     match left {
@@ -224,6 +225,7 @@ pub fn lane_remaining(left: Option<Remaining>) -> String {
     }
 }
 
+/// What is left of a spool, for example `613 g`; empty without a weight.
 pub fn spool_remaining(spool: &Spool) -> String {
     spool.remaining_weight.map(format::filament_weight).unwrap_or_default()
 }
@@ -645,7 +647,7 @@ mod tests {
         assert_eq!(texts.eta, "-");
         assert_eq!(texts.expectation_origin, None);
         assert_eq!(texts.layers, "~100");
-        assert_eq!(texts.filament, "5.0 m");
+        assert_eq!(texts.filament, "~5.0 m");
     }
 
     #[test]

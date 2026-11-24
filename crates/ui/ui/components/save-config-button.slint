@@ -1,0 +1,15 @@
+// Button that writes the pending configuration (SAVE_CONFIG). Klipper restarts afterwards, which would end a print,
+// so it is not tappable while one runs or is paused. The call site sets the width (and may override `horizontal`/`kind`).
+
+import { Icons } from "../icons.slint";
+import { Confirm, Printer } from "../state.slint";
+import { ButtonKind, IconButton } from "controls.slint";
+
+export component SaveConfigButton inherits IconButton {
+    icon: Icons.ui-save;
+    text: @tr("Save config");
+    horizontal: true;
+    kind: ButtonKind.accent;
+    enabled: Printer.save-config-pending && !Printer.is-printing;
+    clicked => { Confirm.ask(@tr("Save config"), @tr("Klipper writes the configuration and restarts."), "save-config", "", false); }
+}

@@ -106,9 +106,17 @@ impl SettingsStore {
     }
 
     fn set_aside(&self) -> Result<(), SettingsError> {
-        let mut name = self.path.file_name().unwrap_or_default().to_os_string();
-        name.push(format!(".{SET_ASIDE_SUFFIX}"));
-        let aside = self.path.with_file_name(name);
+        let aside = (0..)
+            .map(|number| {
+                let mut name = self.path.file_name().unwrap_or_default().to_os_string();
+                name.push(format!(".{SET_ASIDE_SUFFIX}"));
+                if number > 0 {
+                    name.push(format!(".{number}"));
+                }
+                self.path.with_file_name(name)
+            })
+            .find(|candidate| !candidate.exists())
+            .expect("an unbounded range always yields a free name");
         std::fs::rename(&self.path, &aside).map_err(|source| SettingsError::Io { path: aside.clone(), source })?;
         log::warn!(
             "settings: {} was in the old TOML format; renamed it to {} and started with the defaults",
@@ -132,15 +140,18 @@ impl SettingsStore {
     }
 }
 
-/// A file Sailhand wrote up to now in TOML: not readable as INI, and it has a `[[list]]` or a value before the first
-/// section (Sailhand wrote `moonraker = "…"` at the top).
+/// A file Sailhand wrote up to now in TOML: not readable as INI, and it has a `[[list]]` or starts with a quoted
+/// value (Sailhand wrote `moonraker = "…"` at the top). A hand-edited INI with a stray line is reported instead.
 fn is_old_toml(text: &str) -> bool {
     if ConfigFile::parse(text).is_ok() {
         return false;
     }
     let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with(['#', ';']));
-    let starts_with_value = lines.next().is_some_and(|first| !first.starts_with('['));
-    starts_with_value || text.lines().any(|line| line.trim_start().starts_with("[["))
+    let starts_with_quoted_value = lines
+        .next()
+        .and_then(|first| first.split_once('='))
+        .is_some_and(|(_, value)| value.trim_start().starts_with('"'));
+    starts_with_quoted_value || text.lines().any(|line| line.trim_start().starts_with("[["))
 }
 
 #[cfg(test)]
@@ -337,6 +348,29 @@ off_when_idle_minutes: 5
         let aside = store.path().with_file_name("settings.conf.old");
         assert_eq!(std::fs::read_to_string(aside).unwrap(), old);
         assert!(file_text(&store).starts_with("# Sailhand settings"));
+    }
+
+    #[test]
+    fn a_stray_line_above_the_first_section_is_reported_not_taken_for_toml() {
+        let edited = "fullscreen: True\n[sailhand]\nfullscreen: False\n";
+        let (_dir, store) = store_with(edited);
+
+        assert!(store.load_or_create().is_err());
+        assert_eq!(file_text(&store), edited);
+        assert!(!store.path().with_file_name("settings.conf.old").exists());
+    }
+
+    #[test]
+    fn setting_aside_keeps_an_earlier_old_file() {
+        let old = "moonraker = \"http://192.168.40.6:7125\"\n";
+        let (_dir, store) = store_with(old);
+        let earlier = store.path().with_file_name("settings.conf.old");
+        std::fs::write(&earlier, "earlier").unwrap();
+
+        store.load_or_create().unwrap();
+
+        assert_eq!(std::fs::read_to_string(earlier).unwrap(), "earlier");
+        assert_eq!(std::fs::read_to_string(store.path().with_file_name("settings.conf.old.1")).unwrap(), old);
     }
 
     #[test]

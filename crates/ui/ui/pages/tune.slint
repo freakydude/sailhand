@@ -7,6 +7,7 @@ import { StateIcons } from "../state-icons.slint";
 import { Icons } from "../icons.slint";
 import { Actions, Confirm, Printer, TuningItem, UiSettings, Severity } from "../state.slint";
 import { ButtonKind, Card, IconButton, ScrollList, StepSelector } from "../components/controls.slint";
+import { SaveConfigButton } from "../components/save-config-button.slint";
 
 // Names of the expert values; the core identifies them by id.
 global TuningTexts {
@@ -144,7 +145,7 @@ export component TuneBasicsTab inherits Rectangle {
                 }
                 // Applied by Klipper's z_thermal_adjust on top of the babystep, so it is not part of the value above.
                 if Printer.has-thermal-z: Text {
-                    text: @tr("Thermal {} mm", (Printer.thermal-z >= 0 ? "+" : "") + Printer.thermal-z.to-fixed(3));
+                    text: @tr("Thermal {}", (Printer.thermal-z >= 0 ? "+" : "") + Units.length(Printer.thermal-z, 3));
                     color: Theme.muted;
                     font-size: Theme.font-small;
                     horizontal-alignment: center;
@@ -163,12 +164,9 @@ export component TuneBasicsTab inherits Rectangle {
                         enabled: Printer.z-offset != 0 && !Printer.is-printing;
                         clicked => { Actions.apply-z-offset(); }
                     }
-                    IconButton {
-                        icon: Icons.ui-save;
-                        text: @tr("Save config");
-                        enabled: Printer.save-config-pending && !Printer.is-printing;
+                    SaveConfigButton {
+                        horizontal: false;
                         kind: Printer.save-config-pending ? ButtonKind.accent : ButtonKind.normal;
-                        clicked => { Confirm.ask(@tr("Save config"), @tr("Klipper writes the configuration and restarts."), "save-config", "", false); }
                     }
                 }
                 Rectangle { vertical-stretch: 1; }

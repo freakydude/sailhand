@@ -16,7 +16,7 @@ use std::time::Duration;
 /// stacked).
 const LAYER_TILE: (f32, f32) = (430.0, 240.0);
 
-const LAYER_PAUSE_BUTTON: (f32, f32) = (440.0, 320.0);
+const LAYER_PAUSE_BUTTON: (f32, f32) = (560.0, 350.0);
 
 /// How far ahead the scene plans a pause first, so that it shows without pausing.
 const PLANNED_LAYERS_AHEAD: i32 = 40;
@@ -138,7 +138,7 @@ pub(super) fn printing(session: &mut Session) -> Result<(), String> {
     exclude_object(session)?;
     session.service.send(Command::ResumePrint);
     session.wait_until("print resumed", |snapshot| snapshot.status.job.state == PrintState::Printing)?;
-    ask(session, "Cancel print", "The current print will be stopped and cannot be resumed.", "cancel-print", "");
+    ask(session, "Cancel print", "The print stops and cannot be resumed.", "cancel-print", "");
     session.capture("confirm-cancel")?;
     session.window.global::<Confirm>().invoke_execute();
     session.wait_until("print cancelled", |snapshot| snapshot.status.job.state == PrintState::Cancelled)?;

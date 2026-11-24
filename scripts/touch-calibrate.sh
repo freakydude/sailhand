@@ -22,7 +22,7 @@ services=()
 while getopts "f:s:" option; do
   case $option in
     f) framebuffer=$OPTARG ;;
-    s) services=("$OPTARG") ;;
+    s) services+=("$OPTARG") ;;
     *) echo "usage: $0 [-f /dev/fbN] [-s service]"; exit 2 ;;
   esac
 done
@@ -46,17 +46,47 @@ if [[ -z $touch_device ]]; then
   exit 1
 fi
 device_name=$(cat "/sys/class/input/$(basename "$touch_device")/device/name")
-read -r width height < <(tr ',' ' ' < "/sys/class/graphics/$(basename "$framebuffer")/virtual_size")
+# The visible size, as ts_calibrate draws it: the first mode ("U:800x480p-0"); virtual_size can be larger (panning,
+# double buffering).
+fb_sysfs="/sys/class/graphics/$(basename "$framebuffer")"
+mode=$(head -n 1 "$fb_sysfs/modes" 2> /dev/null || true)
+if [[ $mode =~ ([0-9]+)x([0-9]+) ]]; then
+  width=${BASH_REMATCH[1]}
+  height=${BASH_REMATCH[2]}
+else
+  read -r width height < <(tr ',' ' ' < "$fb_sysfs/virtual_size" 2> /dev/null || true)
+fi
+if [[ -z ${width:-} || -z ${height:-} ]]; then
+  echo "Cannot read the size of $framebuffer (no $fb_sysfs/modes or virtual_size)." >&2
+  exit 1
+fi
 echo "Touch screen: $device_name ($touch_device), framebuffer $framebuffer ${width}x${height}"
 
 if ! command -v ts_calibrate > /dev/null; then
-  echo "Installing tslib's tools (libts-bin) ..."
-  apt-get install -y libts-bin
+  if command -v apt-get > /dev/null; then
+    echo "Installing tslib's tools (libts-bin) ..."
+    apt-get install -y libts-bin
+  elif command -v pacman > /dev/null; then
+    echo "Installing tslib ..."
+    pacman -S --needed --noconfirm tslib
+  else
+    echo "ts_calibrate is missing: install tslib's tools with the package manager." >&2
+    exit 1
+  fi
 fi
 
 if [[ ${#services[@]} -eq 0 ]]; then
   mapfile -t services < <(systemctl list-units --type=service --state=running --no-legend --plain \
     'sailhand.service' 'sailhand@*.service' | awk '{print $1}')
+else
+  # Only what runs now is stopped and started again afterwards.
+  running=()
+  for service in "${services[@]}"; do
+    if systemctl is-active --quiet "$service"; then
+      running+=("$service")
+    fi
+  done
+  services=("${running[@]+"${running[@]}"}")
 fi
 
 work=$(mktemp -d)

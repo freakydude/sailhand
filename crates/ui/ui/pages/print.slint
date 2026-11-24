@@ -454,7 +454,7 @@ export component PrintPage inherits Rectangle {
                 icon: Icons.print-cancel;
                 text: @tr("Cancel");
                 kind: ButtonKind.danger;
-                clicked => { Confirm.ask(@tr("Cancel print"), @tr("The current print will be stopped and cannot be resumed."), "cancel-print", "", true); }
+                clicked => { Confirm.ask(@tr("Cancel print"), @tr("The print stops and cannot be resumed."), "cancel-print", "", true); }
             }
         }
     }

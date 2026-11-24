@@ -517,13 +517,14 @@ impl Command {
         )
     }
 
-    /// Restarts, reboots and updates end a running print, and `PID_CALIBRATE` switches the heater off and blocks
-    /// Klipper; they are refused while one runs
-    /// ([`PrinterStatus::print_running`](crate::sources::PrinterStatus::print_running)).
+    /// Restarts, reboots and updates end a running print (`SAVE_CONFIG` restarts Klipper: klippy/configfile.py
+    /// `cmd_SAVE_CONFIG`, `request_exit('restart')`), and `PID_CALIBRATE` switches the heater off and blocks Klipper;
+    /// they are refused while one runs ([`PrinterStatus::print_running`](crate::sources::PrinterStatus::print_running)).
     pub fn interrupts_print(&self) -> bool {
         matches!(
             self,
             Self::RestartKlipper
+                | Self::SaveConfig
                 | Self::FirmwareRestart
                 | Self::RestartService { .. }
                 | Self::PidCalibrate { .. }
@@ -533,8 +534,8 @@ impl Command {
         )
     }
 
-    /// Changes the position or the leveling a paused print resumes from (homing, leveling, probing, motors off); refused
-    /// for the whole print, pause included. What a pause is for (moving away, extruding, the MMU, the heads) stays
+    /// Changes the position or the leveling a paused print resumes from (homing, leveling, probing, another bed mesh,
+    /// motors off); refused for the whole print, pause included. What a pause is for (moving away, extruding, the MMU, the heads) stays
     /// allowed.
     pub fn loses_print_position(&self) -> bool {
         matches!(
@@ -554,6 +555,8 @@ impl Command {
                 | Self::MoveToBedCentre { .. }
                 | Self::MoveXy { .. }
                 | Self::CalibrateBedMesh
+                | Self::LoadBedMesh { .. }
+                | Self::ClearBedMesh
                 | Self::CalculateScrewsTilt
                 | Self::AdjustBedScrews
         )

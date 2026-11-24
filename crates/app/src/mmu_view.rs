@@ -70,6 +70,11 @@ pub fn spool_at_extruder(status: &PrinterStatus) -> bool {
 }
 
 impl MmuView {
+    /// Another printer was chosen: its lanes are others, even where the numbers match.
+    pub fn forget(&self) {
+        *self.tapped.borrow_mut() = None;
+    }
+
     pub fn bind(&self, printer: &Printer) {
         printer.set_mmu_gates(ModelRc::from(self.gates.clone()));
         printer.set_mmu_pages(ModelRc::from(self.pages.clone()));

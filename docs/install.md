@@ -108,8 +108,8 @@ sudo bash /usr/share/sailhand/touch-calibrate.sh         # .deb or Arch package
 
 It stops Sailhand, shows five crosshairs (tap their centres, a fingernail is more precise), turns the result into
 libinput's calibration matrix and, after asking, stores it as a udev rule in
-`/etc/udev/rules.d/99-touch-calibration.rules`; then Sailhand starts again. It needs tslib's tools (`libts-bin`) and
-installs them if they are missing. The script is also
+`/etc/udev/rules.d/99-touch-calibration.rules`; then Sailhand starts again. It needs tslib's tools (`libts-bin`, on Arch
+`tslib`) and installs them if they are missing. The script is also
 [on GitHub](https://github.com/freakydude/sailhand/blob/main/scripts/touch-calibrate.sh). The rule belongs to the
 display, so uninstalling Sailhand keeps it; to undo the calibration, delete the file and run
 `sudo udevadm control --reload && sudo udevadm trigger`, then restart Sailhand.

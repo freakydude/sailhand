@@ -15,8 +15,6 @@ pub struct ExtruderState {
     pub pressure_advance: f64,
     pub smooth_time: f64,
     pub can_extrude: bool,
-    /// Configured `filament_diameter` in mm; `None` until the configuration is known.
-    pub filament_diameter: Option<f64>,
     /// Configured `filament_diameter` in mm of every extruder section (`extruder`, `extruder1`, ...).
     pub filament_diameters: BTreeMap<String, f64>,
     /// The extruder the toolhead moves (`toolhead.extruder`); `None` until reported.
@@ -70,9 +68,9 @@ pub(super) fn read_extruder(extruder: &Value, toolhead: &Value, settings: Option
         pressure_advance: number(extruder, "pressure_advance"),
         smooth_time: number(extruder, "smooth_time"),
         can_extrude: flag(extruder, "can_extrude"),
-        filament_diameter: configuration.and_then(|section| section.get("filament_diameter")).and_then(Value::as_f64),
         filament_diameters,
-        active: toolhead.get("extruder").and_then(Value::as_str).map(str::to_owned),
+        // Without an extruder Klipper reports "" (klippy/kinematics/extruder.py `DummyExtruder.get_name`).
+        active: toolhead.get("extruder").and_then(Value::as_str).filter(|name| !name.is_empty()).map(str::to_owned),
         max_extrude_only_mm: configuration
             .and_then(|section| section.get("max_extrude_only_distance"))
             .and_then(Value::as_f64),
@@ -120,8 +118,8 @@ mod tests {
             "configfile": { "settings": { "extruder": { "filament_diameter": 2.85 } } }
         }));
 
-        assert_eq!(configured.extruder.filament_diameter, Some(2.85));
-        assert_eq!(status(json!({})).extruder.filament_diameter, None);
+        assert_eq!(configured.extruder.active_filament_diameter(), Some(2.85));
+        assert_eq!(status(json!({})).extruder.active_filament_diameter(), None);
     }
 
     #[test]
@@ -138,7 +136,6 @@ mod tests {
         assert_eq!(status.extruder.active.as_deref(), Some("extruder1"));
         assert_eq!(status.extruder.filament_diameters.len(), 2);
         assert_eq!(status.extruder.active_filament_diameter(), Some(2.85));
-        assert_eq!(status.extruder.filament_diameter, Some(1.75));
     }
 
     #[test]

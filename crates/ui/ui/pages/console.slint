@@ -36,7 +36,7 @@ component MacroTiles inherits Rectangle {
 // All macros of the printer with a switch each: on means the tiles offer it. Two columns leave room for long names.
 component MacroChoice inherits Rectangle {
     property <int> columns: 2;
-    property <length> row-height: 48px;
+    property <length> row-height: Theme.row-height-small;
     property <length> cell-width: (list.row-width - (self.columns - 1) * Theme.spacing) / self.columns;
 
     list := ScrollList {

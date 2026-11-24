@@ -1,5 +1,6 @@
 //! Connects `UiSettings` with the settings file and applies changes immediately.
 
+use crate::actions::slint_decimal;
 use crate::items::float_model;
 use crate::network_controller::NetworkController;
 use crate::presenter::Presenter;
@@ -182,11 +183,11 @@ impl SettingsController {
         let Some(window) = self.window.upgrade() else { return };
         let ui = window.global::<UiSettings>();
         self.update(|settings| {
-            settings.steps.move_mm = f64::from(ui.get_move_step());
-            settings.steps.z_offset_mm = f64::from(ui.get_z_offset_step());
-            settings.steps.temperature = f64::from(ui.get_temperature_step());
-            settings.steps.extrude_mm = f64::from(ui.get_extrude_length());
-            settings.steps.extrude_speed = f64::from(ui.get_extrude_speed());
+            settings.steps.move_mm = slint_decimal(ui.get_move_step());
+            settings.steps.z_offset_mm = slint_decimal(ui.get_z_offset_step());
+            settings.steps.temperature = slint_decimal(ui.get_temperature_step());
+            settings.steps.extrude_mm = slint_decimal(ui.get_extrude_length());
+            settings.steps.extrude_speed = slint_decimal(ui.get_extrude_speed());
         });
     }
 
@@ -309,8 +310,8 @@ fn show_step_lists(ui: &UiSettings<'_>, lists: &StepLists) {
     ui.set_temperature_steps(float_model(&lists.temperature));
     ui.set_extrude_speeds(float_model(&lists.extrude_speed));
     ui.set_manual_probe_steps(float_model(&mirrored_row(&lists.manual_probe_mm)));
-    ui.set_move_step(nearest_step(&lists.move_mm, f64::from(ui.get_move_step())) as f32);
-    ui.set_z_offset_step(nearest_step(&lists.z_offset_mm, f64::from(ui.get_z_offset_step())) as f32);
-    ui.set_temperature_step(nearest_step(&lists.temperature, f64::from(ui.get_temperature_step())) as f32);
-    ui.set_extrude_speed(nearest_step(&lists.extrude_speed, f64::from(ui.get_extrude_speed())) as f32);
+    ui.set_move_step(nearest_step(&lists.move_mm, slint_decimal(ui.get_move_step())) as f32);
+    ui.set_z_offset_step(nearest_step(&lists.z_offset_mm, slint_decimal(ui.get_z_offset_step())) as f32);
+    ui.set_temperature_step(nearest_step(&lists.temperature, slint_decimal(ui.get_temperature_step())) as f32);
+    ui.set_extrude_speed(nearest_step(&lists.extrude_speed, slint_decimal(ui.get_extrude_speed())) as f32);
 }

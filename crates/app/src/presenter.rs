@@ -262,6 +262,9 @@ impl Presenter {
     fn forget_printer(&self, printer: &Printer) {
         *self.cache.borrow_mut() = Cache::default();
         *self.heater_watch.borrow_mut() = HeaterWatch::default();
+        // The log notes each origin when it changes; the new printer's are noted anew.
+        self.origins.borrow_mut().clear();
+        self.mmu.forget();
         self.running_commands.borrow_mut().clear();
         self.show_running_command();
         self.history.close();
@@ -928,16 +931,16 @@ impl Presenter {
             .is_some_and(|mesh| mesh.profiles.iter().any(|profile| profile == name))
     }
 
-    /// Klipper would refuse `typed` as the target of `heater`; a text that is no number is not judged.
     /// Klipper would refuse the typed position of `axis` (G-code coordinates); false while it is no number.
     pub fn move_target_outside(&self, axis: Axis, typed: &str) -> bool {
         let Ok(position) = typed.trim().parse::<f64>() else { return false };
-        moves::outside_range(&self.snapshot().status.motion, axis, position)
+        moves::outside_range(&self.cache.borrow().snapshot.status.motion, axis, position)
     }
 
+    /// Klipper would refuse `typed` as the target of `heater`; a text that is no number is not judged.
     pub fn heater_target_outside(&self, heater: &str, typed: &str) -> bool {
         let Ok(target) = typed.trim().parse::<f64>() else { return false };
-        self.snapshot().status.heater(heater).is_some_and(|heater| !heater.accepts_target(target))
+        self.cache.borrow().snapshot.status.heater(heater).is_some_and(|heater| !heater.accepts_target(target))
     }
 
     /// What was sent to pause at `layer`, in the words of the dialog's button.

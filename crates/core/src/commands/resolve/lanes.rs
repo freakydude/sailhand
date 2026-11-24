@@ -69,7 +69,7 @@ pub(super) fn set_filament(
             let afc = status.afc.as_ref().ok_or(CommandError::NoAfc)?;
             let current = afc.lane(&name).ok_or_else(|| CommandError::UnknownLane(name.clone()))?;
             let material = material.as_deref().filter(|material| is_new_material(&current.material, Some(material)));
-            let script = afc::set_filament(&name, material, color);
+            let script = afc::set_filament(&name, material, color)?;
             Ok(if script.is_empty() { Vec::new() } else { vec![gcode(script)] })
         }
     }

@@ -183,7 +183,7 @@ component FanRow inherits Rectangle {
         }
         if root.fan.controllable: IconButton {
             width: Theme.button-narrow;
-            text: "100%";
+            text: Units.percent(100);
             clicked => { Actions.set-fan(root.fan.object, 100); }
         }
         // Klipper switches heater and controller fans itself: only how fast they run.
@@ -326,7 +326,7 @@ component SensorsTab inherits Rectangle {
                 HorizontalLayout {
                     spacing: Theme.spacing;
                     Text {
-                        text: sensor.known ? Units.temperature(sensor.temperature, 1) : "–";
+                        text: sensor.known ? Units.temperature(sensor.temperature, 1) : "-";
                         color: sensor.known ? StateIcons.severity-color(sensor.scale.level) : Theme.muted;
                         font-size: Theme.font-large;
                         font-weight: 600;

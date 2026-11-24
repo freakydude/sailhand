@@ -276,15 +276,22 @@ impl NetworkManager {
                 .ok_or_else(|| NetworkError::NotFound(ssid.to_owned()))?
         };
         let profile = wifi_profile(ssid, security, password, hidden)?;
-        for saved in existing {
-            self.delete(&saved.path).await?;
-        }
         let (created, active) =
             self.manager.add_and_activate_connection(connection_settings(&profile), &device, &access_point).await?;
         let result = self.wait_for_activation(&active, ssid).await;
+        // The profiles saved before give way only to one that works: a mistyped password must not cost the network.
+        let (obsolete, earlier) = if result.is_ok() { (existing, None) } else { (Vec::new(), existing.first()) };
+        for saved in obsolete {
+            self.delete_logged(&saved.path).await;
+        }
         if result.is_err() {
             // Like other front ends: do not keep a profile with a wrong password.
-            self.delete(&created).await?;
+            self.delete_logged(&created).await;
+        }
+        if let Some(earlier) = earlier
+            && let Err(error) = self.manager.activate_connection(&earlier.path, &device, &no_object()).await
+        {
+            log::warn!("cannot activate the earlier Wi-Fi profile again: {error}");
         }
         result
     }
@@ -445,6 +452,13 @@ impl NetworkManager {
     async fn delete(&self, path: &OwnedObjectPath) -> Result<(), NetworkError> {
         let connection = at!(SavedConnectionProxy, &self.connection, path);
         Ok(connection.delete().await?)
+    }
+
+    /// Clearing up after a connection attempt; a failure here must not hide how the attempt went.
+    async fn delete_logged(&self, path: &OwnedObjectPath) {
+        if let Err(error) = self.delete(path).await {
+            log::warn!("cannot delete the Wi-Fi profile {}: {error}", path.as_str());
+        }
     }
 
     async fn wait_for_activation(&self, path: &OwnedObjectPath, ssid: &str) -> Result<(), NetworkError> {

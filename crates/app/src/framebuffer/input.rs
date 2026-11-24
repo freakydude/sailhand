@@ -144,7 +144,8 @@ impl AsFd for Input {
 }
 
 /// Whether an input event is a press, a touch or a key, which counts as activity for the standby; `None` for events
-/// that are no input. A release or a scroll is input, but no activity of its own (as with winit).
+/// that are no input. A button or key release and a scroll are input, but no activity of its own (as with winit); a
+/// touch counts with every event of the finger.
 fn input_activity(event: &Event) -> Option<bool> {
     match event {
         Event::Pointer(PointerEvent::Button(button)) => Some(button.button_state() == ButtonState::Pressed),

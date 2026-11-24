@@ -799,6 +799,28 @@ async fn reconnects_on_request_although_the_connection_is_alive() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_paused_print_keeps_its_height_across_a_reconnect() {
+    let endpoint = start_fake().await;
+    let (service, mut channels) = start_service(endpoint, CredentialStore::in_memory());
+    wait_for(&mut channels, ready).await;
+
+    service.send(Command::StartPrint { filename: "calibration_cube.gcode".into() });
+    wait_for(&mut channels, |snapshot| snapshot.status.job.height.is_some()).await;
+    service.send(Command::PausePrint);
+    let paused = wait_for(&mut channels, |snapshot| {
+        snapshot.status.job.state == PrintState::Paused && snapshot.status.job.height.is_some()
+    })
+    .await;
+
+    // The live pad keeps above this height; Klipper reports it nowhere, so a reconnect must not lose it.
+    service.reconnect();
+    wait_for(&mut channels, |snapshot| snapshot.connection == ConnectionState::Connecting).await;
+    let again =
+        wait_for(&mut channels, |snapshot| ready(snapshot) && snapshot.status.job.state == PrintState::Paused).await;
+    assert_eq!(again.status.job.height, paused.status.job.height);
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn reports_disconnected_when_server_is_missing() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = Endpoint::parse(&listener.local_addr().unwrap().to_string()).unwrap();

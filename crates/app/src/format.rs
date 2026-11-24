@@ -6,7 +6,7 @@ mod quantity;
 
 use chrono::{DateTime, Local, TimeZone};
 use duration::{MINUTE, SECOND, duration_in};
-use quantity::{Fit, LENGTH, WEIGHT, quantity, quantity_pair};
+use quantity::{Fit, LENGTH, WEIGHT, fixed, quantity, quantity_pair};
 
 /// Print times and estimates to the second: `45 s`, `12 min 05 s`, `2 h 07 min`, `1 d 03 h`.
 pub fn duration(seconds: f64) -> String {
@@ -74,7 +74,7 @@ pub fn axis_position(millimetres: f64) -> String {
 
 /// The range an axis takes, e.g. `0.0–301.0 mm`.
 pub fn axis_range(low_millimetres: f64, high_millimetres: f64) -> String {
-    format!("{low_millimetres:.1}–{high_millimetres:.1} mm")
+    format!("{}–{} mm", fixed(low_millimetres, 1), fixed(high_millimetres, 1))
 }
 
 /// Deviation of a bed mesh to the micrometre, e.g. `0.123 mm`.

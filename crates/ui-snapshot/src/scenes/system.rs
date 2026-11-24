@@ -8,17 +8,17 @@ use sailhand_core::sources::klipper::{Activity, KlippyState, PrintState};
 use slint::ComponentHandle;
 use std::time::Duration;
 
-/// A confirmation that is open when Klipper shuts down closes like a cancel. The print it stops is gone from Klipper
-/// after the restart; the print page shows it from the history as failed.
 /// The fake's idle timeout passes after about 30 s at time scale 20.
 const IDLE_WAIT_LIMIT: Duration = Duration::from_secs(60);
 
+/// A confirmation that is open when Klipper shuts down closes like a cancel. The print it stops is gone from Klipper
+/// after the restart; the print page shows it from the history as failed.
 pub(super) fn shutdown(session: &mut Session) -> Result<(), String> {
     session.service.send(Command::StartPrint { filename: "benchy.gcode".into() });
     session.wait_until("print running", |snapshot| snapshot.status.job.state == PrintState::Printing)?;
     session.pump(Duration::from_secs(2));
     session.window.global::<Navigation>().set_page(Page::Print);
-    ask(session, "Cancel print", "The current print will be stopped and cannot be resumed.", "cancel-print", "");
+    ask(session, "Cancel print", "The print stops and cannot be resumed.", "cancel-print", "");
     session.service.send(Command::EmergencyStop);
     session.wait_until("shutdown", |snapshot| snapshot.status.klippy_state == KlippyState::Shutdown)?;
     session.pump(Duration::from_secs(1));

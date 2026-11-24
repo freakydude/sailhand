@@ -130,7 +130,7 @@ export component GateDialog inherits Scrim {
                         if root.sets-filament: IconButton {
                             width: 152px;
                             icon: Icons.thermal-nozzle;
-                            text: root.temperature-text == "" ? "- °C" : root.temperature-text;
+                            text: root.temperature-text == "" ? "- " + Units.celsius-symbol : root.temperature-text;
                             horizontal: true;
                             clicked => {
                                 temperature-entry.title = @tr("Nozzle temperature · {}", root.item.title);
@@ -222,6 +222,18 @@ export component GateDialog inherits Scrim {
                 set-active => { Actions.set-active-spool(root.item.spool-id); }
             }
 
+            // What moves filament waits for the end of the print; the settings below stay.
+            if Printer.motion-locked: Text {
+                text: @tr("Not while printing");
+                color: Theme.muted;
+                font-size: Theme.font-small;
+            }
+            if !Printer.motion-locked && Printer.has-mmu && !root.item.selected && Printer.mmu-filament == "loaded": IconLabel {
+                icon: Icons.ui-info;
+                text: @tr("Unload first: Happy Hare selects a gate only without loaded filament.");
+                color: Theme.muted;
+                font-size: Theme.font-small;
+            }
             HorizontalLayout {
                 spacing: Theme.spacing;
                 height: 76px;
@@ -289,13 +301,6 @@ export component GateDialog inherits Scrim {
                         root.close();
                     }
                 }
-            }
-
-            // What moves filament waits for the end of the print; the settings below stay.
-            if Printer.motion-locked: Text {
-                text: @tr("Not while printing");
-                color: Theme.muted;
-                font-size: Theme.font-small;
             }
 
             if root.sets-filament: HorizontalLayout {

@@ -122,12 +122,7 @@ pub fn set_gate_filament(
 ) -> Result<String, String> {
     let mut script = format!("MMU_GATE_MAP GATE={gate}");
     if let Some(material) = material {
-        let valid = !material.is_empty()
-            && material.chars().all(|letter| letter.is_ascii_alphanumeric() || "+-_.".contains(letter));
-        if !valid {
-            return Err(format!("invalid material '{material}'"));
-        }
-        script += &format!(" MATERIAL={material}");
+        script += &format!(" MATERIAL={}", crate::sources::material_word(material)?);
     }
     if let Some([red, green, blue]) = color {
         script += &format!(" COLOR={red:02x}{green:02x}{blue:02x}");

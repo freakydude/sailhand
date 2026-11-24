@@ -115,7 +115,7 @@ export component ToggleRow inherits Rectangle {
     in property <bool> enabled: true;
     callback toggled;
 
-    min-height: 44px;
+    min-height: Theme.row-height-small;
     border-radius: Theme.radius;
     background: !root.enabled ? Theme.surface : touch.pressed ? Theme.surface-active : Theme.surface-raised;
     accessible-role: switch;
@@ -354,7 +354,6 @@ export component TabBar inherits Rectangle {
     }
 }
 
-// Panel with optional heading for related controls.
 // A row of a list that is tapped as a whole (networks, printers). The row content goes in as children; the border of
 // the active row lies above it, so it also frames the buttons inside.
 export component ListRow inherits Rectangle {
@@ -380,6 +379,7 @@ export component ListRow inherits Rectangle {
     }
 }
 
+// Panel with optional heading for related controls.
 export component Card inherits Rectangle {
     in property <string> title;
     in property <image> icon;
@@ -787,7 +787,7 @@ export component SliderRow inherits Rectangle {
         }
         IconButton {
             width: Theme.button-narrow;
-            text: "100%";
+            text: Units.percent(100);
             clicked => { root.full-clicked(); }
         }
     }
