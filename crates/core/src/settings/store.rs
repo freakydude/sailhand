@@ -449,6 +449,27 @@ off_when_idle_minutes: 5
     }
 
     #[test]
+    fn the_flow_recording_is_off_and_never_written_unless_it_was_set() {
+        let (_dir, store) = temporary_store();
+        let created = store.load_or_create().unwrap();
+        assert!(!created.record_flow);
+        assert!(!file_text(&store).contains("record_flow"));
+
+        let mut changed = created.clone();
+        changed.fullscreen = !changed.fullscreen;
+        store.save_changes(&created, &changed).unwrap();
+        assert!(!file_text(&store).contains("record_flow"));
+
+        let (_dir, store) = store_with("[sailhand]\nrecord_flow: True\n");
+        let on = store.load().unwrap();
+        assert!(on.record_flow);
+        let mut changed = on.clone();
+        changed.fullscreen = !changed.fullscreen;
+        store.save_changes(&on, &changed).unwrap();
+        assert!(store.load().unwrap().record_flow);
+    }
+
+    #[test]
     fn a_printer_or_preset_without_what_it_needs_is_an_error() {
         for text in ["[printer voron]\n", "[printer]\nmoonraker: x\n", "[preset PLA]\nbed: 60\n"] {
             let (_dir, store) = store_with(text);

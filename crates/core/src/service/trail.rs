@@ -42,6 +42,7 @@ const WATCHED: &[(&str, Fields)] = &[
             "sync_feedback_bias_modelled",
             "sync_feedback_bias_raw",
             "sync_feedback_flow_rate",
+            "sync_feedback_flow_rate_calibrated",
         ]),
     ),
     ("AFC", Fields::All),

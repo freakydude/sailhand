@@ -4,10 +4,12 @@
 //! [`Snapshot`] over a `watch` channel, one-off results as [`Event`].
 
 mod dispatch;
+mod flow_record;
 mod queries;
 mod session;
 mod trail;
 
+pub use flow_record::FlowRecording;
 pub(crate) use session::introduce;
 
 use crate::commands::{Command, CommandError};
@@ -179,11 +181,21 @@ impl PrinterService {
         endpoint: Endpoint,
         credentials: CredentialStore,
     ) -> (Self, ServiceChannels) {
+        Self::start_recording(runtime, endpoint, credentials, None)
+    }
+
+    /// Like [`Self::start`], and records the flow of every print in a file of its own when `recording` is given.
+    pub fn start_recording(
+        runtime: &tokio::runtime::Handle,
+        endpoint: Endpoint,
+        credentials: CredentialStore,
+        recording: Option<FlowRecording>,
+    ) -> (Self, ServiceChannels) {
         let (requests, requests_rx) = mpsc::unbounded_channel();
         let (snapshot_tx, snapshots) = watch::channel(Snapshot { endpoint: endpoint.display(), ..Snapshot::default() });
         let (events_tx, events) = mpsc::unbounded_channel();
         let outputs = Outputs { snapshot: snapshot_tx, events: events_tx };
-        runtime.spawn(session::run(endpoint, credentials, requests_rx, outputs));
+        runtime.spawn(session::run(endpoint, credentials, recording, requests_rx, outputs));
         (Self { requests }, ServiceChannels { snapshots, events })
     }
 

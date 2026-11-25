@@ -9,6 +9,7 @@ pub const ORIGIN_ENCODER: &str = "encoder";
 const COMPRESSION_SENSOR: &str = "filament_compression";
 const TENSION_SENSOR: &str = "filament_tension";
 pub const ORIGIN_SYNC_FEEDBACK: &str = "sync feedback with proportional sensor";
+pub const ORIGIN_SYNC_FEEDBACK_CALIBRATED: &str = "sync feedback with proportional sensor, against the calibrated rd";
 
 /// Sync-feedback state as Happy Hare reports it (`get_sync_feedback_string`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -195,12 +196,17 @@ pub(super) fn read_flow_rate(mmu: &Value, sensors: &[MmuSensor]) -> Option<Sourc
         .and_then(|encoder| encoder.get("flow_rate"))
         .and_then(Value::as_f64)
         .map(|rate| Sourced::measured(rate, ORIGIN_ENCODER));
-    let estimated = mmu
-        .get("sync_feedback_flow_rate")
-        .and_then(Value::as_f64)
-        .filter(|_| has_proportional_sensor(sensors))
-        .map(|rate| Sourced::estimated(rate, ORIGIN_SYNC_FEEDBACK));
+    let estimated = read_estimated_flow_rate(mmu).filter(|_| has_proportional_sensor(sensors));
     prefer_measured(measured, estimated)
+}
+
+/// `sync_feedback_flow_rate_calibrated` (Happy Hare `development` 7fc8ad71, PR #1559) rates the flow against the
+/// calibrated gear rd, so slip the autotune learned at the start still shows, and is not capped at 100. Older
+/// versions lack it and versions without a proportional sensor report `null`; then the autotuned estimate stands in.
+fn read_estimated_flow_rate(mmu: &Value) -> Option<Sourced<f64>> {
+    let field = |name: &str, origin| mmu.get(name).and_then(Value::as_f64).map(|rate| Sourced::estimated(rate, origin));
+    field("sync_feedback_flow_rate_calibrated", ORIGIN_SYNC_FEEDBACK_CALIBRATED)
+        .or_else(|| field("sync_feedback_flow_rate", ORIGIN_SYNC_FEEDBACK))
 }
 
 /// Only while the encoder is armed (`enabled`, which Happy Hare sets while printing, and a detection mode other than

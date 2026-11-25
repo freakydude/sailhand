@@ -12,8 +12,9 @@ use crate::{AppWindow, UiSettings};
 use sailhand_core::backlight::{BacklightBackend, BacklightService};
 use sailhand_core::network::{NetworkBackend, NetworkService};
 use sailhand_core::printers::{DiscoveryBackend, DiscoveryService};
+use sailhand_core::service::FlowRecording;
 use sailhand_core::settings::{SettingsError, SettingsFile, SettingsStore};
-use sailhand_core::{CredentialStore, Endpoint, PrinterService};
+use sailhand_core::{CredentialStore, Endpoint, PrinterService, Settings};
 #[cfg(not(target_os = "android"))]
 use slint::winit_030::winit::event::{ElementState, KeyEvent, WindowEvent};
 #[cfg(not(target_os = "android"))]
@@ -109,7 +110,12 @@ impl Application {
         }
         // Always in the user's configuration directory, also when the settings lie in printer_data/config.
         let credentials = options.credentials_file.map_or_else(CredentialStore::default_location, CredentialStore::new);
-        let (service, channels) = PrinterService::start(runtime.handle(), endpoint.clone(), credentials.clone());
+        let (service, channels) = PrinterService::start_recording(
+            runtime.handle(),
+            endpoint.clone(),
+            credentials.clone(),
+            flow_recording(&settings, &endpoint),
+        );
         let presenter = Presenter::new(&window, service.clone());
         let (network_service, network_channels) = NetworkService::start(runtime.handle(), options.network);
         let network = NetworkController::bind(
@@ -207,6 +213,18 @@ impl Application {
 /// [`crate::kiosk_pointer`].) While the screen is dark or just lit, touches, clicks and keys are swallowed here, so the
 /// UI needs no wake-up surface of its own; they restart the idle time (see [`BacklightController::input`]).
 #[cfg(not(target_os = "android"))]
+/// The hidden flow recording: only with the setting `record_flow`, in the folder of the log.
+fn flow_recording(settings: &Settings, endpoint: &Endpoint) -> Option<FlowRecording> {
+    if !settings.record_flow {
+        return None;
+    }
+    let directory = crate::logging::file_path()?.parent()?.to_owned();
+    let address = endpoint.display();
+    let printer =
+        settings.printers.iter().find(|printer| printer.address == address).map(|printer| printer.name.clone());
+    Some(FlowRecording { directory, printer: printer.unwrap_or_else(|| "printer".to_owned()) })
+}
+
 pub fn watch_window_events(window: &AppWindow, backlight: Option<std::rc::Rc<BacklightController>>) {
     let fit = std::env::var_os("SLINT_SCALE_FACTOR").is_none();
     let weak = window.as_weak();
