@@ -11,6 +11,7 @@ use sailhand_core::domain::lane_filament::{SpoolDifference, lane_filament};
 use sailhand_core::domain::load_path::{BufferSide, LOADED, head_path, load_path};
 use sailhand_core::domain::machine_tree::LaneId;
 use sailhand_core::domain::{changer, heads, job_end, light, pause, spools};
+use sailhand_core::service::FlowRecording;
 use sailhand_core::sources::PrinterStatus;
 use sailhand_core::sources::afc::HubReturnBlock;
 use sailhand_core::sources::happy_hare::commands::{Gates, ServoCommand};
@@ -1262,4 +1263,36 @@ async fn a_spool_for_the_active_head_is_also_booked_on() {
 
     service.send(Command::AssignToolSpool { tool: active_tool, spool_id: Some(6) });
     spoolman_until(&mut channels, |state| state.active_spool_id == Some(6)).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_print_is_recorded_in_a_file_of_its_own_when_asked_to() {
+    let endpoint = start_fake_with(MachineProfile::happy_hare(4)).await;
+    let directory = tempfile::tempdir().unwrap();
+    let recording = FlowRecording { directory: directory.path().to_owned(), printer: "fake".into() };
+    let (service, mut channels) = PrinterService::start_recording(
+        &tokio::runtime::Handle::current(),
+        endpoint,
+        CredentialStore::in_memory(),
+        Some(recording),
+    );
+    wait_for(&mut channels, ready).await;
+
+    service.send(Command::StartPrint { filename: "benchy.gcode".into() });
+    wait_for(&mut channels, |snapshot| snapshot.status.job.state == PrintState::Printing).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    service.send(Command::CancelPrint);
+    wait_for(&mut channels, |snapshot| snapshot.status.job.state == PrintState::Cancelled).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    let files: Vec<_> = std::fs::read_dir(directory.path()).unwrap().flatten().map(|entry| entry.path()).collect();
+    assert_eq!(files.len(), 1, "{files:?}");
+    let text = std::fs::read_to_string(&files[0]).unwrap();
+    if let Ok(copy) = std::env::var("FLOW_RECORD_COPY") {
+        std::fs::write(copy, &text).unwrap();
+    }
+    assert!(text.lines().any(|line| line.starts_with("# file: benchy.gcode")), "{text}");
+    assert!(text.lines().any(|line| line.starts_with("# job_id: ") && !line.ends_with("unknown")), "{text}");
+    assert!(text.lines().any(|line| line.contains(",row,")));
+    assert!(text.trim_end().ends_with(",end,cancelled"));
 }

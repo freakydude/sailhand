@@ -2,6 +2,7 @@
 
 use super::Snapshot;
 use super::dispatch::console_line;
+use super::flow_record::{FlowRecorder, FlowRecording, HeaderFacts};
 use super::queries::{SessionQueries, update_status_events};
 use super::trail;
 use super::{
@@ -17,10 +18,12 @@ use crate::moonraker::{
 };
 use crate::sources::happy_hare::stale_gate_map;
 use crate::sources::klipper::{FanWatch, HeightWatch, JobWatch, KlippyState, PendingMoves, PendingTargets, PrintState};
+use crate::sources::moonraker_server::files;
 use crate::sources::moonraker_server::gcode_store::ConsoleKind;
 use crate::sources::moonraker_server::update_manager;
 use crate::sources::moonraker_server::wled::{self, WledStrip};
 use crate::sources::moonraker_server::{ServerComponents, server_info};
+use crate::sources::spoolman;
 use crate::sources::{ObjectStore, PrinterStatus, Sources};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -30,6 +33,7 @@ use tokio::sync::{Semaphore, mpsc};
 pub(super) async fn run(
     mut endpoint: Endpoint,
     credentials: CredentialStore,
+    recording: Option<FlowRecording>,
     mut requests: mpsc::UnboundedReceiver<Request>,
     outputs: Outputs,
 ) {
@@ -43,8 +47,15 @@ pub(super) async fn run(
                 reported_failure = None;
                 log::info!("connected to {}", endpoint.websocket_url());
                 let (wled_answers, wled_answers_rx) = mpsc::unbounded_channel();
-                let session =
-                    Session::new(opened, endpoint.clone(), &credentials, &outputs, &mut watches, wled_answers);
+                let session = Session::new(
+                    opened,
+                    endpoint.clone(),
+                    &credentials,
+                    &outputs,
+                    &mut watches,
+                    wled_answers,
+                    recording.clone(),
+                );
                 session.run(notifications, wled_answers_rx, &mut requests).await
             }
             Err(OpenError::Untrusted(certificate)) => {
@@ -289,6 +300,8 @@ pub(super) struct Session<'a> {
     pub(super) wled: Vec<WledStrip>,
     /// The answers of the commands to a WLED strip, which carry its new state.
     pub(super) wled_answers: mpsc::UnboundedSender<Vec<WledStrip>>,
+    /// Writes the flow of the print to a file of its own, when the setting asks for it.
+    flow: FlowRecorder,
 }
 
 /// What the session learns about a print over time and must keep across reconnects to the same printer: the height a
@@ -307,6 +320,7 @@ impl<'a> Session<'a> {
         outputs: &'a Outputs,
         watches: &'a mut PrintWatches,
         wled_answers: mpsc::UnboundedSender<Vec<WledStrip>>,
+        recording: Option<FlowRecording>,
     ) -> Self {
         Self {
             connection: opened.connection,
@@ -333,6 +347,7 @@ impl<'a> Session<'a> {
             queries: SessionQueries::new(),
             wled: Vec::new(),
             wled_answers,
+            flow: FlowRecorder::new(recording),
         }
     }
 
@@ -607,6 +622,55 @@ impl<'a> Session<'a> {
         }
     }
 
+    /// Hands a status update to the flow recording; at the start of a print, first asks for what its header needs.
+    async fn record_flow(&mut self, changes: &Value) {
+        if !self.flow.enabled() {
+            return;
+        }
+        let status = PrinterStatus::from_store(&self.store);
+        self.flow.observe(&self.store, &status, changes, unix_millis());
+        if self.flow.wants_facts() {
+            let facts = self.flow_header_facts(&status.job.filename).await;
+            self.flow.begin(&self.store, &facts, unix_millis());
+        }
+    }
+
+    /// Moonraker's job (the newest in the history, which Moonraker adds when the print starts), the file's metadata
+    /// and the spools of the gates; what Moonraker does not answer stays empty.
+    async fn flow_header_facts(&self, filename: &str) -> HeaderFacts {
+        let mut facts = HeaderFacts::default();
+        let history = self.connection.call("server.history.list", Some(json!({ "limit": 1 }))).await;
+        facts.job_id =
+            history.ok().and_then(|list| list.pointer("/jobs/0/job_id").and_then(Value::as_str).map(str::to_owned));
+        let call = files::metadata_call(filename);
+        if let Ok(result) = self.connection.call(call.method, call.params).await {
+            facts.metadata = serde_json::from_value(result).ok();
+        }
+        if self.components.update_manager && self.store.object("mmu").is_some() {
+            let call = update_manager::status_call();
+            if let Ok(result) = self.connection.call(call.method, call.params).await {
+                facts.happy_hare_version = update_manager::parse_update_status(&result)
+                    .into_iter()
+                    .find(|update| update.name == HAPPY_HARE_UPDATE_NAME)
+                    .map(|update| update.version);
+            }
+        }
+        let spool_ids: Vec<u32> = self
+            .store
+            .object("mmu")
+            .and_then(|mmu| mmu.get("gate_spool_id"))
+            .and_then(Value::as_array)
+            .map(|ids| ids.iter().filter_map(Value::as_u64).filter_map(|id| u32::try_from(id).ok()).collect())
+            .unwrap_or_default();
+        if self.components.spoolman
+            && !spool_ids.is_empty()
+            && let Ok(state) = spoolman::fetch_state(&self.connection, &spool_ids).await
+        {
+            facts.spools = state.spools;
+        }
+        facts
+    }
+
     /// Klipper reports the reason for errors and shutdown via `printer.info`.
     async fn klippy_message(&self) -> String {
         match self.connection.call("printer.info", None).await {
@@ -628,6 +692,7 @@ impl<'a> Session<'a> {
                     }
                     self.requery_stale_gate_map(changes).await;
                     self.publish();
+                    self.record_flow(changes).await;
                 }
             }
             "notify_klippy_ready" => {
@@ -754,4 +819,12 @@ async fn fetch_wled_strips(connection: &Connection) -> Vec<WledStrip> {
             Vec::new()
         }
     }
+}
+
+/// The section `[update_manager happy_hare]` of the installation script.
+const HAPPY_HARE_UPDATE_NAME: &str = "happy_hare";
+
+/// Wall-clock time in milliseconds since 1970.
+fn unix_millis() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(0))
 }

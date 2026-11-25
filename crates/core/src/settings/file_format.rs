@@ -23,6 +23,7 @@ mod key {
     pub(super) const HIDE_TEMPERATURE_REPORTS: &str = "hide_temperature_reports";
     pub(super) const VERBOSE_LOG: &str = "verbose_log";
     pub(super) const ROTATION: &str = "rotation";
+    pub(super) const RECORD_FLOW: &str = "record_flow";
     pub(super) const MOONRAKER: &str = "moonraker";
     pub(super) const HIDDEN_MACROS: &str = "hidden_macros";
     pub(super) const EXTRUDER: &str = "extruder";
@@ -43,8 +44,14 @@ mod key {
     pub(super) const KNOWN_MACROS: &str = "known_macros";
 }
 
-const GENERAL_KEYS: [&str; 5] =
-    [key::FULLSCREEN, key::KEEP_SCREEN_ON, key::HIDE_TEMPERATURE_REPORTS, key::VERBOSE_LOG, key::ROTATION];
+const GENERAL_KEYS: [&str; 6] = [
+    key::FULLSCREEN,
+    key::KEEP_SCREEN_ON,
+    key::HIDE_TEMPERATURE_REPORTS,
+    key::VERBOSE_LOG,
+    key::ROTATION,
+    key::RECORD_FLOW,
+];
 const ROTATIONS: [u16; 4] = [0, 90, 180, 270];
 const PRINTER_KEYS: [&str; 2] = [key::MOONRAKER, key::HIDDEN_MACROS];
 const PRESET_KEYS: [&str; 2] = [key::EXTRUDER, key::BED];
@@ -224,6 +231,7 @@ fn read_general(section: &Section, settings: &mut Settings) -> Result<(), String
         flag(key::HIDE_TEMPERATURE_REPORTS).read(section)?.unwrap_or(defaults.hide_temperature_reports);
     settings.verbose_log = flag(key::VERBOSE_LOG).read(section)?.unwrap_or(defaults.verbose_log);
     settings.rotation = rotation(key::ROTATION).read(section)?.unwrap_or(defaults.rotation);
+    settings.record_flow = flag(key::RECORD_FLOW).read(section)?.unwrap_or(defaults.record_flow);
     Ok(())
 }
 
@@ -236,9 +244,10 @@ fn write_general(before: Option<&Settings>, after: &Settings, body: &mut Documen
     ];
     let changed: Vec<_> =
         options.into_iter().filter(|(_, value)| before.is_none_or(|before| value(before) != value(after))).collect();
-    // Only for the framebuffer fallback: written when set, never as a hint in a new file.
+    // Rotation (framebuffer fallback only) and the flow recording: written when set, never as a hint in a new file.
     let rotation_before = before.map_or(Settings::default().rotation, |before| before.rotation);
-    if changed.is_empty() && rotation_before == after.rotation {
+    let record_before = before.map_or(Settings::default().record_flow, |before| before.record_flow);
+    if changed.is_empty() && rotation_before == after.rotation && record_before == after.record_flow {
         return;
     }
     let section = body.ensure_section(GENERAL, None);
@@ -246,6 +255,7 @@ fn write_general(before: Option<&Settings>, after: &Settings, body: &mut Documen
         flag(key).write(section, &value(after));
     }
     write_if_changed(section, rotation(key::ROTATION), Some(&rotation_before), Some(&after.rotation));
+    write_if_changed(section, flag(key::RECORD_FLOW), Some(&record_before), Some(&after.record_flow));
 }
 
 fn read_printer(section: &Section, name: &str) -> Result<SavedPrinter, String> {

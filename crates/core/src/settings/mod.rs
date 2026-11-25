@@ -42,6 +42,8 @@ pub struct Settings {
     pub verbose_log: bool,
     /// Rotation of picture and touch in degrees (0, 90, 180 or 270, clockwise); only the framebuffer fallback uses it.
     pub rotation: u16,
+    /// Records the flow of each print in its own file (`record_flow`); only ever read from the file, written when set.
+    pub record_flow: bool,
     /// Brightness and standby of this display; only used where a backlight can be controlled.
     pub backlight: BacklightSettings,
 }
@@ -203,6 +205,7 @@ impl Default for Settings {
             hide_temperature_reports: true,
             verbose_log: false,
             rotation: 0,
+            record_flow: false,
             backlight: BacklightSettings::default(),
         }
     }
