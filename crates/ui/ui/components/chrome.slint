@@ -121,6 +121,8 @@ export component StatusBar inherits Rectangle {
                 padding-left: Theme.spacing-medium;
                 padding-right: Theme.spacing-medium;
                 spacing: Theme.spacing;
+                // The rows below hold icons of fixed height, which caps their height; without this they sit at the top.
+                cross-axis-alignment: center;
 
                 if Printer.status-message-visible: HorizontalLayout {
                     horizontal-stretch: 1;
@@ -213,7 +215,6 @@ export component StatusBar inherits Rectangle {
                 }
 
                 if Printer.unread-errors > 0: UnreadCounter {
-                    cross-axis-self-alignment: center;
                     count: Printer.unread-errors;
                 }
             }
