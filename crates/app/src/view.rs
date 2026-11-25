@@ -56,9 +56,11 @@ pub fn job_texts(
         name: if job.filename.is_empty() { String::new() } else { format::job_name(&job.filename) },
         elapsed: if job.filename.is_empty() { NO_VALUE.to_owned() } else { format::duration(job.print_duration) },
         total: if job.filename.is_empty() { NO_VALUE.to_owned() } else { format::duration(job.total_duration) },
-        remaining: remaining.map_or_else(|| NO_VALUE.to_owned(), |left| show(left, format::duration)),
-        eta: remaining
-            .map_or_else(|| NO_VALUE.to_owned(), |left| show(left, |seconds| format::finish_time(now, seconds))),
+        remaining: remaining.map_or_else(|| NO_VALUE.to_owned(), |left| show_running_time(left, format::duration)),
+        eta: remaining.map_or_else(
+            || NO_VALUE.to_owned(),
+            |left| show_running_time(left, |seconds| format::finish_time(now, seconds)),
+        ),
         layers: layers(job, metadata),
         heights: heights(job, metadata),
         filament: filament(job, metadata, spool),
@@ -385,6 +387,11 @@ fn show<T>(value: Sourced<T>, format: impl FnOnce(T) -> String) -> String {
     }
 }
 
+/// Times ahead of a running job read as a forecast anyway, so no `~` (the file list keeps it through `show`).
+fn show_running_time(value: Sourced<f64>, format: impl FnOnce(f64) -> String) -> String {
+    format(value.value)
+}
+
 /// Names of the MMU sensors as the operator reads them; unknown ones lose the `mmu_` prefix and get spaces.
 pub fn mmu_sensor_label(name: &str) -> String {
     let known = match name {
@@ -594,8 +601,8 @@ mod tests {
 
         assert_eq!(texts.name, "cube");
         assert_eq!(texts.elapsed, "6 min 00 s");
-        assert_eq!(texts.remaining, "~54 min 00 s");
-        assert_eq!(texts.eta, "~12:54");
+        assert_eq!(texts.remaining, "54 min 00 s");
+        assert_eq!(texts.eta, "12:54");
         assert_eq!(texts.layers, "3 / ~100");
         assert_eq!(texts.filament, "1.0 / 5.0 m");
     }
@@ -630,7 +637,7 @@ mod tests {
 
         let texts = job_texts(&job, None, None, None, now());
 
-        assert_eq!(texts.remaining, "~30 min 00 s");
+        assert_eq!(texts.remaining, "30 min 00 s");
         assert_eq!(texts.layers, "-");
         assert_eq!(texts.expectation_origin, Some(estimates::ORIGIN_PACE_ONLY));
     }
