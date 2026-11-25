@@ -1,0 +1,21 @@
+// Preview: print page while paused with a nozzle too cold to extrude; the banner states it and offers to heat. Open in the Slint preview or render with scripts/ui-preview.sh.
+
+import { AppWindow } from "../app.slint";
+import { Navigation, Page, Printer } from "../state.slint";
+import { Sample } from "sample.slint";
+
+export component PrintPausedColdPreview inherits AppWindow {
+    init => {
+        Sample.printing();
+        Printer.print-state = "paused";
+        Printer.job-state = "paused";
+        Printer.interruption-text = "Extruder 48 °C, extrudes from 170 °C";
+        Printer.interruption-position = "Layer 74 · 14.80 mm";
+        Printer.paused-since = "since 14:03 · 12 min";
+        Printer.interruption-headline = "";
+        Printer.heat-offer-heater = "extruder";
+        Printer.heat-offer-label = "Extruder";
+        Printer.heat-offer-range = "Klipper: 0–300 °C";
+        Navigation.page = Page.print;
+    }
+}
