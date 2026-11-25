@@ -205,17 +205,10 @@ impl Application {
     }
 }
 
-/// The one filter for winit's window events; Slint keeps only one per window, so a second registration would
-/// silently replace the first. In fullscreen the layout is fitted to the real display whenever the size changes (see
-/// [`display`]); the scale of the system is not used there, a compositor reports 1 for a touch screen. A window keeps
-/// the scale of the system, so a larger window shows more room. Whoever sets `SLINT_SCALE_FACTOR` chooses the scale
-/// by hand, and nothing is fitted then. (The pointer of the kiosk is hidden by its cursor theme, see
-/// [`crate::kiosk_pointer`].) While the screen is dark or just lit, touches, clicks and keys are swallowed here, so the
-/// UI needs no wake-up surface of its own; they restart the idle time (see [`BacklightController::input`]).
-#[cfg(not(target_os = "android"))]
-/// The hidden flow recording: only with the setting `record_flow`, in the folder of the log.
+/// The hidden flow recording: only with the setting `record_flow`, in the folder of the log. Only Linux, the printer
+/// host; `cfg!` instead of `#[cfg]` keeps the code compiled on every platform.
 fn flow_recording(settings: &Settings, endpoint: &Endpoint) -> Option<FlowRecording> {
-    if !settings.record_flow {
+    if !cfg!(target_os = "linux") || !settings.record_flow {
         return None;
     }
     let directory = crate::logging::file_path()?.parent()?.to_owned();
@@ -225,6 +218,14 @@ fn flow_recording(settings: &Settings, endpoint: &Endpoint) -> Option<FlowRecord
     Some(FlowRecording { directory, printer: printer.unwrap_or_else(|| "printer".to_owned()) })
 }
 
+/// The one filter for winit's window events; Slint keeps only one per window, so a second registration would
+/// silently replace the first. In fullscreen the layout is fitted to the real display whenever the size changes (see
+/// [`display`]); the scale of the system is not used there, a compositor reports 1 for a touch screen. A window keeps
+/// the scale of the system, so a larger window shows more room. Whoever sets `SLINT_SCALE_FACTOR` chooses the scale
+/// by hand, and nothing is fitted then. (The pointer of the kiosk is hidden by its cursor theme, see
+/// [`crate::kiosk_pointer`].) While the screen is dark or just lit, touches, clicks and keys are swallowed here, so the
+/// UI needs no wake-up surface of its own; they restart the idle time (see [`BacklightController::input`]).
+#[cfg(not(target_os = "android"))]
 pub fn watch_window_events(window: &AppWindow, backlight: Option<std::rc::Rc<BacklightController>>) {
     let fit = std::env::var_os("SLINT_SCALE_FACTOR").is_none();
     let weak = window.as_weak();
