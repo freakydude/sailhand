@@ -91,6 +91,8 @@ struct Buffer {
     state: &'static str,
     bias: f64,
     flow_rate: f64,
+    /// Against the calibrated gear rd (Happy Hare `development` 7fc8ad71); null without sync feedback.
+    flow_rate_calibrated: f64,
     flowguard_level: f64,
 }
 
@@ -1034,6 +1036,7 @@ impl HappyHare {
                 "sync_feedback_bias_raw": null,
                 "sync_feedback_bias_modelled": null,
                 "sync_feedback_flow_rate": null,
+                "sync_feedback_flow_rate_calibrated": null,
                 "flowguard": flowguard,
                 "tangle_prevention": null,
             });
@@ -1056,6 +1059,7 @@ impl HappyHare {
             "sync_feedback_bias_raw": buffer.bias,
             "sync_feedback_bias_modelled": buffer.bias,
             "sync_feedback_flow_rate": buffer.flow_rate,
+            "sync_feedback_flow_rate_calibrated": buffer.flow_rate_calibrated,
             "flowguard": flowguard,
             // Tangle prevention only acts with a proportional sensor: the dict exists for the switches, `active` stays
             // false there.
@@ -1075,17 +1079,37 @@ impl HappyHare {
     /// value 100. The modelled bias equals the raw one here (assumption; Happy Hare estimates it while printing).
     /// Values are made up and simplified. `None` without a buffer.
     fn buffer(&self, printing: bool) -> Option<Buffer> {
-        let switch = |state, bias, flowguard_level| Buffer { state, bias, flow_rate: 100.0, flowguard_level };
+        let switch = |state, bias, flowguard_level| Buffer {
+            state,
+            bias,
+            flow_rate: 100.0,
+            flow_rate_calibrated: 100.0,
+            flowguard_level,
+        };
         let stressed = printing && self.boosting;
         Some(match (self.buffer, printing, stressed) {
             (BufferKind::None, ..) => return None,
-            (_, false, _) => Buffer { state: "inactive", bias: 0.0, flow_rate: 100.0, flowguard_level: 0.0 },
-            (BufferKind::Proportional, true, false) => {
-                Buffer { state: "neutral", bias: 0.05, flow_rate: 98.47, flowguard_level: 0.0 }
-            }
-            (BufferKind::Proportional, true, true) => {
-                Buffer { state: "tension", bias: -0.93, flow_rate: 98.47, flowguard_level: -0.4 }
-            }
+            (_, false, _) => Buffer {
+                state: "inactive",
+                bias: 0.0,
+                flow_rate: 100.0,
+                flow_rate_calibrated: 100.0,
+                flowguard_level: 0.0,
+            },
+            (BufferKind::Proportional, true, false) => Buffer {
+                state: "neutral",
+                bias: 0.05,
+                flow_rate: 98.47,
+                flow_rate_calibrated: 98.12,
+                flowguard_level: 0.0,
+            },
+            (BufferKind::Proportional, true, true) => Buffer {
+                state: "tension",
+                bias: -0.93,
+                flow_rate: 98.47,
+                flow_rate_calibrated: 98.12,
+                flowguard_level: -0.4,
+            },
             (_, true, false) => switch("neutral", 0.0, 0.0),
             (BufferKind::Compression, true, true) => switch("compressed", 1.0, 0.4),
             (_, true, true) => switch("tension", -1.0, -0.4),
@@ -1943,6 +1967,7 @@ mod tests {
         assert_eq!(hare.status("printing")["mmu"]["sync_feedback_state"], "neutral");
         assert_eq!(hare.status("printing")["mmu"]["flowguard"]["active"], true);
         assert_eq!(hare.status("printing")["mmu"]["sync_feedback_flow_rate"], 98.47);
+        assert_eq!(hare.status("printing")["mmu"]["sync_feedback_flow_rate_calibrated"], 98.12);
         assert!(hare.status("printing")["mmu"]["encoder"].is_null());
     }
 

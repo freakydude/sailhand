@@ -15,7 +15,7 @@ pub use sensors::{MmuSensor, PathSensor, is_shown_by_mmu};
 pub use spoolman_mode::SpoolmanMode;
 pub use sync_feedback::{
     BufferSides, Emphasis, EncoderHeadroom, FlowGuard, FlowGuardReading, FlowGuardState, FlowGuardStatement,
-    ORIGIN_ENCODER, ORIGIN_SYNC_FEEDBACK, SyncFeedback, SyncFeedbackState,
+    ORIGIN_ENCODER, ORIGIN_SYNC_FEEDBACK, ORIGIN_SYNC_FEEDBACK_CALIBRATED, SyncFeedback, SyncFeedbackState,
 };
 
 use super::fields::{count, flag, integer, number_or, section, text};
@@ -701,6 +701,27 @@ mod tests {
     fn flow_rate_without_encoder_is_estimated_by_the_proportional_sensor() {
         let store = store(json!({ "mmu": {
             "encoder": null, "sensors": { "filament_proportional": false }, "sync_feedback_flow_rate": 93.4
+        } }));
+        assert_eq!(read_mmu(&store).unwrap().flow_rate, Some(Sourced::estimated(93.4, ORIGIN_SYNC_FEEDBACK)));
+    }
+
+    #[test]
+    fn calibrated_flow_rate_wins_over_the_autotuned_one_and_may_exceed_100() {
+        let store = store(json!({ "mmu": {
+            "encoder": null, "sensors": { "filament_proportional": false },
+            "sync_feedback_flow_rate": 100.0, "sync_feedback_flow_rate_calibrated": 101.3
+        } }));
+        assert_eq!(
+            read_mmu(&store).unwrap().flow_rate,
+            Some(Sourced::estimated(101.3, ORIGIN_SYNC_FEEDBACK_CALIBRATED))
+        );
+    }
+
+    #[test]
+    fn null_calibrated_flow_rate_falls_back_to_the_autotuned_one() {
+        let store = store(json!({ "mmu": {
+            "encoder": null, "sensors": { "filament_proportional": false },
+            "sync_feedback_flow_rate": 93.4, "sync_feedback_flow_rate_calibrated": null
         } }));
         assert_eq!(read_mmu(&store).unwrap().flow_rate, Some(Sourced::estimated(93.4, ORIGIN_SYNC_FEEDBACK)));
     }
