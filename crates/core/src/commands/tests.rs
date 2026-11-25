@@ -339,7 +339,7 @@ fn the_filament_of_a_gate_is_set_unless_happy_hare_takes_it_from_spoolman() {
 
     assert_eq!(
         red(0).resolve(&printer(&[]), &with_support("off")),
-        Ok(vec![Command::RunGcode { script: "MMU_GATE_MAP GATE=0 COLOR=ff0000 TEMP=215".into() }])
+        Ok(vec![Command::RunGcode { script: "MMU_GATE_MAP GATE=0 COLOR=ff0000 NAME= VENDOR= TEMP=215".into() }])
     );
     assert!(red(0).resolve(&printer(&[]), &with_support("pull")).is_err());
     assert!(red(1).resolve(&printer(&[]), &with_support("off")).is_err());
@@ -365,8 +365,14 @@ fn a_new_material_takes_the_default_temperature_of_happy_hare() {
             .resolve(&printer(&[]), &status)
     };
 
-    assert_eq!(set("PLA"), Ok(vec![Command::RunGcode { script: "MMU_GATE_MAP GATE=0 MATERIAL=PLA TEMP=200".into() }]));
-    assert_eq!(set("asa"), Ok(vec![Command::RunGcode { script: "MMU_GATE_MAP GATE=0 MATERIAL=asa TEMP=255".into() }]));
+    assert_eq!(
+        set("PLA"),
+        Ok(vec![Command::RunGcode { script: "MMU_GATE_MAP GATE=0 MATERIAL=PLA NAME= VENDOR= TEMP=200".into() }])
+    );
+    assert_eq!(
+        set("asa"),
+        Ok(vec![Command::RunGcode { script: "MMU_GATE_MAP GATE=0 MATERIAL=asa NAME= VENDOR= TEMP=255".into() }])
+    );
     let typed = Command::SetLaneTemperature { lane: LaneId::Gate(0), temperature: 244.6 };
     assert_eq!(
         typed.resolve(&printer(&[]), &status),

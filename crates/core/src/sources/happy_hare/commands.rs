@@ -111,9 +111,11 @@ pub fn assign_gate_spool_in_spoolman(gate: usize, spool_id: Option<u32>) -> Stri
 /// (`mmu_gate_map.py`, "Spool_id changed"). Happy Hare's documentation keeps it out of prints.
 pub const REFRESH_FROM_SPOOLMAN: &str = "MMU_SPOOLMAN REFRESH=1";
 
-/// Sets material or colour of a gate in Happy Hare's gate map; `None` keeps what the gate has. `temperature` goes
-/// along as `TEMP`, so the gate's temperature never depends on how a Happy Hare version treats a missing one. The
-/// material is one word of letters, digits and `+-_.`, as G-code parameters cannot hold spaces.
+/// Sets material or colour of a gate in Happy Hare's gate map; `None` keeps what the gate has. A new material or
+/// colour empties the gate's filament name and vendor (`NAME= VENDOR=`): they described the filament before, and
+/// Sailhand asks for no new ones. `temperature` goes along as `TEMP`, so the gate's temperature never depends on how a Happy Hare
+/// version treats a missing one. The material is one word of letters, digits and `+-_.`, as G-code parameters cannot
+/// hold spaces.
 pub fn set_gate_filament(
     gate: usize,
     material: Option<&str>,
@@ -126,6 +128,9 @@ pub fn set_gate_filament(
     }
     if let Some([red, green, blue]) = color {
         script += &format!(" COLOR={red:02x}{green:02x}{blue:02x}");
+    }
+    if material.is_some() || color.is_some() {
+        script += " NAME= VENDOR=";
     }
     if let Some(temperature) = temperature {
         script += &format!(" TEMP={}", temperature.round());
@@ -171,15 +176,16 @@ mod tests {
     }
 
     #[test]
-    fn material_and_colour_of_a_gate_keep_its_temperature() {
+    fn material_and_colour_of_a_gate_keep_its_temperature_and_empty_its_name_and_vendor() {
         assert_eq!(
             set_gate_filament(1, Some("PETG"), None, Some(235.0)).as_deref(),
-            Ok("MMU_GATE_MAP GATE=1 MATERIAL=PETG TEMP=235")
+            Ok("MMU_GATE_MAP GATE=1 MATERIAL=PETG NAME= VENDOR= TEMP=235")
         );
         assert_eq!(
             set_gate_filament(0, None, Some([255, 128, 0]), None).as_deref(),
-            Ok("MMU_GATE_MAP GATE=0 COLOR=ff8000")
+            Ok("MMU_GATE_MAP GATE=0 COLOR=ff8000 NAME= VENDOR=")
         );
+        assert_eq!(set_gate_filament(0, None, None, Some(215.0)).as_deref(), Ok("MMU_GATE_MAP GATE=0 TEMP=215"));
         assert!(set_gate_filament(0, Some("PLA TEMP=300"), None, None).is_err());
         assert!(set_gate_filament(0, Some(""), None, None).is_err());
     }
