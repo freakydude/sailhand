@@ -15,6 +15,7 @@ mod mmu;
 mod network;
 mod pages;
 mod printing;
+mod prompt;
 mod spools;
 mod system;
 mod temperature;

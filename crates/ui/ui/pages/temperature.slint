@@ -4,7 +4,8 @@ import { Theme } from "../theme.slint";
 import { Units } from "../units.slint";
 import { Icons } from "../icons.slint";
 import { StateIcons } from "../state-icons.slint";
-import { Actions, FanItem, HeaterItem, HeatTab, Navigation, Printer, SensorItem, UiSettings, Severity } from "../state.slint";
+import { Actions, FanItem, HeaterItem, HeatTab, Navigation, Place, Printer, SensorItem, UiSettings, Severity } from "../state.slint";
+import { Highlight } from "../components/jump.slint";
 import { TemperatureScale } from "../components/temperature-scale.slint";
 import { NumberEntryDialog } from "../components/entry-dialogs.slint";
 import { ButtonKind, IconButton, IconLabel, ProgressBar, ScrollList, StepSelector, TabBar, TabButton, TextWithValue, TouchSlider } from "../components/controls.slint";
@@ -135,6 +136,7 @@ component HeaterRow inherits Rectangle {
             clicked => { Actions.set-heater(root.heater.object, 0); }
         }
     }
+    Highlight { place: Place.heater; name: root.heater.object; }
 }
 
 // Off, slider and 100 % for a fan that can be set; a bar for one that Klipper drives.

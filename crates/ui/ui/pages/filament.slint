@@ -216,10 +216,8 @@ export component FilamentPage inherits Rectangle {
             // room left for a row of its own.
             if !root.has-hint && root.shows-active-spool-notice: ActiveSpoolNotice {
                 horizontal-stretch: 1;
-                button-width: 200px;
                 title: Printer.heads[root.head-index].active-spool-title;
                 colors: Printer.heads[root.head-index].active-spool-colors;
-                set-active => { Actions.set-active-spool(Printer.heads[root.head-index].spool-id); }
             }
             // Without a hint the chip still ends the row.
             if !root.has-hint && !root.shows-active-spool-notice: Rectangle {

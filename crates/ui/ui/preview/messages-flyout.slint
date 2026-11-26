@@ -1,9 +1,9 @@
-// Preview: status bar with an error and the messages flyout open (two new messages, two earlier ones). Open in the Slint
-// preview or render with scripts/ui-preview.sh.
+// Preview: the messages flyout open: a fault that stands under "Now", two new messages, two earlier ones (one a past
+// fault). Open in the Slint preview or render with scripts/ui-preview.sh.
 
 import { AppWindow } from "../app.slint";
 import { MessagesFlyout } from "../components/messages-flyout.slint";
-import { Navigation, Page, Printer } from "../state.slint";
+import { Navigation, Page, Place, Printer, Severity } from "../state.slint";
 import { Sample } from "sample.slint";
 
 export component MessagesFlyoutPreview inherits AppWindow {
@@ -16,15 +16,18 @@ export component MessagesFlyoutPreview inherits AppWindow {
         Navigation.page = Page.temperature;
         Navigation.open-messages();
         Sample.printing();
+        Printer.messages-has-now = true;
         Printer.messages-has-new = true;
+        Printer.messages-new-top = 94px;
         Printer.messages-has-earlier = true;
+        Printer.messages-earlier-top = 236px;
         Printer.messages = [
-            { text: "Unknown command:\"G29\"", time: "11:34:12", is-error: true, new: true, top: 24px, height: 42px },
-            { text: "Must home axis first: 150.000 150.000 20.000 [0.000]", time: "11:32:05", is-error: true, new: true, top: 72px, height: 64px },
-            { text: "Probe accuracy results: maximum 2.512500, minimum 2.507500, range 0.005000", time: "11:20:41", is-error: false, new: false, top: 166px, height: 64px },
-            { text: "Klipper state: Ready", time: "11:12:03", is-error: false, new: false, top: 236px, height: 42px },
+            { id: 6, text: "Paused · Extruder 170 °C, extrudes from 180 °C", time: "11:35:02", severity: Severity.attention, tinted: true, standing: true, place: Place.print, top: 24px, height: 64px },
+            { id: 5, text: "Unknown command:\"G29\"", time: "11:34:12", severity: Severity.error, tinted: true, place: Place.none, top: 118px, height: 42px },
+            { id: 4, text: "Must home axis first: 150.000 150.000 20.000 [0.000]", time: "11:32:05", severity: Severity.error, tinted: true, place: Place.none, top: 166px, height: 64px },
+            { id: 3, text: "Probe accuracy results: maximum 2.512500, minimum 2.507500, range 0.005000", time: "11:20:41", severity: Severity.info, place: Place.none, top: 260px, height: 64px },
+            { id: 2, text: "Spoolman offline", time: "11:12:03", severity: Severity.attention, place: Place.none, top: 330px, height: 42px },
         ];
-        Printer.messages-earlier-top = 142px;
-        Printer.messages-height = 284px;
+        Printer.messages-height = 378px;
     }
 }

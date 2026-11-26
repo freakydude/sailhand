@@ -6,9 +6,10 @@
 import { Theme } from "../theme.slint";
 import { Units } from "../units.slint";
 import { Icons } from "../icons.slint";
-import { Actions, Confirm, HeadItem, Printer, Severity } from "../state.slint";
+import { Actions, HeadItem, Navigation, Place, Printer, Severity } from "../state.slint";
 import { StateIcons } from "../state-icons.slint";
 import { IconButton } from "controls.slint";
+import { JumpHint } from "jump.slint";
 import { FilamentSwatch } from "filament-swatch.slint";
 
 export component HeadChip inherits Rectangle {
@@ -84,25 +85,32 @@ export component HeadChip inherits Rectangle {
 
 // What the tool changer does differently: the text and the button that helps, in the tab row between the tabs and the
 // chip (a line of its own would push the last row of the page out). Changing heads is for a printer whose print is not
-// running (a pause is fine) and a changer that is ready. The buttons send what the Service tab of the Changer page sends.
+// running (a pause is fine) and a changer that is ready. An error has no button here: it leads to the Service tab, where
+// the recovery is.
 export component ChangerHint inherits HorizontalLayout {
     // Beside the path tabs there is room for two short lines only: smaller text that wraps, a narrower button.
     in property <bool> narrow;
     spacing: Theme.spacing;
 
-    Image {
+    if Printer.changer-note == "error": JumpHint {
+        horizontal-stretch: 1;
+        severity: Severity.error;
+        text: root.narrow ? @tr("Changer error") : @tr("Tool changer error");
+        narrow: root.narrow;
+        clicked => { Navigation.go(Place.changer-service, ""); }
+    }
+    if Printer.changer-note != "error": Image {
         cross-axis-self-alignment: center;
-        source: Printer.changer-note == "error" ? Icons.state-error : Printer.changer-note == "mismatch" ? Icons.ui-warning : Icons.ui-info;
-        colorize: StateIcons.severity-color(Printer.changer-note == "error" ? Severity.error : Printer.changer-note == "mismatch" ? Severity.attention : Severity.info);
+        source: Printer.changer-note == "mismatch" ? Icons.ui-warning : Icons.ui-info;
+        colorize: StateIcons.severity-color(Printer.changer-note == "mismatch" ? Severity.attention : Severity.info);
         width: Theme.icon-small;
         height: Theme.icon-small;
     }
-    Text {
+    if Printer.changer-note != "error": Text {
         horizontal-stretch: 1;
-        text: Printer.changer-note == "error" ? (root.narrow ? @tr("Changer error, see console") : @tr("Tool changer error, see console"))
-            : Printer.changer-note == "mismatch" ? @tr("{} selected, {} detected", Printer.changer-selected, Printer.changer-detected)
+        text: Printer.changer-note == "mismatch" ? @tr("{} selected, {} detected", Printer.changer-selected, Printer.changer-detected)
             : @tr("Not initialized");
-        color: StateIcons.severity-color(Printer.changer-note == "error" ? Severity.error : Printer.changer-note == "mismatch" ? Severity.attention : Severity.info);
+        color: StateIcons.severity-color(Printer.changer-note == "mismatch" ? Severity.attention : Severity.info);
         font-size: root.narrow ? Theme.font-small : Theme.font-normal;
         wrap: word-wrap;
         overflow: elide;
@@ -116,41 +124,12 @@ export component ChangerHint inherits HorizontalLayout {
         enabled: !Printer.motion-locked;
         clicked => { Actions.initialize-toolchanger(false); }
     }
-    if Printer.changer-note == "error": IconButton {
-        icon: Icons.mmu-recover;
-        text: @tr("Recover");
-        horizontal: true;
-        width: root.narrow ? 130px : 150px;
-        enabled: !Printer.motion-locked;
-        clicked => { Confirm.ask-recover-toolchanger(); }
-    }
 }
 
-// AFC is in its error state: the text and the button that clears it, in the tab row like the hint of the tool changer.
-// "Clear error" moves nothing and does not resume a print.
-export component AfcHint inherits HorizontalLayout {
-    spacing: Theme.spacing;
-
-    Image {
-        cross-axis-self-alignment: center;
-        source: Icons.state-error;
-        colorize: StateIcons.severity-color(Severity.error);
-        width: Theme.icon-small;
-        height: Theme.icon-small;
-    }
-    Text {
-        horizontal-stretch: 1;
-        text: @tr("AFC error");
-        color: StateIcons.severity-color(Severity.error);
-        font-size: Theme.font-normal;
-        overflow: elide;
-        vertical-alignment: center;
-    }
-    IconButton {
-        icon: Icons.mmu-recover;
-        text: @tr("Clear error");
-        horizontal: true;
-        width: 150px;
-        clicked => { Actions.afc-reset-failure(); }
-    }
+// AFC is in its error state: a hint in the tab row like the one of the tool changer; it leads to the AFC service page,
+// where "Clear error" is.
+export component AfcHint inherits JumpHint {
+    severity: Severity.error;
+    text: @tr("AFC error");
+    clicked => { Navigation.go(Place.afc-service, ""); }
 }

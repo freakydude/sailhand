@@ -493,12 +493,21 @@ export struct ConsoleItem {
     is-error: bool,
 }
 
+// Where a person deals with an incident; a message jumps there (`Navigation.go`). `heater` names its heater in
+// `Navigation.place-name`.
+export enum Place { none, connection, print, afc-service, changer-service, spools, heater }
+
 export struct MessageItem {
+    id: int,
     text: string,
     time: string,
-    is-error: bool,
-    // Came after the list was closed last: stands under "New", the rest under "Earlier".
-    new: bool,
+    // error, attention (a fault that asks for a look) or info; decides symbol and colour.
+    severity: Severity,
+    // Still asks to be looked at (a standing fault, an unseen message): a pale ground in the colour of the severity.
+    tinted: bool,
+    // A fault whose state has not ended.
+    standing: bool,
+    place: Place,
     top: length,
     height: length,
 }
@@ -590,4 +599,21 @@ export struct HostInterfaceItem {
     wireless: bool,
     addresses: string,
     mac: string,
+}
+
+// How a button of a macro prompt is meant (`prompt_button <label>|<gcode>|<style>`); `plain` without or with an
+// unknown style.
+export enum PromptStyle { plain, primary, secondary, info, warning, error }
+
+export struct PromptButtonItem {
+    label: string,
+    // What the button sends to Klipper.
+    gcode: string,
+    style: PromptStyle,
+}
+
+// A line of a macro prompt: a text, or (without text) buttons that share a row.
+export struct PromptRowItem {
+    text: string,
+    buttons: [PromptButtonItem],
 }

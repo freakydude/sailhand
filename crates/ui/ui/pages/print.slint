@@ -3,18 +3,19 @@
 import { Theme } from "../theme.slint";
 import { Units } from "../units.slint";
 import { Icons } from "../icons.slint";
-import { Actions, Confirm, FileItem, Navigation, Printer, Severity } from "../state.slint";
+import { Actions, Confirm, FileItem, Navigation, Place, Printer, Severity } from "../state.slint";
 import { StateIcons } from "../state-icons.slint";
 import { ButtonKind, IconButton, ProgressBar, ValueTile } from "../components/controls.slint";
 import { ExcludeObjectsDialog, LayerPauseDialog } from "../components/print-dialogs.slint";
-import { NumberEntryDialog } from "../components/entry-dialogs.slint";
+import { Highlight } from "../components/jump.slint";
 import { Thumbnail } from "../components/thumbnail.slint";
 import { SpoolStrip } from "../components/spool-strip.slint";
 import { MmuStrip } from "mmu.slint";
 import { FileBrowser } from "files.slint";
 import { PreparedJob } from "print-prepared.slint";
 
-// A paused or failed print and what the sources state about it; the reason is never guessed.
+// A paused or failed print and what the sources state about it; the reason is never guessed. With a nozzle too cold to
+// extrude the whole banner is a jump to that heater, where the target is set.
 component InterruptionBanner inherits Rectangle {
     in property <bool> failed;
     in property <string> details;
@@ -22,21 +23,21 @@ component InterruptionBanner inherits Rectangle {
     in property <string> position;
     // Since when a pause lasts, after the title; empty if not known.
     in property <string> since;
-    // Heating the nozzle that is too cold to extrude; the button shows while `heat-label` is not empty.
-    in property <string> heat-label;
-    callback heat();
     property <color> tone: root.failed ? StateIcons.severity-color(Severity.error) : StateIcons.severity-color(Severity.attention);
-    background: Theme.surface;
+    property <bool> jumps: Printer.heat-offer-heater != "";
+    background: touch.pressed && root.jumps ? Theme.surface-active : StateIcons.severity-tint(root.failed ? Severity.error : Severity.attention);
     border-radius: Theme.radius;
-    border-width: 1px;
-    border-color: root.tone;
     min-height: Theme.row-height-small;
 
+    touch := TouchArea {
+        enabled: root.jumps;
+        clicked => { Navigation.go(Place.heater, Printer.heat-offer-heater); }
+    }
+
     HorizontalLayout {
-        // With the button the banner keeps its height: the button (44 px, as in flyouts) sits in the minimum height.
-        padding-top: root.heat-label != "" ? Theme.spacing-small : Theme.spacing-medium;
-        padding-bottom: self.padding-top;
-        padding-right: root.heat-label != "" ? Theme.spacing-small : Theme.spacing-medium;
+        padding-top: Theme.spacing-medium;
+        padding-bottom: Theme.spacing-medium;
+        padding-right: Theme.spacing-medium;
         padding-left: Theme.padding;
         spacing: Theme.spacing;
         Image {
@@ -47,6 +48,7 @@ component InterruptionBanner inherits Rectangle {
             height: Theme.icon-large;
         }
         VerticalLayout {
+            horizontal-stretch: 1;
             alignment: center;
             spacing: Theme.spacing-tight;
             HorizontalLayout {
@@ -83,17 +85,29 @@ component InterruptionBanner inherits Rectangle {
                 overflow: elide;
             }
         }
-        if root.heat-label != "": IconButton {
+        if root.jumps: Image {
             cross-axis-self-alignment: center;
-            horizontal-stretch: 0;
-            vertical-stretch: 0;
-            min-height: Theme.row-height-small - 2 * Theme.spacing-small;
-            horizontal: true;
-            icon: Icons.thermal-nozzle;
-            text: @tr("Heat");
-            clicked => { root.heat(); }
+            source: Icons.ui-chevron-right;
+            colorize: Theme.muted;
+            width: Theme.icon-small;
+            height: Theme.icon-small;
         }
     }
+}
+
+// The banner with the mark that lights up when a message leads to the print.
+component InterruptionSpot inherits Rectangle {
+    in property <bool> failed;
+    in property <string> details;
+    in property <string> position;
+    in property <string> since;
+    InterruptionBanner {
+        failed: root.failed;
+        details: root.details;
+        position: root.position;
+        since: root.since;
+    }
+    Highlight { place: Place.print; }
 }
 
 // What a macro shows with M117 or SET_DISPLAY_TEXT, as a caption at the foot of the preview: the same place in every
@@ -252,7 +266,6 @@ component SpeedTile inherits ValueTile {
 component JobView inherits VerticalLayout {
     in property <bool> finished;
     callback plan-layer-pause();
-    callback heat-nozzle();
     // With Happy Hare the lower band needs the room of its strip (recover buttons under a pause); otherwise the preview
     // takes more of it.
     property <length> strip-top-height: 220px;
@@ -306,13 +319,11 @@ component JobView inherits VerticalLayout {
         }
     }
     // A pause or an error shows what is known about it, over the full width.
-    if Printer.job-state == "paused" || Printer.job-state == "error": InterruptionBanner {
+    if Printer.job-state == "paused" || Printer.job-state == "error": InterruptionSpot {
         failed: Printer.job-state == "error";
         details: Printer.interruption-text;
         position: Printer.interruption-position;
         since: Printer.paused-since;
-        heat-label: Printer.heat-offer-heater != "" ? Printer.heat-offer-label : "";
-        heat => { root.heat-nozzle(); }
     }
     if Printer.has-spoolman && Printer.spool-at-extruder: SpoolStrip { }
     if Printer.has-mmu: MmuStrip { }
@@ -394,12 +405,6 @@ export component PrintPage inherits Rectangle {
             horizontal-stretch: 1;
             finished: root.finished;
             plan-layer-pause => { layer-pause-dialog.open(); }
-            heat-nozzle => {
-                heat-entry.title = @tr("Target {}", Printer.heat-offer-label);
-                heat-entry.hint = Printer.heat-offer-range;
-                heat-entry.text = "";
-                heat-entry.open = true;
-            }
         }
 
         if root.prepared: VerticalLayout {
@@ -490,15 +495,4 @@ export component PrintPage inherits Rectangle {
     objects-dialog := ExcludeObjectsDialog { }
 
     layer-pause-dialog := LayerPauseDialog { }
-
-    // The target of the nozzle a pause found too cold; Klipper enforces its limits and reports a refusal.
-    heat-entry := NumberEntryDialog {
-        unit: Units.celsius-symbol;
-        hint-warning: Actions.heater-target-outside(Printer.heat-offer-heater, self.text);
-        accepted(text) => {
-            if (text.is-float()) {
-                Actions.set-heater(Printer.heat-offer-heater, text.to-float());
-            }
-        }
-    }
 }

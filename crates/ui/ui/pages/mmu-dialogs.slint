@@ -219,7 +219,6 @@ export component GateDialog inherits Scrim {
             if root.item.active-spool-differs: ActiveSpoolNotice {
                 title: root.item.active-spool-title;
                 colors: root.item.active-spool-colors;
-                set-active => { Actions.set-active-spool(root.item.spool-id); }
             }
 
             // What moves filament waits for the end of the print; the settings below stay.

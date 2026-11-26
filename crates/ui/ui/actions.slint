@@ -146,6 +146,8 @@ export global Actions {
     callback upgrade(string);
     callback load-console();
     callback clear-console();
+    // The person closed the macro prompt with its cross: Klipper is told (`prompt_end`) and the dialog goes away.
+    callback close-prompt();
     // The message list was opened or closed; use `Navigation.open-messages()` and `close-messages()`.
     callback messages-opened();
     callback messages-closed();

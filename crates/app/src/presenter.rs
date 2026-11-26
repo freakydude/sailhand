@@ -15,6 +15,7 @@ use crate::items::{
 use crate::macro_view::MacroView;
 use crate::mmu_view::{JobFile, MmuView, SpoolContext};
 use crate::objects_view::ObjectsView;
+use crate::prompt_view::PromptView;
 use crate::spool_view::{SpoolView, SpoolmanLine};
 use crate::status_view::StatusView;
 use crate::{
@@ -24,6 +25,7 @@ use crate::{
 use crate::{axes_view, bed_map, format, thumbnail, view};
 use chrono::Local;
 use sailhand_core::domain::active_spool::active_spool_mismatch;
+use sailhand_core::domain::faults;
 use sailhand_core::domain::filament::{self, FilamentHandling};
 use sailhand_core::domain::filament_match::{self, ToolMatch};
 use sailhand_core::domain::heads::{self, ChangerNote};
@@ -42,6 +44,7 @@ use sailhand_core::sources::klipper::{ExtruderState, PrintJob};
 use sailhand_core::sources::moonraker_server::files::{FileEntry, FileMetadata, ThumbnailImage};
 use sailhand_core::sources::moonraker_server::gcode_store::{ConsoleKind, ConsoleLine};
 use sailhand_core::sources::moonraker_server::history::{FinishedJob, PrintHistory};
+use sailhand_core::sources::moonraker_server::prompt::CLOSE_GCODE as CLOSE_PROMPT_GCODE;
 use sailhand_core::sources::spoolman::{Spool, SpoolmanState};
 use sailhand_core::sources::toolchanger::ToolchangerStatus;
 use sailhand_core::step_choices::{DEFAULT_EXTRUDE_MM, nearest_step};
@@ -101,6 +104,7 @@ pub struct Presenter {
     spools: SpoolView,
     macros: MacroView,
     console: ConsoleView,
+    prompt: PromptView,
     snapshot_observer: RefCell<Option<SnapshotObserver>>,
     console_observer: RefCell<Option<ConsoleObserver>>,
     power_devices: Rc<VecModel<PowerItem>>,
@@ -137,6 +141,7 @@ impl Presenter {
             spools: SpoolView::default(),
             macros: MacroView::default(),
             console: ConsoleView::default(),
+            prompt: PromptView::new(window),
             snapshot_observer: RefCell::default(),
             console_observer: RefCell::default(),
             power_devices: Rc::default(),
@@ -241,6 +246,8 @@ impl Presenter {
         let ready = snapshot.connection == ConnectionState::Connected && status.klippy_state == KlippyState::Ready;
 
         self.show_connection(&printer, snapshot, ready);
+        self.prompt.set_ready(ready);
+        self.status.sync_faults(&faults::standing(snapshot, self.spoolman_offline(snapshot)));
         self.show_job(&printer, snapshot);
         let lanes = self.lanes(snapshot);
         self.show_motion(&window, status, &lanes);
@@ -470,14 +477,10 @@ impl Presenter {
         replace_rows(&self.filament_sensors, sensors);
         self.cache.borrow_mut().prepared.follow_job(&status.job);
         self.show_job_matches(printer, snapshot, lanes);
-        let spoolman = {
-            let cache = self.cache.borrow();
-            let configured = snapshot.sources.moonraker.spoolman;
-            SpoolmanLine {
-                configured,
-                offline: configured && cache.spoolman_known && !cache.spoolman.connected,
-                pending_reports: cache.spoolman.pending_reports,
-            }
+        let spoolman = SpoolmanLine {
+            configured: snapshot.sources.moonraker.spoolman,
+            offline: self.spoolman_offline(snapshot),
+            pending_reports: self.cache.borrow().spoolman.pending_reports,
         };
         self.spools.show_active(printer, &spoolman, active_spool);
         printer.set_spool_tool(spool_tool(lanes));
@@ -579,10 +582,7 @@ impl Presenter {
         let (details, position) = interruption_details(status, &shown);
         printer.set_interruption_text(details.into());
         printer.set_interruption_position(position.into());
-        let (heater, label, range) = heat_offer(status, &shown);
-        printer.set_heat_offer_heater(heater.into());
-        printer.set_heat_offer_label(label.into());
-        printer.set_heat_offer_range(range.into());
+        printer.set_heat_offer_heater(heat_offer(status, &shown).into());
         if let Some(origin) = texts.expectation_origin {
             self.note_origin("print time expectation", Some(origin));
         }
@@ -620,12 +620,16 @@ impl Presenter {
                     window.global::<Printer>().set_updates_busy(busy);
                 }
             }
-            Event::ConsoleHistory(lines) => self.console.show_history(&lines),
+            Event::ConsoleHistory(lines) => {
+                self.console.show_history(&lines);
+                self.prompt.show_history(&lines);
+            }
             Event::ConsoleLine(line) => {
                 if let Some(observer) = self.console_observer.borrow().as_ref() {
                     observer(&line);
                 }
                 self.console.push(&line);
+                self.prompt.push(&line);
                 if line.kind == ConsoleKind::Response {
                     self.status.console_response(&line, self.is_printing());
                 }
@@ -811,6 +815,12 @@ impl Presenter {
         self.macros.form_script()
     }
 
+    /// The cross of the macro prompt: the dialog closes and Klipper learns that (`prompt_end`).
+    pub fn close_prompt(&self) {
+        self.prompt.close();
+        self.service.send(Command::RunGcode { script: CLOSE_PROMPT_GCODE.to_owned() });
+    }
+
     /// Empties the shown log only; the history on the printer stays and returns on the next load.
     pub fn clear_console(&self) {
         self.console.clear();
@@ -834,6 +844,12 @@ impl Presenter {
 
     pub fn clear_messages(&self) {
         self.status.clear();
+    }
+
+    /// Moonraker is configured for Spoolman and reported that it does not reach it.
+    fn spoolman_offline(&self, snapshot: &Snapshot) -> bool {
+        let cache = self.cache.borrow();
+        snapshot.sources.moonraker.spoolman && cache.spoolman_known && !cache.spoolman.connected
     }
 
     /// Whether Spoolman is configured and the spool Moonraker books on is not the one of the lane in use.
@@ -1110,15 +1126,13 @@ fn interruption_details(status: &PrinterStatus, shown: &ShownJob) -> (String, St
     }
 }
 
-/// The nozzle the banner of a pause offers to heat (object name, label, target range); empty without an offer.
-fn heat_offer(status: &PrinterStatus, shown: &ShownJob) -> (String, String, String) {
+/// The object name of the nozzle the banner of a pause leads to; empty without an offer.
+fn heat_offer(status: &PrinterStatus, shown: &ShownJob) -> String {
     let heater = match shown.loss {
         Some(_) => None,
         None => pause::interruption(status).and_then(|interruption| view::heat_offer(&interruption, status)),
     };
-    heater.map_or_else(Default::default, |heater| {
-        (heater.object.clone(), heater.label.clone(), crate::items::target_range(heater).into())
-    })
+    heater.map_or_else(String::new, |heater| heater.object.clone())
 }
 
 #[cfg(test)]

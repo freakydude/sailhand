@@ -2,10 +2,10 @@
 
 import { Icons } from "icons.slint";
 import { Theme } from "theme.slint";
-import { Severity, Page, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroParamItem, PowerItem, UpdateItem, PresetItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
+import { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroParamItem, PowerItem, UpdateItem, PresetItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
 import { Actions } from "actions.slint";
 
-export { Severity, Page, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroParamItem, PowerItem, UpdateItem, PresetItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
+export { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroParamItem, PowerItem, UpdateItem, PresetItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
 export { Actions } from "actions.slint";
 
 
@@ -72,8 +72,6 @@ export global Printer {
     // The nozzle a pause offers to heat because it is too cold to extrude and has no target that would reach the
     // minimum: Klipper object name (empty = no offer), label and the range of targets Klipper takes.
     in property <string> heat-offer-heater;
-    in property <string> heat-offer-label;
-    in property <string> heat-offer-range;
     // What a macro shows with M117 or SET_DISPLAY_TEXT (`display_status.message`); empty when none is set or an
     // empty M117 cleared it.
     in property <string> display-message;
@@ -392,17 +390,29 @@ export global Printer {
     // How many of them have an update waiting.
     in property <int> updates-available;
 
-    // Status bar: the event it shows for a while (first line of a message), the errors not read yet, and the flyout
-    // list, newest first, in two sections ("New" above "Earlier") of which one may be empty.
+    // Status bar: the event it shows for a while over its whole width (first line of a message), the fault that
+    // stands (a chip until its state ends), the unread errors and informations, and the flyout list in up to three
+    // sections ("Now": standing faults, "New", "Earlier").
     in property <string> status-message;
-    in property <bool> status-message-error;
+    in property <Severity> status-message-severity;
     in property <bool> status-message-visible;
-    in property <int> unread-errors;
+    in property <bool> fault-visible;
+    in property <string> fault-label;
+    in property <Severity> fault-severity;
+    in property <Place> fault-place;
+    // Further standing faults beside the one the chip names.
+    in property <int> fault-more;
+    // The fault is the state the summary names (connection, Klipper, print): the chip takes the summary's word.
+    in property <bool> fault-is-state;
+    in property <int> unread-count;
+    // error while an unread error is among them, else info.
+    in property <Severity> unread-severity;
     in property <[MessageItem]> messages;
     in property <length> messages-height;
+    in property <bool> messages-has-now;
     in property <bool> messages-has-new;
+    in property <length> messages-new-top;
     in property <bool> messages-has-earlier;
-    // Where the heading "Earlier" stands.
     in property <length> messages-earlier-top;
 
     out property <bool> is-printing: print-state == "printing" || print-state == "paused";
@@ -666,6 +676,40 @@ export global Navigation {
         self.heat-tab = HeatTab.heaters;
         self.page = Page.temperature;
     }
+
+    // Where a jump (`go`) led to: the element there with this place (and, for a heater, this name) lights up for a
+    // moment (`Highlight`), so the eye finds it. Cleared again by `highlight-done`.
+    out property <Place> highlight: Place.none;
+    out property <string> highlight-name;
+
+    // A message or a hint leads to the place where its matter is dealt with, in the page's usual layout, instead of
+    // offering its own buttons (Frank 2026-11-26).
+    public function go(place: Place, name: string) {
+        self.close-messages();
+        self.light-open = false;
+        self.files-open = false;
+        self.history-open = false;
+        Dialogs.dismiss();
+        if (place == Place.connection || place == Place.print) {
+            // Without a ready printer the connection page covers every printer page.
+            self.page = Page.print;
+        } else if (place == Place.afc-service || place == Place.changer-service) {
+            self.changer-tab = ChangerTab.service;
+            self.page = Page.changer;
+        } else if (place == Place.spools) {
+            self.filament-tab = FilamentTab.extruder;
+            self.page = Page.filament;
+        } else if (place == Place.heater) {
+            self.heat-tab = HeatTab.heaters;
+            self.page = Page.temperature;
+        }
+        self.highlight-name = name;
+        self.highlight = place;
+    }
+
+    public function highlight-done() {
+        self.highlight = Place.none;
+    }
 }
 
 // Confirmation dialog: pages set text and action, `execute` runs the action after OK.
@@ -785,4 +829,18 @@ export global Dialogs {
         if (Printer.ready && Printer.calibration-mode != "") { Actions.abort-calibration(); }
         self.dismissals += 1;
     }
+}
+
+import { PromptButtonItem, PromptRowItem } from "structs.slint";
+
+// The dialog of a macro prompt (`action:prompt_*`, the protocol Mainsail implements); Rust fills it from the console
+// lines. It is the printer asking, so a tap on the status bar or the navigation does not close it (`Dialogs.dismiss`
+// leaves it); it closes with its cross (`Actions.close-prompt`) or when the macro ends the prompt.
+export global PromptDialog {
+    in-out property <bool> open;
+    in-out property <string> title;
+    // Text lines and rows of buttons, in the order the macro sent them.
+    in-out property <[PromptRowItem]> rows;
+    // The wide buttons at the bottom right.
+    in-out property <[PromptButtonItem]> footer;
 }

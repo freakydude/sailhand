@@ -1,0 +1,13 @@
+// Preview: the Thermal page right after a jump to the extruder heater: its row is lit. Open in the Slint preview or
+// render with scripts/ui-preview.sh.
+
+import { AppWindow } from "../app.slint";
+import { Navigation, Place } from "../state.slint";
+import { Sample } from "sample.slint";
+
+export component JumpHighlightPreview inherits AppWindow {
+    init => {
+        Sample.ready-printer();
+        Navigation.go(Place.heater, "extruder");
+    }
+}

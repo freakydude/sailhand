@@ -409,6 +409,7 @@ fn bind_console_and_macros(
     let console_service = service.clone();
     actions.on_load_console(move || console_service.query(Query::ConsoleHistory));
     actions.on_clear_console(run_presenter(presenter, Presenter::clear_console));
+    actions.on_close_prompt(run_presenter(presenter, Presenter::close_prompt));
     let macro_settings = settings.clone();
     actions.on_set_macro_visible(move |name, visible| macro_settings.set_macro_visible(name.as_str(), visible));
     actions.on_macro_has_params(with_presenter(presenter, |presenter, name: SharedString| {

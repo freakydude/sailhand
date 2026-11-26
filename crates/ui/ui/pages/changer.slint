@@ -5,9 +5,10 @@
 
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
-import { Actions, ChangerTab, Confirm, Navigation, Printer, Severity } from "../state.slint";
+import { Actions, ChangerTab, Confirm, Navigation, Place, Printer, Severity } from "../state.slint";
 import { StateIcons } from "../state-icons.slint";
 import { ButtonKind, Card, IconButton, IconLabel, TabBar, TabButton } from "../components/controls.slint";
+import { Highlight } from "../components/jump.slint";
 import { FilamentSensorGrid } from "../components/sensor-grid.slint";
 import { AfcServiceTab } from "afc-service.slint";
 import { AfcToolLaneDialog, AfcToolsTab } from "afc-tools.slint";
@@ -99,13 +100,17 @@ component ToolchangerCard inherits Card {
                 enabled: !Printer.motion-locked;
                 clicked => { Actions.initialize-toolchanger(false); }
             }
-            IconButton {
-                icon: Icons.mmu-recover;
-                text: @tr("Recover");
-                horizontal: true;
-                kind: root.status == "error" ? ButtonKind.accent : ButtonKind.normal;
-                enabled: !Printer.motion-locked;
-                clicked => { Confirm.ask-recover-toolchanger(); }
+            // The place a message about a tool changer error leads to.
+            Rectangle {
+                IconButton {
+                    icon: Icons.mmu-recover;
+                    text: @tr("Recover");
+                    horizontal: true;
+                    kind: root.status == "error" ? ButtonKind.accent : ButtonKind.normal;
+                    enabled: !Printer.motion-locked;
+                    clicked => { Confirm.ask-recover-toolchanger(); }
+                }
+                Highlight { place: Place.changer-service; }
             }
         }
     }

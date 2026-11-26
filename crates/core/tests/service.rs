@@ -758,12 +758,12 @@ async fn queries_host_functions() {
     wait_for(&mut channels, |snapshot| snapshot.status.heater("extruder").is_some_and(|heater| heater.target == 10.0))
         .await;
     service.query(Query::ConsoleHistory);
-    let Event::ConsoleHistory(lines) =
-        next_event(&mut channels, |event| matches!(event, Event::ConsoleHistory(_))).await
-    else {
-        unreachable!()
-    };
-    assert!(lines.iter().any(|line| line.message == "M104 S10"));
+    // The session loads the history once on connecting as well (for an open macro prompt); that one may come first.
+    next_event(
+        &mut channels,
+        |event| matches!(event, Event::ConsoleHistory(lines) if lines.iter().any(|line| line.message == "M104 S10")),
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

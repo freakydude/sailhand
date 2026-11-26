@@ -378,6 +378,8 @@ impl<'a> Session<'a> {
         // The host's updates and power devices do not need Klipper; the System tabs show them, also on reconnects.
         self.answer(Query::Updates);
         self.answer(Query::PowerDevices);
+        // A macro prompt may be open already: the console history tells (`prompt::PromptTracker::from_history`).
+        self.answer(Query::ConsoleHistory);
         let mut klippy_poll = tokio::time::interval(KLIPPY_POLL_INTERVAL);
         let mut spoolman_poll = tokio::time::interval(SPOOLMAN_POLL_INTERVAL);
         let mut wled_poll = tokio::time::interval(WLED_POLL_INTERVAL);

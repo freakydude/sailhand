@@ -3,7 +3,7 @@
 import { Theme } from "../theme.slint";
 import { Units } from "../units.slint";
 import { Icons } from "../icons.slint";
-import { Backlight, Confirm, Dialogs, Navigation, Network, Page, Printer, PrinterChoice, Severity } from "../state.slint";
+import { Backlight, Confirm, Dialogs, Navigation, Network, Page, Place, Printer, PrinterChoice, Severity } from "../state.slint";
 import { StateIcons } from "../state-icons.slint";
 import { BusyWheel } from "busy-wheel.slint";
 
@@ -50,21 +50,22 @@ component TemperatureReading inherits Rectangle {
     }
 }
 
-// Counter of the errors not read yet; it stays until the message list is opened. The one coloured area besides buttons.
+// Counter of the errors and informations not seen yet; it stays until the message list is opened. One shape for
+// both, a pale ground and the symbol in the colour of the more serious kind among them.
 component UnreadCounter inherits Rectangle {
     in property <int> count;
+    in property <Severity> severity;
     width: counter-row.preferred-width;
-    height: 26px;
-    border-radius: 13px;
-    background: Theme.danger-fill;
+    border-radius: self.height / 2;
+    background: StateIcons.severity-tint(root.severity);
     counter-row := HorizontalLayout {
         padding-left: Theme.spacing-medium;
         padding-right: Theme.spacing;
         spacing: Theme.spacing-small;
         Image {
             cross-axis-self-alignment: center;
-            source: Icons.state-error;
-            colorize: Theme.foreground;
+            source: StateIcons.severity-icon(root.severity);
+            colorize: StateIcons.severity-color(root.severity);
             width: Theme.icon-compact;
             height: Theme.icon-compact;
         }
@@ -73,6 +74,48 @@ component UnreadCounter inherits Rectangle {
             color: Theme.foreground;
             font-size: Theme.font-normal;
             font-weight: 700;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// The fault that stands, as long as its state lasts: a pale chip in its colour with its symbol and short name. A tap
+// leads to the place where it is dealt with.
+component FaultChip inherits Rectangle {
+    height: 32px;
+    min-width: chip-row.min-width;
+    preferred-width: chip-row.preferred-width;
+    border-radius: Theme.radius-small;
+    background: chip-touch.pressed ? Theme.surface-active : StateIcons.severity-tint(Printer.fault-severity);
+    accessible-role: button;
+    accessible-label: Printer.fault-label;
+    chip-touch := TouchArea {
+        clicked => { Navigation.go(Printer.fault-place, ""); }
+    }
+    chip-row := HorizontalLayout {
+        padding-left: Theme.spacing;
+        padding-right: Theme.spacing-medium;
+        spacing: Theme.spacing-small;
+        Image {
+            cross-axis-self-alignment: center;
+            source: StateIcons.severity-icon(Printer.fault-severity);
+            colorize: StateIcons.severity-color(Printer.fault-severity);
+            width: Theme.icon-small;
+            height: Theme.icon-small;
+        }
+        Text {
+            min-width: self.preferred-width;
+            text: Printer.fault-label;
+            color: Theme.foreground;
+            font-size: Theme.font-normal;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+        if Printer.fault-more > 0: Text {
+            text: "+" + Printer.fault-more;
+            color: Theme.muted;
+            font-size: Theme.font-normal;
+            font-weight: 600;
             vertical-alignment: center;
         }
     }
@@ -88,6 +131,7 @@ export component StatusBar inherits Rectangle {
     property <bool> shows-progress: !StateIcons.print-page-open() && Printer.ready && (Printer.print-state == "printing" || Printer.print-state == "paused");
     // A long printer name is shortened; the state beside it needs the room.
     property <length> printer-name-max-width: 160px;
+    property <length> counter-height: 28px;
 
     height: 44px;
     background: Theme.surface;
@@ -97,13 +141,14 @@ export component StatusBar inherits Rectangle {
         padding-right: Theme.spacing-tight;
         spacing: Theme.spacing-large;
 
-        // State and messages in one field. The state rests here; an event (an error or an information) lies in
-        // front of it for a while; a tap opens the message list, or closes it.
+        // State and messages in one field. The state rests here, a standing fault as a chip before it; an event (a
+        // fault that begins, an error or an information) lies over the whole width up to the counter for a while; a
+        // tap opens the message list, or closes it.
         field := Rectangle {
             horizontal-stretch: 1;
             border-radius: Theme.radius;
             background: field-touch.pressed || Navigation.messages-open ? Theme.surface-active
-                : Printer.status-message-visible ? Theme.surface-raised : transparent;
+                : Printer.status-message-visible ? StateIcons.severity-tint(Printer.status-message-severity) : transparent;
             accessible-role: button;
             accessible-label: Printer.status-message-visible ? Printer.status-message : StateIcons.summary-label();
             field-touch := TouchArea {
@@ -129,8 +174,8 @@ export component StatusBar inherits Rectangle {
                     spacing: Theme.spacing;
                     Image {
                         cross-axis-self-alignment: center;
-                        source: Printer.status-message-error ? Icons.state-error : Icons.ui-info;
-                        colorize: Printer.status-message-error ? StateIcons.severity-color(Severity.error) : StateIcons.severity-color(Severity.info);
+                        source: StateIcons.severity-icon(Printer.status-message-severity);
+                        colorize: StateIcons.severity-color(Printer.status-message-severity);
                         width: Theme.icon-large;
                         height: Theme.icon-large;
                     }
@@ -166,7 +211,10 @@ export component StatusBar inherits Rectangle {
                 if !Printer.status-message-visible && root.activity == "": HorizontalLayout {
                     horizontal-stretch: 1;
                     spacing: Theme.spacing;
-                    Image {
+                    if Printer.fault-visible: FaultChip {
+                        cross-axis-self-alignment: center;
+                    }
+                    if !Printer.fault-visible || !Printer.fault-is-state: Image {
                         cross-axis-self-alignment: center;
                         source: StateIcons.summary();
                         colorize: StateIcons.severity-color(root.severity);
@@ -177,7 +225,7 @@ export component StatusBar inherits Rectangle {
                     HorizontalLayout {
                         horizontal-stretch: 1;
                         spacing: Theme.spacing;
-                        if StateIcons.summary-label() != "": Text {
+                        if StateIcons.summary-label() != "" && !(Printer.fault-visible && Printer.fault-is-state): Text {
                             min-width: self.preferred-width;
                             text: StateIcons.summary-label();
                             color: StateIcons.label-color(root.severity);
@@ -204,8 +252,8 @@ export component StatusBar inherits Rectangle {
                     }
                 }
 
-                // Which printer this is, when there is a choice; it stays while messages and activities come and go.
-                if PrinterChoice.several-saved && PrinterChoice.active-name != "": Text {
+                // Which printer this is, when there is a choice; it stays while activities come and go.
+                if !Printer.status-message-visible && PrinterChoice.several-saved && PrinterChoice.active-name != "": Text {
                     max-width: root.printer-name-max-width;
                     text: PrinterChoice.active-name;
                     color: Theme.muted;
@@ -214,12 +262,10 @@ export component StatusBar inherits Rectangle {
                     overflow: elide;
                 }
 
-                if Printer.unread-errors > 0: UnreadCounter {
-                    count: Printer.unread-errors;
-                }
             }
 
-            // Progress of the print along the lower edge: accent while it runs, grey while it stands.
+            // Progress of the print along the lower edge: light on dark while it runs, grey while it stands. Not the accent:
+            // beside a tinted message or fault chip the orange clashed (Frank 2026-11-26).
             if root.shows-progress: Rectangle {
                 x: 6px;
                 y: parent.height - 4px;
@@ -231,23 +277,33 @@ export component StatusBar inherits Rectangle {
                     x: 0;
                     width: parent.width * Printer.progress;
                     border-radius: 1.5px;
-                    background: Printer.print-state == "printing" ? StateIcons.severity-color(Severity.running) : Theme.muted;
+                    background: Printer.print-state == "printing" ? Theme.foreground : Theme.muted;
                 }
             }
         }
 
-        TemperatureReading {
-            visible: Printer.ready;
+        // A message takes the room of the readings while it is shown; they come back when it leaves.
+        if Printer.ready && !Printer.status-message-visible: TemperatureReading {
             icon: Icons.thermal-nozzle;
             head: Printer.nozzle-head;
             heating: Printer.nozzle-selected && Printer.nozzle-target > 0;
             text: !Printer.nozzle-selected ? @tr("No head") : Units.degrees(Printer.nozzle-temperature) + (Printer.nozzle-target > 0 ? " / " + Units.degrees(Printer.nozzle-target) : "");
         }
-        if Printer.has-bed: TemperatureReading {
-            visible: Printer.ready;
+        if Printer.has-bed && Printer.ready && !Printer.status-message-visible: TemperatureReading {
             icon: Icons.thermal-bed;
             heating: Printer.bed-target > 0;
             text: Units.degrees(Printer.bed-temperature) + (Printer.bed-target > 0 ? " / " + Units.degrees(Printer.bed-target) : "");
+        }
+        // In a column with room above and below, like the emergency stop: directly in the row, its fixed height would
+        // cap the height of the whole row and lift the field and the readings.
+        if Printer.unread-count > 0: VerticalLayout {
+            padding-top: (root.height - root.counter-height) / 2;
+            padding-bottom: self.padding-top;
+            UnreadCounter {
+                height: root.counter-height;
+                count: Printer.unread-count;
+                severity: Printer.unread-severity;
+            }
         }
         // Opens the light panel; lit while the main light (chamber or case light) is on. A controllable backlight
         // of the display is reason enough, also without a ready printer.

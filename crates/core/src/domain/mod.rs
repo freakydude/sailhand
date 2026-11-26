@@ -4,11 +4,13 @@
 pub mod active_spool;
 pub mod changer;
 pub mod estimates;
+pub mod faults;
 pub mod filament;
 pub mod filament_match;
 pub mod file_catalog;
 pub mod gate_pages;
 pub mod heads;
+pub mod incidents;
 pub mod job_end;
 pub mod lane_filament;
 pub mod light;

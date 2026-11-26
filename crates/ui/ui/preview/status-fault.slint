@@ -1,0 +1,23 @@
+// Preview: the print is paused (a fault that stands, as a chip in place of the summary's word) and Spoolman is offline
+// as a second fault; two informations are unread.
+
+import { AppWindow } from "../app.slint";
+import { Navigation, Page, Place, Printer, Severity } from "../state.slint";
+import { Sample } from "sample.slint";
+
+export component StatusFaultPreview inherits AppWindow {
+    init => {
+        Sample.printing();
+        Printer.print-state = "paused";
+        Printer.interruption-headline = "Extruder 170 °C, extrudes from 180 °C";
+        Navigation.page = Page.temperature;
+        Printer.fault-visible = true;
+        Printer.fault-label = "Paused";
+        Printer.fault-severity = Severity.attention;
+        Printer.fault-place = Place.print;
+        Printer.fault-is-state = true;
+        Printer.fault-more = 1;
+        Printer.unread-count = 2;
+        Printer.unread-severity = Severity.info;
+    }
+}

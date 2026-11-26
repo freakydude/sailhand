@@ -1,60 +1,70 @@
-// The spool of the lane in use is not the one Moonraker books the filament on: the active spool it names, with the
-// button that makes the lane's spool the active one. Only shown where the two differ (Spoolman connected, the lane
-// loaded and at rest); the core decides that.
+// The spool of the lane in use is not the one Moonraker books the filament on: the active spool it names. The whole row
+// is a jump to the spool picker, where the active spool is chosen. Only shown where the two differ (Spoolman connected,
+// the lane loaded and at rest); the core decides that.
 
 import { Theme } from "../theme.slint";
 import { StateIcons } from "../state-icons.slint";
 import { Icons } from "../icons.slint";
 import { BarColors, Severity } from "../structs.slint";
-import { IconButton } from "controls.slint";
+import { SpoolPicker } from "../state.slint";
 import { FilamentColors, FilamentSwatch } from "filament-swatch.slint";
 
-export component ActiveSpoolNotice inherits HorizontalLayout {
+export component ActiveSpoolNotice inherits Rectangle {
     // The title of Moonraker's active spool; empty for none.
     in property <string> title;
     in property <BarColors> colors;
-    in property <length> button-width: 240px;
-    // The button sets the spool of the lane in use as the active one.
-    callback set-active();
 
-    height: Theme.touch;
-    spacing: Theme.spacing;
+    min-height: Theme.row-height-small;
+    border-radius: Theme.radius;
+    background: touch.pressed ? Theme.surface-active : StateIcons.severity-tint(Severity.attention);
+    accessible-role: button;
+    accessible-label: @tr("Active spool") + ": " + (root.title == "" ? @tr("None") : root.title);
 
-    Image {
-        cross-axis-self-alignment: center;
-        source: Icons.ui-warning;
-        colorize: StateIcons.severity-color(Severity.attention);
-        width: Theme.icon-small;
-        height: Theme.icon-small;
+    touch := TouchArea {
+        // The picker with no gate, lane or tool sets the active spool; the lane's spool is not preselected.
+        clicked => { SpoolPicker.show(-1, -1); }
     }
-    Text {
-        text: @tr("Active spool");
-        color: Theme.muted;
-        font-size: Theme.font-small;
-        vertical-alignment: center;
-    }
-    FilamentSwatch {
-        cross-axis-self-alignment: center;
-        width: 14px;
-        height: 36px;
-        radius: 4px;
-        colors: FilamentColors.generic(root.colors);
-        empty: root.title == "";
-    }
-    Text {
-        horizontal-stretch: 1;
-        min-width: 0px;
-        text: root.title == "" ? @tr("None") : root.title;
-        color: root.title == "" ? Theme.muted : Theme.foreground;
-        font-size: Theme.font-normal;
-        vertical-alignment: center;
-        overflow: elide;
-    }
-    IconButton {
-        width: root.button-width;
-        icon: Icons.filament-spool;
-        text: @tr("Set as active spool");
-        horizontal: true;
-        clicked => { root.set-active(); }
+
+    HorizontalLayout {
+        padding-left: Theme.spacing-medium;
+        padding-right: Theme.spacing;
+        spacing: Theme.spacing;
+        Image {
+            cross-axis-self-alignment: center;
+            source: Icons.ui-warning;
+            colorize: StateIcons.severity-color(Severity.attention);
+            width: Theme.icon-small;
+            height: Theme.icon-small;
+        }
+        Text {
+            text: @tr("Active spool");
+            color: Theme.muted;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+        }
+        FilamentSwatch {
+            cross-axis-self-alignment: center;
+            width: 14px;
+            height: 36px;
+            radius: 4px;
+            colors: FilamentColors.generic(root.colors);
+            empty: root.title == "";
+        }
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            text: root.title == "" ? @tr("None") : root.title;
+            color: root.title == "" ? Theme.muted : Theme.foreground;
+            font-size: Theme.font-normal;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Image {
+            cross-axis-self-alignment: center;
+            source: Icons.ui-chevron-right;
+            colorize: Theme.muted;
+            width: Theme.icon-small;
+            height: Theme.icon-small;
+        }
     }
 }

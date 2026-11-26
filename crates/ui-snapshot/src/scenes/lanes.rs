@@ -4,7 +4,7 @@
 //! `toolchanger-mmu` and `toolchanger`; what a profile does not have is skipped.
 
 use crate::session::Session;
-use sailhand::{Actions, ChangerTab, FilamentTab, MmuDialogs, Navigation, Page, Printer};
+use sailhand::{Actions, ChangerTab, FilamentTab, MmuDialogs, Navigation, Page, Place, Printer};
 use sailhand_core::Command;
 use sailhand_core::domain::changer;
 use sailhand_core::domain::machine_tree::LaneId;
@@ -108,7 +108,7 @@ fn afc_heads(session: &mut Session) -> Result<(), String> {
 }
 
 /// The tools of AFC (a tap on a row chooses the lane; AFC swaps the lanes of two tools) and its service on the Changer
-/// page, then the error state: the hint on the Filament page, "Clear error" and "Back to hub" on Service.
+/// page, then the error state: the hint on the Filament page, which leads to "Clear error" and "Back to hub" on Service.
 fn afc_changer(session: &mut Session) -> Result<(), String> {
     session.window.global::<Navigation>().set_filament_tab(FilamentTab::Gates);
     session.window.global::<Navigation>().set_changer_tab(ChangerTab::Tools);
@@ -160,8 +160,13 @@ fn afc_error(session: &mut Session) -> Result<(), String> {
     }
     session.window.global::<Navigation>().set_filament_tab(FilamentTab::Gates);
     session.show_page(Page::Filament, "afc-error-filament")?;
-    session.window.global::<Navigation>().set_changer_tab(ChangerTab::Service);
-    session.show_page(Page::Changer, "afc-error-service")?;
+    // The hint leads to the Service tab, where "Clear error" lights up for a moment.
+    session.window.global::<Navigation>().invoke_go(Place::AfcService, "".into());
+    session.pump(Duration::from_millis(200));
+    session.capture("afc-error-service")?;
+    if session.window.global::<Navigation>().get_changer_tab() != ChangerTab::Service {
+        return Err("the AFC error should lead to the Service tab".into());
+    }
     session.window.global::<Actions>().invoke_afc_reset_failure();
     session.wait_until("AFC idle", |snapshot| snapshot.status.afc.as_ref().is_some_and(|afc| !afc.error))?;
     session.pump(Duration::from_millis(300));

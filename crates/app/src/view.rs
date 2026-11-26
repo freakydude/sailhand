@@ -3,6 +3,7 @@
 use crate::{Severity, format};
 use chrono::{DateTime, Local};
 use sailhand_core::domain::estimates;
+use sailhand_core::domain::faults::Fault;
 use sailhand_core::domain::filament_match::{self, Difference, ToolMatch, Verdict};
 use sailhand_core::domain::file_catalog::FileInfo;
 use sailhand_core::domain::job_end::{self, JobLoss};
@@ -193,6 +194,33 @@ pub fn interruption_position(job: &PrintJob) -> String {
 
 /// The first line of the first fact of a pause or an error for the status bar, without where the print stands; empty
 /// if none is stated. Happy Hare's `reason_for_pause` can span several lines; the bar has room for one.
+/// The short name of a fault, as the chip of the status bar shows it. For the states the summary names it is the
+/// summary's own word, as the chip takes its place.
+pub fn fault_label(fault: &Fault) -> String {
+    match fault {
+        Fault::MoonrakerUnreachable => "Moonraker: not reachable",
+        Fault::Klipper { shutdown: true, .. } => "Klipper: shutdown",
+        Fault::Klipper { shutdown: false, .. } => "Klipper: error",
+        Fault::Print(interruption) if interruption.failed => "Print error",
+        Fault::Print(_) => "Paused",
+        Fault::AfcError => "AFC error",
+        Fault::ChangerError => "Tool changer error",
+        Fault::SpoolmanOffline => "Spoolman offline",
+    }
+    .to_owned()
+}
+
+/// The fault with what its sources state about it, for the status bar and the message list.
+pub fn fault_text(fault: &Fault) -> String {
+    let detail = match fault {
+        Fault::Klipper { message, .. } => message.clone(),
+        Fault::Print(interruption) => interruption_headline(interruption),
+        _ => String::new(),
+    };
+    let label = fault_label(fault);
+    if detail.is_empty() { label } else { format!("{label} · {detail}") }
+}
+
 pub fn interruption_headline(interruption: &Interruption) -> String {
     let first_fact = interruption.facts.first().map(fact_text).unwrap_or_default();
     first_fact.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default().to_owned()

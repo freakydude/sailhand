@@ -34,6 +34,7 @@ pub mod network_controller;
 mod objects_view;
 pub mod presenter;
 pub mod printers_controller;
+mod prompt_view;
 pub mod settings_controller;
 mod spool_view;
 pub mod startup;
