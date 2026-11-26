@@ -579,6 +579,10 @@ impl Presenter {
         let (details, position) = interruption_details(status, &shown);
         printer.set_interruption_text(details.into());
         printer.set_interruption_position(position.into());
+        let (heater, label, range) = heat_offer(status, &shown);
+        printer.set_heat_offer_heater(heater.into());
+        printer.set_heat_offer_label(label.into());
+        printer.set_heat_offer_range(range.into());
         if let Some(origin) = texts.expectation_origin {
             self.note_origin("print time expectation", Some(origin));
         }
@@ -1104,6 +1108,17 @@ fn interruption_details(status: &PrinterStatus, shown: &ShownJob) -> (String, St
         Some(details) => (details, view::interruption_position(&shown.job)),
         None => (String::new(), String::new()),
     }
+}
+
+/// The nozzle the banner of a pause offers to heat (object name, label, target range); empty without an offer.
+fn heat_offer(status: &PrinterStatus, shown: &ShownJob) -> (String, String, String) {
+    let heater = match shown.loss {
+        Some(_) => None,
+        None => pause::interruption(status).and_then(|interruption| view::heat_offer(&interruption, status)),
+    };
+    heater.map_or_else(Default::default, |heater| {
+        (heater.object.clone(), heater.label.clone(), crate::items::target_range(heater).into())
+    })
 }
 
 #[cfg(test)]

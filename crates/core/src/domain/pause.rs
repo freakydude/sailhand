@@ -18,6 +18,16 @@ pub enum InterruptionFact {
     MmuHint(String),
     /// An enabled filament sensor sees no filament. A fact, not necessarily the cause of the pause.
     SensorEmpty { label: String },
+    /// The active nozzle is below its `min_extrude_temp`, so Klipper refuses to extrude and Mainsail's RESUME macro
+    /// aborts. Mirrors `can_extrude` (heater temperature >= `min_extrude_temp`, klippy/extras/heaters.py), read for
+    /// the active extruder: Klipper's own `can_extrude` is subscribed for `extruder` only. Whole degrees, rounded.
+    NozzleCold {
+        /// The Klipper object name of the active extruder, for example `extruder1`.
+        heater: String,
+        temperature: i32,
+        target: i32,
+        min_extrude: i32,
+    },
 }
 
 /// A paused or failed print and what is known about it.
@@ -53,7 +63,23 @@ pub fn interruption(status: &PrinterStatus) -> Option<Interruption> {
                 .map(|sensor| InterruptionFact::SensorEmpty { label: sensor.label.clone() }),
         ),
     }
-    Some(Interruption { failed, facts: without_repeats(facts) })
+    let mut facts = without_repeats(facts);
+    if !failed {
+        facts.extend(cold_nozzle(status));
+    }
+    Some(Interruption { failed, facts })
+}
+
+/// The active nozzle is too cold to extrude; `None` while it is warm enough or its minimum is not known.
+fn cold_nozzle(status: &PrinterStatus) -> Option<InterruptionFact> {
+    let heater = status.heater(status.extruder.active_name())?;
+    let min_extrude = heater.min_extrude_temp.filter(|minimum| *minimum > 0.0)?;
+    (heater.temperature < min_extrude).then(|| InterruptionFact::NozzleCold {
+        heater: heater.object.clone(),
+        temperature: heater.temperature.round() as i32,
+        target: heater.target.round() as i32,
+        min_extrude: min_extrude.round() as i32,
+    })
 }
 
 /// Happy Hare may hand its reason to Klipper as well; a text stated twice is shown once, at its first place.
@@ -73,7 +99,7 @@ impl InterruptionFact {
     fn text(&self) -> Option<&str> {
         match self {
             Self::KlipperMessage(text) | Self::MmuReason(text) | Self::MmuHint(text) => Some(text),
-            Self::SensorEmpty { .. } => None,
+            Self::SensorEmpty { .. } | Self::NozzleCold { .. } => None,
         }
     }
 }
@@ -116,7 +142,7 @@ pub fn layer_pause_offer(sources: &Sources, status: &PrinterStatus) -> Option<La
 mod tests {
     use super::*;
     use crate::sources::happy_hare::MmuStatus;
-    use crate::sources::klipper::{FilamentSensor, PrintJob};
+    use crate::sources::klipper::{FilamentSensor, Heater, PrintJob};
     use crate::sources::mainsail_config::LayerPauseMacros;
 
     fn status(state: PrintState) -> PrinterStatus {
@@ -231,6 +257,66 @@ mod tests {
         let facts = interruption(&status).unwrap().facts;
 
         assert_eq!(facts, [InterruptionFact::SensorEmpty { label: "Toolhead".into() }]);
+    }
+
+    fn nozzle(object: &str, temperature: f64, min_extrude: Option<f64>) -> Heater {
+        Heater {
+            object: object.into(),
+            label: object.into(),
+            temperature,
+            min_extrude_temp: min_extrude,
+            ..Heater::default()
+        }
+    }
+
+    fn cold_fact(heater: &str, temperature: i32) -> InterruptionFact {
+        InterruptionFact::NozzleCold { heater: heater.into(), temperature, target: 0, min_extrude: 170 }
+    }
+
+    #[test]
+    fn a_cold_active_nozzle_is_a_fact_of_a_pause() {
+        let mut status = status(PrintState::Paused);
+        status.heaters = vec![nozzle("extruder", 48.4, Some(170.0))];
+
+        assert_eq!(interruption(&status).unwrap().facts, [cold_fact("extruder", 48)]);
+    }
+
+    #[test]
+    fn a_cold_nozzle_follows_the_other_facts() {
+        let mut status = status(PrintState::Paused);
+        status.mmu = Some(happy_hare(true));
+        status.heaters = vec![nozzle("extruder", 48.0, Some(170.0))];
+
+        let facts = interruption(&status).unwrap().facts;
+
+        assert_eq!(facts, [InterruptionFact::MmuReason("Runout at gate 1".into()), cold_fact("extruder", 48)]);
+    }
+
+    #[test]
+    fn a_warm_nozzle_or_an_unknown_minimum_is_no_fact() {
+        let mut status = status(PrintState::Paused);
+        status.heaters = vec![nozzle("extruder", 170.0, Some(170.0))];
+        assert!(interruption(&status).unwrap().facts.is_empty());
+
+        status.heaters = vec![nozzle("extruder", 20.0, None)];
+        assert!(interruption(&status).unwrap().facts.is_empty());
+    }
+
+    #[test]
+    fn an_error_does_not_state_a_cold_nozzle() {
+        let mut status = status(PrintState::Error);
+        status.heaters = vec![nozzle("extruder", 48.0, Some(170.0))];
+
+        assert!(interruption(&status).unwrap().facts.is_empty());
+    }
+
+    #[test]
+    fn only_the_active_extruder_counts() {
+        let mut status = status(PrintState::Paused);
+        status.extruder.active = Some("extruder1".into());
+        status.heaters = vec![nozzle("extruder", 210.0, Some(170.0)), nozzle("extruder1", 48.0, Some(170.0))];
+
+        assert_eq!(interruption(&status).unwrap().facts, [cold_fact("extruder1", 48)]);
     }
 
     fn sources(next_layer: bool, at_layer: bool) -> Sources {

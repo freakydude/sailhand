@@ -9,12 +9,13 @@ use sailhand_core::domain::job_end::{self, JobLoss};
 use sailhand_core::domain::lane_filament::Remaining;
 use sailhand_core::domain::pause::{Interruption, InterruptionFact};
 use sailhand_core::domain::print_hints::PrintHint;
+use sailhand_core::sources::PrinterStatus;
 use sailhand_core::sources::happy_hare::{
     BufferSides, Emphasis, EncoderHeadroom, FlowGuardState, FlowGuardStatement, GateAvailability, LoadedFilament,
     ServoPosition, SyncFeedbackState,
 };
 use sailhand_core::sources::klipper::tuning::TuningRange;
-use sailhand_core::sources::klipper::{FanKind, PrintJob, PrintState};
+use sailhand_core::sources::klipper::{FanKind, Heater, PrintJob, PrintState, label};
 use sailhand_core::sources::mainsail_config::{self, PlannedLayerPause};
 use sailhand_core::sources::moonraker_server::files::FileMetadata;
 use sailhand_core::sources::moonraker_server::history::{FinishedJob, LastPrint};
@@ -203,7 +204,26 @@ fn fact_text(fact: &InterruptionFact) -> String {
         | InterruptionFact::MmuReason(text)
         | InterruptionFact::MmuHint(text) => text.clone(),
         InterruptionFact::SensorEmpty { label } => format!("{label}: no filament"),
+        InterruptionFact::NozzleCold { heater, temperature, target, min_extrude } => {
+            let nozzle = format!("{} {}", label(heater), format::temperature(f64::from(*temperature), 0));
+            if target >= min_extrude {
+                format!("{nozzle}, heating to {}", format::temperature(f64::from(*target), 0))
+            } else {
+                format!("{nozzle}, extrudes from {}", format::temperature(f64::from(*min_extrude), 0))
+            }
+        }
     }
+}
+
+/// The nozzle to offer heating for while a pause states it is too cold and no target would reach the minimum.
+/// A target at or above the minimum is already heating; nothing to offer then.
+pub fn heat_offer<'a>(interruption: &Interruption, status: &'a PrinterStatus) -> Option<&'a Heater> {
+    interruption.facts.iter().find_map(|fact| match fact {
+        InterruptionFact::NozzleCold { heater, target, min_extrude, .. } if target < min_extrude => {
+            status.heater(heater)
+        }
+        _ => None,
+    })
 }
 
 /// `Layer 50 · 10.00 mm`, or the part that is known.
@@ -796,6 +816,35 @@ mod tests {
         let job = PrintJob { current_layer: Some(50), height: Some(10.0), ..PrintJob::default() };
         assert_eq!(interruption_position(&job), "Layer 50 · 10.00 mm");
         assert_eq!(interruption_position(&PrintJob::default()), "");
+    }
+
+    fn cold_nozzle(target: i32) -> InterruptionFact {
+        InterruptionFact::NozzleCold { heater: "extruder1".into(), temperature: 48, target, min_extrude: 170 }
+    }
+
+    #[test]
+    fn a_cold_nozzle_says_what_it_needs() {
+        assert_eq!(fact_text(&cold_nozzle(0)), "Extruder1 48 °C, extrudes from 170 °C");
+        assert_eq!(fact_text(&cold_nozzle(169)), "Extruder1 48 °C, extrudes from 170 °C");
+        assert_eq!(fact_text(&cold_nozzle(215)), "Extruder1 48 °C, heating to 215 °C");
+    }
+
+    #[test]
+    fn heating_is_offered_only_while_the_target_stays_below_the_minimum() {
+        let status = PrinterStatus {
+            heaters: vec![Heater { object: "extruder1".into(), ..Heater::default() }],
+            ..PrinterStatus::default()
+        };
+        let offer = |target| heat_offer(&Interruption { failed: false, facts: vec![cold_nozzle(target)] }, &status);
+
+        assert_eq!(offer(0).map(|heater| heater.object.as_str()), Some("extruder1"));
+        assert!(offer(215).is_none());
+        let none = Interruption { failed: false, facts: Vec::new() };
+        assert!(heat_offer(&none, &status).is_none());
+        assert!(
+            heat_offer(&Interruption { failed: false, facts: vec![cold_nozzle(0)] }, &PrinterStatus::default())
+                .is_none()
+        );
     }
 
     #[test]
