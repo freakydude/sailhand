@@ -16,8 +16,12 @@ export component TextEntryDialog inherits Scrim {
     in property <bool> secret;
     in-out property <string> text;
     in-out property <bool> open;
+    // Why the typed text cannot be taken now (empty: it can). Enter then keeps the dialog open and shows the reason.
+    in property <string> refusal;
     callback accepted(string);
     property <bool> reveal;
+    property <bool> refused;
+    property <bool> show-refusal: root.refused && root.refusal != "";
     // A tap on the status bar or the navigation cancels the entry.
     property <int> dismissals: Dialogs.dismissals;
     visible: root.open;
@@ -33,6 +37,7 @@ export component TextEntryDialog inherits Scrim {
 
     changed open => {
         if (root.open) {
+            root.refused = false;
             field.focus();
             field.select-all();
         }
@@ -67,13 +72,21 @@ export component TextEntryDialog inherits Scrim {
                     // As high as the buttons in it, so they keep the gap to the keys.
                     height: Theme.touch;
                     // The name of the field, not a title: the keyboard needs the room.
-                    Text {
+                    if !root.show-refusal: Text {
                         text: root.title;
                         color: Theme.muted;
                         font-size: Theme.font-normal;
                         vertical-alignment: center;
                         max-width: 260px;
                         overflow: elide;
+                    }
+                    if root.show-refusal: IconLabel {
+                        max-width: 260px;
+                        icon: Icons.ui-warning;
+                        icon-size: Theme.icon-compact;
+                        text: root.refusal;
+                        color: StateIcons.severity-color(Severity.attention);
+                        font-size: Theme.font-small;
                     }
 
                     Rectangle {
@@ -96,6 +109,10 @@ export component TextEntryDialog inherits Scrim {
                             font-size: Theme.font-large;
                             input-type: root.secret && !root.reveal ? InputType.password : InputType.text;
                             accepted => {
+                                if (root.refusal != "") {
+                                    root.refused = true;
+                                    return;
+                                }
                                 root.close();
                                 root.accepted(root.text);
                             }
@@ -149,7 +166,12 @@ export component NumberEntryDialog inherits Scrim {
     in-out property <bool> open;
     // The person typed since the dialog opened or since the text was last replaced from outside.
     out property <bool> edited;
+    // Why the typed number cannot be taken now (empty: it can). Enter then keeps the dialog open and shows the
+    // reason in place of the hint.
+    in property <string> refusal;
     callback accepted(string);
+    property <bool> refused;
+    property <bool> show-refusal: root.refused && root.refusal != "";
     // A tap on the status bar or the navigation cancels the entry.
     property <int> dismissals: Dialogs.dismissals;
     visible: root.open;
@@ -168,6 +190,7 @@ export component NumberEntryDialog inherits Scrim {
     changed open => {
         if (root.open) {
             root.edited = false;
+            root.refused = false;
             field.focus();
             field.select-all();
         }
@@ -224,6 +247,10 @@ export component NumberEntryDialog inherits Scrim {
                             input-type: InputType.decimal;
                             edited => { root.edited = true; }
                             accepted => {
+                                if (root.refusal != "") {
+                                    root.refused = true;
+                                    return;
+                                }
                                 root.open = false;
                                 root.accepted(root.text);
                             }
@@ -236,18 +263,18 @@ export component NumberEntryDialog inherits Scrim {
                         }
                     }
                 }
-                if root.hint != "" && !root.hint-warning: Text {
+                if root.hint != "" && !root.hint-warning && !root.show-refusal: Text {
                     text: root.hint;
                     color: Theme.muted;
                     font-size: Theme.font-small;
                     horizontal-alignment: right;
                     wrap: word-wrap;
                 }
-                if root.hint != "" && root.hint-warning: IconLabel {
+                if (root.hint != "" && root.hint-warning) || root.show-refusal: IconLabel {
                     alignment: end;
                     icon: Icons.ui-warning;
                     icon-size: Theme.icon-compact;
-                    text: root.hint;
+                    text: root.show-refusal ? root.refusal : root.hint;
                     color: StateIcons.severity-color(Severity.attention);
                     font-size: Theme.font-small;
                 }

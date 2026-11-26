@@ -126,6 +126,7 @@ export component PrintersPage inherits Rectangle {
 
     address := TextEntryDialog {
         title: @tr("Moonraker address");
+        refusal: PrinterChoice.address-refusal(self.text);
         accepted(text) => { PrinterChoice.add(text); }
     }
 }

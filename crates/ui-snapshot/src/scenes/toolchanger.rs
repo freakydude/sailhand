@@ -200,7 +200,8 @@ fn head_level(session: &mut Session) -> Result<(), String> {
         // The error hint leads to the Service tab, where Recover is; that place lights up for a moment.
         if state == "error" && reference {
             session.tap(NOTE_BUTTON.0, NOTE_BUTTON.1);
-            session.pump(Duration::from_millis(200));
+            // With the 200 ms of `capture` the picture falls on the peak of the second pulse (`Highlight`).
+            session.pump(Duration::from_millis(600));
             session.capture("toolchanger-error-jump")?;
             if session.window.global::<Navigation>().get_page() != Page::Changer {
                 return Err("the error hint should lead to the Changer page".into());

@@ -42,6 +42,8 @@ export global Actions {
     callback remove-bed-mesh(string);
     // Why a typed name cannot be saved, or that it overwrites a profile; empty if neither.
     pure callback bed-mesh-name-hint(string) -> string;
+    // Why the typed name cannot be saved (empty: it can); keeps the name dialog open.
+    pure callback bed-mesh-name-refusal(string) -> string;
     callback calculate-screws-tilt();
     callback adjust-bed-screws();
     // PROBE_CALIBRATE, PROBE_EDDY_CURRENT_CALIBRATE or Z_ENDSTOP_CALIBRATE, whichever the printer has.
@@ -164,6 +166,8 @@ export global Actions {
     callback assign-tool-spool(int, int);
     // Spool id and the gross weight in grams as typed.
     callback measure-spool(int, string);
+    // Why the typed weight cannot be taken (empty: it can); keeps the weight dialog open.
+    pure callback spool-weight-refusal(string) -> string;
     callback apply-spool-preset();
     // The tools of a file that do not fit what they would print with, for the question before the start; empty if all fit.
     pure callback start-tools(string) -> [ToolMatchItem];
@@ -173,5 +177,7 @@ export global Actions {
     pure callback move-target-outside(string, string) -> bool;
     callback open-macro-form(string);
     callback set-macro-param(int, string);
+    // Why a typed parameter value cannot be taken (empty: it can); keeps the entry dialog open.
+    pure callback macro-param-refusal(string) -> string;
     callback macro-form-script() -> string;
 }

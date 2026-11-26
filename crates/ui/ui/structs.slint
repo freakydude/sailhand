@@ -495,7 +495,7 @@ export struct ConsoleItem {
 
 // Where a person deals with an incident; a message jumps there (`Navigation.go`). `heater` names its heater in
 // `Navigation.place-name`.
-export enum Place { none, connection, print, afc-service, changer-service, spools, heater }
+export enum Place { none, connection, print, afc-service, changer-service, spools, heater, console }
 
 export struct MessageItem {
     id: int,
@@ -541,6 +541,12 @@ export struct UpdateItem {
     detail: string,
     has-update: bool,
     up-to-date: bool,
+}
+
+// A light, heater or sensor that can be chosen in the settings: its Klipper object and its readable name.
+export struct ChoiceItem {
+    object: string,
+    label: string,
 }
 
 export struct PresetItem {

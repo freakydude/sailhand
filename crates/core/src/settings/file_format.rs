@@ -26,6 +26,8 @@ mod key {
     pub(super) const RECORD_FLOW: &str = "record_flow";
     pub(super) const MOONRAKER: &str = "moonraker";
     pub(super) const HIDDEN_MACROS: &str = "hidden_macros";
+    pub(super) const LIGHT: &str = "light";
+    pub(super) const CHAMBER: &str = "chamber";
     pub(super) const EXTRUDER: &str = "extruder";
     pub(super) const BED: &str = "bed";
     pub(super) const MOVE_MM: &str = "move_mm";
@@ -53,7 +55,7 @@ const GENERAL_KEYS: [&str; 6] = [
     key::RECORD_FLOW,
 ];
 const ROTATIONS: [u16; 4] = [0, 90, 180, 270];
-const PRINTER_KEYS: [&str; 2] = [key::MOONRAKER, key::HIDDEN_MACROS];
+const PRINTER_KEYS: [&str; 4] = [key::MOONRAKER, key::HIDDEN_MACROS, key::LIGHT, key::CHAMBER];
 const PRESET_KEYS: [&str; 2] = [key::EXTRUDER, key::BED];
 const STEP_CHOICE_KEYS: [&str; 6] =
     [key::MOVE_MM, key::Z_OFFSET_MM, key::TEMPERATURE, key::EXTRUDE_MM, key::EXTRUDE_SPEED, key::MANUAL_PROBE_MM];
@@ -264,7 +266,15 @@ fn read_printer(section: &Section, name: &str) -> Result<SavedPrinter, String> {
         .read(section)?
         .ok_or_else(|| format!("{} (line {}) needs `moonraker: http://…`", section.title(), section.line()))?;
     let hidden_macros = names(key::HIDDEN_MACROS, ListLayout::Lines).read(section)?.unwrap_or_default();
-    Ok(SavedPrinter { name: name.to_owned(), address, uuid: None, known_macros: Vec::new(), hidden_macros })
+    Ok(SavedPrinter {
+        name: name.to_owned(),
+        address,
+        hidden_macros,
+        // An entry without a value is there: deliberately none.
+        light: text(key::LIGHT).read(section)?.map(|light| light.trim().to_owned()),
+        chamber: text(key::CHAMBER).read(section)?.map(|chamber| chamber.trim().to_owned()),
+        ..SavedPrinter::default()
+    })
 }
 
 /// Only what stands above the SAVE_CONFIG line counts; uuid and known macros belong to Sailhand's block.
@@ -274,7 +284,10 @@ impl NamedSection for SavedPrinter {
     }
 
     fn same_in_file(&self, other: &Self) -> bool {
-        self.address == other.address && self.hidden_macros == other.hidden_macros
+        self.address == other.address
+            && self.hidden_macros == other.hidden_macros
+            && self.light == other.light
+            && self.chamber == other.chamber
     }
 
     fn write_changes(&self, before: Option<&Self>, section: &mut Section) {
@@ -284,6 +297,14 @@ impl NamedSection for SavedPrinter {
         let hidden_before = before.and_then(hidden);
         let hidden_macros = names(key::HIDDEN_MACROS, ListLayout::Lines);
         write_if_changed(section, hidden_macros, hidden_before.as_ref(), hidden(self).as_ref());
+        write_if_changed(
+            section,
+            text(key::LIGHT),
+            before.and_then(|before| before.light.as_ref()),
+            self.light.as_ref(),
+        );
+        let chamber_before = before.and_then(|before| before.chamber.as_ref());
+        write_if_changed(section, text(key::CHAMBER), chamber_before, self.chamber.as_ref());
     }
 }
 

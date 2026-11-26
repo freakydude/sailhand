@@ -1,7 +1,9 @@
 //! The macro prompt dialog: the prompt the core follows in the console lines, as the rows and buttons of the
-//! `PromptDialog` global.
+//! `PromptDialog` global. A prompt Sailhand covers natively (`covered_prompts`) stays out of the dialog.
 
 use crate::{AppWindow, PromptButtonItem, PromptDialog, PromptRowItem, PromptStyle};
+use sailhand_core::domain::covered_prompts::{self, Coverage};
+use sailhand_core::sources::PrinterStatus;
 use sailhand_core::sources::moonraker_server::gcode_store::ConsoleLine;
 use sailhand_core::sources::moonraker_server::prompt::{self, Prompt, PromptButton, PromptItem, PromptTracker};
 use slint::{ComponentHandle, ModelRc, VecModel};
@@ -17,42 +19,64 @@ impl PromptView {
         Self { window: window.as_weak(), tracker: RefCell::default() }
     }
 
-    /// The history after a (re)connect: a prompt that is still open comes back.
-    pub fn show_history(&self, lines: &[ConsoleLine]) {
-        if self.tracker.borrow_mut().take_history(lines) {
-            self.show();
+    /// The history after a (re)connect: a prompt that is still open comes back. True if the prompt changed.
+    pub fn show_history(&self, lines: &[ConsoleLine], status: &PrinterStatus) -> bool {
+        let changed = self.tracker.borrow_mut().take_history(lines);
+        if changed {
+            self.show(status);
         }
+        changed
     }
 
-    /// A console line that arrived live.
-    pub fn push(&self, line: &ConsoleLine) {
+    /// A console line that arrived live. True if the prompt changed.
+    pub fn push(&self, line: &ConsoleLine, status: &PrinterStatus) -> bool {
         let changed = self.tracker.borrow_mut().feed(line);
         if changed {
-            self.show();
+            self.show(status);
         }
+        changed
     }
 
-    /// Without Moonraker or Klipper nobody answers a prompt any more.
-    pub fn set_ready(&self, ready: bool) {
-        if !ready && self.tracker.borrow_mut().reset() {
-            self.show();
+    /// A new printer state. Without Moonraker or Klipper nobody answers a prompt any more; otherwise whether a prompt
+    /// is covered may have changed (Happy Hare detected after the prompt arrived).
+    pub fn follow(&self, ready: bool, status: &PrinterStatus) {
+        let reset = !ready && self.tracker.borrow_mut().reset();
+        let shown = self.window.upgrade().is_some_and(|window| window.global::<PromptDialog>().get_open());
+        if reset || shown != self.dialog_prompt(status).is_some() {
+            self.show(status);
         }
     }
 
     /// The person closed the dialog: it goes away at once, as Klipper may be busy and answer late. The caller sends
     /// [`prompt::CLOSE_GCODE`].
-    pub fn close(&self) {
+    pub fn close(&self, status: &PrinterStatus) {
         self.tracker.borrow_mut().close();
-        self.show();
+        self.show(status);
     }
 
-    fn show(&self) {
+    /// The lines of a covered prompt that belong in Sailhand's own view (the pause banner).
+    pub fn carried(&self, status: &PrinterStatus) -> Vec<String> {
+        self.tracker
+            .borrow()
+            .current()
+            .map(|prompt| covered_prompts::coverage(prompt, status).carried())
+            .unwrap_or_default()
+    }
+
+    /// The prompt to show as a dialog: the open one unless it is covered.
+    fn dialog_prompt(&self, status: &PrinterStatus) -> Option<Prompt> {
+        let tracker = self.tracker.borrow();
+        let prompt = tracker.current()?;
+        (covered_prompts::coverage(prompt, status) == Coverage::Show).then(|| prompt.clone())
+    }
+
+    fn show(&self, status: &PrinterStatus) {
         let Some(window) = self.window.upgrade() else { return };
         let dialog = window.global::<PromptDialog>();
-        match self.tracker.borrow().current() {
+        match self.dialog_prompt(status) {
             Some(prompt) => {
                 dialog.set_title(prompt.title.as_str().into());
-                dialog.set_rows(ModelRc::new(VecModel::from(prompt_rows(prompt))));
+                dialog.set_rows(ModelRc::new(VecModel::from(prompt_rows(&prompt))));
                 dialog.set_footer(ModelRc::new(VecModel::from(button_items(&prompt.footer))));
                 dialog.set_open(true);
             }

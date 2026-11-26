@@ -255,6 +255,7 @@ export component BedMeshProfilesDialog inherits Scrim {
 
     name := TextEntryDialog {
         title: Actions.bed-mesh-name-hint(self.text) != "" ? Actions.bed-mesh-name-hint(self.text) : @tr("Profile name");
+        refusal: Actions.bed-mesh-name-refusal(self.text);
         accepted(text) => { Actions.save-bed-mesh(text); }
     }
 }

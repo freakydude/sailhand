@@ -2,8 +2,9 @@
 
 use super::STATUS_BAR_LIGHT;
 use crate::session::Session;
-use sailhand::{Actions, Navigation, Page, PromptDialog};
+use sailhand::{Actions, Navigation, Page, Printer, PromptDialog};
 use sailhand_core::Command;
+use sailhand_core::sources::klipper::PrintState;
 use slint::{ComponentHandle, Model};
 use std::time::Duration;
 
@@ -51,4 +52,40 @@ fn expect_open(session: &mut Session, open: bool, after: &str) -> Result<(), Str
         return Ok(());
     }
     Err(format!("the prompt dialog should be {} after {after}", if open { "open" } else { "closed" }))
+}
+
+/// Happy Hare's pause dialog (the fake's `FAKE_MMU_PAUSE`): with only its standard buttons it stays out, and its
+/// extra line stands in the pause banner (`print-mmu-notice`); with a button of its own it shows as a dialog
+/// (`prompt-dialog-happy-hare-buttons`). Skipped without Happy Hare; leaves the print running.
+pub(super) fn happy_hare_pause_notice(session: &mut Session) -> Result<(), String> {
+    if session.presenter.snapshot().status.happy_hare().is_none() {
+        return Ok(());
+    }
+    session.window.global::<Navigation>().set_page(Page::Print);
+    mmu_pause(session, "FAKE_MMU_PAUSE MSG=1")?;
+    expect_open(session, false, "Happy Hare's notice with its standard buttons")?;
+    if !session.window.global::<Printer>().get_interruption_text().contains("Spare spools are in the drawer") {
+        return Err("the pause banner lacks the line of Happy Hare's notice".into());
+    }
+    session.capture("print-mmu-notice")?;
+    resume(session)?;
+
+    mmu_pause(session, "FAKE_MMU_PAUSE MSG=1 BUTTONS=1")?;
+    expect_open(session, true, "Happy Hare's notice with a button of its own")?;
+    session.capture("prompt-dialog-happy-hare-buttons")?;
+    session.window.global::<Actions>().invoke_close_prompt();
+    resume(session)
+}
+
+fn mmu_pause(session: &mut Session, script: &str) -> Result<(), String> {
+    session.service.send(Command::RunGcode { script: script.into() });
+    session.wait_until("paused by Happy Hare", |snapshot| snapshot.status.job.state == PrintState::Paused)?;
+    // The clock refreshes the banner every second.
+    session.pump(Duration::from_millis(1200));
+    Ok(())
+}
+
+fn resume(session: &mut Session) -> Result<(), String> {
+    session.service.send(Command::ResumePrint);
+    session.wait_until("print resumed", |snapshot| snapshot.status.job.state == PrintState::Printing)
 }

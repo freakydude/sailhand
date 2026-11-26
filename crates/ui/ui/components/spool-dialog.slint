@@ -161,6 +161,7 @@ export component SpoolDialog inherits Scrim {
     weigh := NumberEntryDialog {
         title: @tr("Weight with the empty spool");
         unit: "g";
+        refusal: Actions.spool-weight-refusal(self.text);
         accepted(text) => { Actions.measure-spool(root.selected, text); }
     }
 }

@@ -62,6 +62,12 @@ pub struct SavedPrinter {
     pub known_macros: Vec<String>,
     /// Known macros the user hides from the console.
     pub hidden_macros: Vec<String>,
+    /// The light of the quick switch (a Klipper LED or `wled <strip>`); `None` until found once on connecting, then
+    /// only this counts, an empty name meaning none ([`crate::domain::light::main_light`]).
+    pub light: Option<String>,
+    /// The heater or sensor shown as the chamber in the status bar; the same pattern as `light`
+    /// ([`crate::domain::chamber::chamber`]).
+    pub chamber: Option<String>,
 }
 
 impl Settings {
@@ -152,6 +158,19 @@ fn clean_name(name: &str) -> String {
 }
 
 impl SavedPrinter {
+    /// Writes what was found for the entries that are still missing, also nothing (an empty entry), so it is found only
+    /// once. Returns whether anything changed.
+    pub fn fill_missing_choices(&mut self, light: Option<&str>, chamber: Option<&str>) -> bool {
+        let mut changed = false;
+        for (entry, found) in [(&mut self.light, light), (&mut self.chamber, chamber)] {
+            if entry.is_none() {
+                *entry = Some(found.unwrap_or_default().to_owned());
+                changed = true;
+            }
+        }
+        changed
+    }
+
     /// Brings the macro lists in line with the macros the printer currently has.
     /// Macros that vanished are forgotten (also as hidden), new ones are known and visible.
     /// Returns whether anything changed.

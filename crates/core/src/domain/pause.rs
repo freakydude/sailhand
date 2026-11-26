@@ -14,6 +14,9 @@ pub enum InterruptionFact {
     KlipperMessage(String),
     /// Happy Hare's `reason_for_pause`.
     MmuReason(String),
+    /// A line of Happy Hare's pause dialog that its status does not hold, usually from `MMU_ERROR_DIALOG MSG=`; the
+    /// dialog itself is left out ([`crate::domain::covered_prompts`]).
+    MmuNotice(String),
     /// Happy Hare's `pause_hint` (4.2 and newer): what to do about the pause.
     MmuHint(String),
     /// An enabled filament sensor sees no filament. A fact, not necessarily the cause of the pause.
@@ -41,6 +44,12 @@ pub struct Interruption {
 /// The pause or error of the print with every fact a source states; `None` while the print is not interrupted.
 /// Happy Hare watches its own sensors and reports the reason itself, so the sensor facts only count without it.
 pub fn interruption(status: &PrinterStatus) -> Option<Interruption> {
+    interruption_with_notice(status, &[])
+}
+
+/// [`interruption`] with the lines a hidden Happy Hare dialog carries (`Coverage::Hide`), placed between the reason
+/// and the hint as the dialog has them.
+pub fn interruption_with_notice(status: &PrinterStatus, notice: &[String]) -> Option<Interruption> {
     let failed = match status.job.state {
         PrintState::Paused => false,
         PrintState::Error => true,
@@ -53,6 +62,7 @@ pub fn interruption(status: &PrinterStatus) -> Option<Interruption> {
     match status.happy_hare() {
         Some(mmu) => {
             facts.extend(non_empty(&mmu.reason_for_pause).map(InterruptionFact::MmuReason));
+            facts.extend(notice.iter().filter_map(|line| non_empty(line)).map(InterruptionFact::MmuNotice));
             facts.extend(non_empty(&mmu.pause_hint).map(InterruptionFact::MmuHint));
         }
         None => facts.extend(
@@ -98,7 +108,9 @@ impl InterruptionFact {
     /// The text a source stated; `None` for facts built from a reading.
     fn text(&self) -> Option<&str> {
         match self {
-            Self::KlipperMessage(text) | Self::MmuReason(text) | Self::MmuHint(text) => Some(text),
+            Self::KlipperMessage(text) | Self::MmuReason(text) | Self::MmuNotice(text) | Self::MmuHint(text) => {
+                Some(text)
+            }
             Self::SensorEmpty { .. } | Self::NozzleCold { .. } => None,
         }
     }
@@ -217,6 +229,32 @@ mod tests {
         let facts = interruption(&status).unwrap().facts;
 
         assert_eq!(facts, [InterruptionFact::MmuReason("Runout at gate 1".into())]);
+    }
+
+    #[test]
+    fn notice_lines_stand_between_reason_and_hint() {
+        let mut status = status(PrintState::Paused);
+        let mut mmu = happy_hare(true);
+        mmu.pause_hint = "Reload gate 1".into();
+        status.mmu = Some(mmu);
+
+        let facts = interruption_with_notice(&status, &["Check the spool holder".into(), " ".into()]).unwrap().facts;
+
+        assert_eq!(
+            facts,
+            [
+                InterruptionFact::MmuReason("Runout at gate 1".into()),
+                InterruptionFact::MmuNotice("Check the spool holder".into()),
+                InterruptionFact::MmuHint("Reload gate 1".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn notice_lines_need_happy_hare() {
+        let facts = interruption_with_notice(&status(PrintState::Paused), &["Check".into()]).unwrap().facts;
+
+        assert!(facts.is_empty());
     }
 
     #[test]

@@ -35,12 +35,12 @@ use sailhand_core::domain::manual_probe::Direction;
 use sailhand_core::domain::prepared_job::PreparedJob;
 use sailhand_core::domain::print_hints;
 use sailhand_core::domain::spools::{self, Lane};
-use sailhand_core::domain::temperature_limits::HeaterWatch;
-use sailhand_core::domain::{estimates, light, pause};
+use sailhand_core::domain::temperature_limits::{BarReading, HeaterWatch};
+use sailhand_core::domain::{chamber, estimates, light, pause};
 use sailhand_core::sources::PrinterStatus;
 use sailhand_core::sources::klipper::commands::{MeshNameProblem, mesh_name_problem};
 use sailhand_core::sources::klipper::{Axis, BED_HEATER, KlippyState, Leveling, NOZZLE_HEATER, moves, tuning};
-use sailhand_core::sources::klipper::{ExtruderState, PrintJob};
+use sailhand_core::sources::klipper::{ExtruderState, Heater, PrintJob};
 use sailhand_core::sources::moonraker_server::files::{FileEntry, FileMetadata, ThumbnailImage};
 use sailhand_core::sources::moonraker_server::gcode_store::{ConsoleKind, ConsoleLine};
 use sailhand_core::sources::moonraker_server::history::{FinishedJob, PrintHistory};
@@ -55,6 +55,14 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 type SnapshotObserver = Box<dyn Fn(&Snapshot)>;
+
+/// The light and the chamber chosen in the settings of the printer in use; `None` while there is no entry (found by
+/// name then), an empty name for none. See [`sailhand_core::settings::SavedPrinter::light`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DisplayChoices {
+    pub light: Option<String>,
+    pub chamber: Option<String>,
+}
 type ConsoleObserver = Box<dyn Fn(&ConsoleLine)>;
 
 #[derive(Default)]
@@ -106,6 +114,8 @@ pub struct Presenter {
     console: ConsoleView,
     prompt: PromptView,
     snapshot_observer: RefCell<Option<SnapshotObserver>>,
+    ready_observer: RefCell<Option<SnapshotObserver>>,
+    display_choices: RefCell<DisplayChoices>,
     console_observer: RefCell<Option<ConsoleObserver>>,
     power_devices: Rc<VecModel<PowerItem>>,
     updates: Rc<VecModel<UpdateItem>>,
@@ -143,6 +153,8 @@ impl Presenter {
             console: ConsoleView::default(),
             prompt: PromptView::new(window),
             snapshot_observer: RefCell::default(),
+            ready_observer: RefCell::default(),
+            display_choices: RefCell::default(),
             console_observer: RefCell::default(),
             power_devices: Rc::default(),
             updates: Rc::default(),
@@ -246,7 +258,10 @@ impl Presenter {
         let ready = snapshot.connection == ConnectionState::Connected && status.klippy_state == KlippyState::Ready;
 
         self.show_connection(&printer, snapshot, ready);
-        self.prompt.set_ready(ready);
+        if ready && let Some(observer) = self.ready_observer.borrow().as_ref() {
+            observer(snapshot);
+        }
+        self.prompt.follow(ready, status);
         self.status.sync_faults(&faults::standing(snapshot, self.spoolman_offline(snapshot)));
         self.show_job(&printer, snapshot);
         let lanes = self.lanes(snapshot);
@@ -382,7 +397,7 @@ impl Presenter {
     /// Light, fans, LEDs, the tuning values and the pending configuration.
     fn show_devices(&self, printer: &Printer, snapshot: &Snapshot) {
         let status = &snapshot.status;
-        let main_led = light::main_led(&snapshot.sources, &status.leds);
+        let main_led = light::main_led(&snapshot.sources, self.display_choices.borrow().light.as_deref(), &status.leds);
         printer.set_has_light(main_led.is_some());
         printer.set_light_name(main_led.map(|led| led.label.as_str()).unwrap_or_default().into());
         printer.set_light_on(main_led.is_some_and(|led| led.on));
@@ -401,6 +416,28 @@ impl Presenter {
         });
     }
 
+    /// The readings of the status bar: nozzle, bed and the chamber chosen in the settings.
+    fn show_bar_temperatures(
+        &self,
+        printer: &Printer,
+        snapshot: &Snapshot,
+        nozzle: Option<&Heater>,
+        bed: Option<&Heater>,
+    ) {
+        let text = |heater: Option<&Heater>| {
+            heater.map(|heater| format::bar_temperature(&BarReading::of_heater(heater))).unwrap_or_default()
+        };
+        printer.set_nozzle_bar_text(text(nozzle).into());
+        printer.set_bed_bar_text(text(bed).into());
+        let choices = self.display_choices.borrow();
+        let chamber = chamber::chamber(&snapshot.sources, choices.chamber.as_deref())
+            .and_then(|object| chamber::reading(&snapshot.status, object));
+        printer.set_has_chamber(chamber.is_some());
+        printer.set_chamber_heating(chamber.is_some_and(|reading| reading.regulating));
+        printer
+            .set_chamber_bar_text(chamber.map(|reading| format::bar_temperature(&reading)).unwrap_or_default().into());
+    }
+
     /// Nozzle and bed, the heaters with the hint of the spools, and the sensors.
     fn show_temperatures(&self, printer: &Printer, snapshot: &Snapshot, lanes: &[Lane]) {
         let status = &snapshot.status;
@@ -417,6 +454,7 @@ impl Presenter {
         printer.set_has_bed(bed.is_some());
         printer.set_bed_temperature(bed.map_or(0.0, |heater| heater.temperature) as f32);
         printer.set_bed_target(bed.map_or(0.0, |heater| heater.target) as f32);
+        self.show_bar_temperatures(printer, snapshot, nozzle, bed);
         let mut watch = self.heater_watch.borrow_mut();
         replace_rows(
             &self.heaters,
@@ -579,7 +617,8 @@ impl Presenter {
         printer.set_filament(texts.filament.into());
         printer.set_paused_since(texts.paused_since.into());
         printer.set_ended(view::ended_text(job, cache.newest_job.as_ref(), now).into());
-        let (details, position) = interruption_details(status, &shown);
+        let notice = self.prompt.carried(status);
+        let (details, position) = interruption_details(status, &shown, &notice);
         printer.set_interruption_text(details.into());
         printer.set_interruption_position(position.into());
         printer.set_heat_offer_heater(heat_offer(status, &shown).into());
@@ -622,14 +661,21 @@ impl Presenter {
             }
             Event::ConsoleHistory(lines) => {
                 self.console.show_history(&lines);
-                self.prompt.show_history(&lines);
+                let changed = self.prompt.show_history(&lines, &self.cache.borrow().snapshot.status);
+                if changed {
+                    // A covered prompt carries lines into the pause banner.
+                    self.refresh_job_texts();
+                }
             }
             Event::ConsoleLine(line) => {
                 if let Some(observer) = self.console_observer.borrow().as_ref() {
                     observer(&line);
                 }
                 self.console.push(&line);
-                self.prompt.push(&line);
+                let changed = self.prompt.push(&line, &self.cache.borrow().snapshot.status);
+                if changed {
+                    self.refresh_job_texts();
+                }
                 if line.kind == ConsoleKind::Response {
                     self.status.console_response(&line, self.is_printing());
                 }
@@ -693,6 +739,34 @@ impl Presenter {
     /// Applies the hidden macros from the settings.
     pub fn set_hidden_macros(&self, hidden: Vec<String>) {
         self.macros.set_hidden(hidden);
+    }
+
+    /// Takes the light and the chamber chosen in the settings of the printer in use; they show with the next snapshot
+    /// (see [`Self::show_again`]). Returns whether they changed.
+    pub fn set_display_choices(&self, choices: DisplayChoices) -> bool {
+        let changed = *self.display_choices.borrow() != choices;
+        *self.display_choices.borrow_mut() = choices;
+        changed
+    }
+
+    /// Shows the last snapshot again, after a setting changed what it shows.
+    pub fn show_again(&self) {
+        let snapshot = self.snapshot();
+        self.apply_snapshot(&snapshot);
+    }
+
+    /// Switches the main light the settings chose on or off.
+    pub fn toggle_light(&self) {
+        let snapshot = self.snapshot();
+        let choices = self.display_choices.borrow();
+        if let Some(light) = light::main_light(&snapshot.sources, choices.light.as_deref()) {
+            self.service.send(Command::ToggleLight { light: light.to_owned() });
+        }
+    }
+
+    /// Called with every snapshot of a ready printer, so the settings can note what was found on it once.
+    pub fn on_printer_ready(&self, handler: impl Fn(&Snapshot) + 'static) {
+        *self.ready_observer.borrow_mut() = Some(Box::new(handler));
     }
 
     /// Called with every snapshot after it is shown (the screen standby reads the printer from it).
@@ -805,8 +879,9 @@ impl Presenter {
 
     /// Sets one parameter of the open form.
     pub fn set_macro_param(&self, index: usize, value: &str) {
+        // The entry dialog refuses such values first (`macro-param-refusal`).
         if let Err(error) = self.macros.set_param(index, value) {
-            self.show_notice(&error, true);
+            log::warn!("macro parameter refused: {error}");
         }
     }
 
@@ -817,7 +892,7 @@ impl Presenter {
 
     /// The cross of the macro prompt: the dialog closes and Klipper learns that (`prompt_end`).
     pub fn close_prompt(&self) {
-        self.prompt.close();
+        self.prompt.close(&self.cache.borrow().snapshot.status);
         self.service.send(Command::RunGcode { script: CLOSE_PROMPT_GCODE.to_owned() });
     }
 
@@ -932,12 +1007,20 @@ impl Presenter {
         }
     }
 
-    /// Saves the active mesh as `name`, or says why Klipper would not.
+    /// Why `name` cannot be saved as a bed mesh profile; empty if it can. The name dialog stays open until then.
+    pub fn bed_mesh_name_refusal(name: &str) -> &'static str {
+        match mesh_name_problem(name.trim()) {
+            Some(MeshNameProblem::Empty) => "Enter a name for the profile",
+            Some(problem) => mesh_name_problem_text(problem),
+            None => "",
+        }
+    }
+
+    /// Saves the active mesh as `name`; the dialog refuses a name Klipper would not take
+    /// ([`Self::bed_mesh_name_refusal`]).
     pub fn save_bed_mesh(&self, name: &str) {
-        match mesh_name_problem(name) {
-            Some(MeshNameProblem::Empty) => self.show_notice("Enter a name for the profile", true),
-            Some(problem) => self.show_notice(mesh_name_problem_text(problem), true),
-            None => self.service.send(Command::SaveBedMesh { profile: name.to_owned() }),
+        if mesh_name_problem(name).is_none() {
+            self.service.send(Command::SaveBedMesh { profile: name.to_owned() });
         }
     }
 
@@ -1115,10 +1198,13 @@ fn job_spool<'a>(cache: &'a Cache, job: &PrintJob) -> Option<&'a Spool> {
 }
 
 /// What the banner of a paused or failed job states and where the print stands; empty without one.
-fn interruption_details(status: &PrinterStatus, shown: &ShownJob) -> (String, String) {
+/// `notice` holds the lines of a hidden Happy Hare dialog.
+fn interruption_details(status: &PrinterStatus, shown: &ShownJob, notice: &[String]) -> (String, String) {
     let details = match shown.loss {
         Some(loss) => Some(view::job_loss_text(loss)),
-        None => pause::interruption(status).map(|interruption| view::interruption_text(&interruption)),
+        None => {
+            pause::interruption_with_notice(status, notice).map(|interruption| view::interruption_text(&interruption))
+        }
     };
     match details {
         Some(details) => (details, view::interruption_position(&shown.job)),

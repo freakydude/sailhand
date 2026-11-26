@@ -8,7 +8,7 @@ use sailhand_core::domain::manual_probe::Direction;
 use sailhand_core::moonraker::CertificateFingerprint;
 use sailhand_core::sources::happy_hare::commands::{Gates, ServoCommand};
 use sailhand_core::sources::klipper::tuning::TuningKey;
-use sailhand_core::sources::klipper::{Axis, CentreOf, EddyTap, TestZ};
+use sailhand_core::sources::klipper::{Axis, CentreOf, EddyTap, MacroForm, TestZ};
 use sailhand_core::{Command, PrinterService, Query};
 use slint::platform::{Key, WindowEvent};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
@@ -108,7 +108,7 @@ fn bind_temperatures(
     actions.on_set_light(move |led, percent| {
         light_service.send(Command::SetLight { led: led.into(), level: f64::from(percent) / 100.0 });
     });
-    actions.on_toggle_light(send(service, || Command::ToggleLight));
+    actions.on_toggle_light(run_presenter(presenter, Presenter::toggle_light));
     let effect_service = service.clone();
     actions.on_set_led_effect(move |effect, on| {
         effect_service.send(Command::SetLedEffect { effect: effect.into(), on });
@@ -190,6 +190,7 @@ fn bind_calibration(actions: &Actions, service: &PrinterService, presenter: &Rc<
     actions.on_bed_mesh_name_hint(with_presenter(presenter, |presenter, name: SharedString| {
         SharedString::from(presenter.bed_mesh_name_hint(&name))
     }));
+    actions.on_bed_mesh_name_refusal(|name: SharedString| SharedString::from(Presenter::bed_mesh_name_refusal(&name)));
     actions.on_save_bed_mesh(with_presenter(presenter, |presenter, name: SharedString| {
         presenter.save_bed_mesh(name.trim())
     }));
@@ -315,10 +316,15 @@ fn bind_spools(actions: &Actions, service: &PrinterService, presenter: &Rc<Prese
             tool_service.send(Command::AssignToolSpool { tool, spool_id: u32::try_from(id).ok() });
         }
     });
-    let (measure_service, measure_presenter) = (service.clone(), Rc::clone(presenter));
-    actions.on_measure_spool(move |id, text| match (u32::try_from(id), parse_weight(&text)) {
-        (Ok(spool_id), Some(weight)) => measure_service.send(Command::MeasureSpool { spool_id, weight }),
-        _ => measure_presenter.show_notice("Enter the weight of the spool in grams", true),
+    actions.on_spool_weight_refusal(|text| {
+        SharedString::from(if parse_weight(&text).is_some() { "" } else { "Enter the weight of the spool in grams" })
+    });
+    let measure_service = service.clone();
+    actions.on_measure_spool(move |id, text| {
+        // The dialog refuses what does not parse (`spool_weight_refusal`).
+        if let (Ok(spool_id), Some(weight)) = (u32::try_from(id), parse_weight(&text)) {
+            measure_service.send(Command::MeasureSpool { spool_id, weight });
+        }
     });
     actions.on_apply_spool_preset(run_presenter(presenter, Presenter::apply_spool_preset));
 }
@@ -423,6 +429,9 @@ fn bind_console_and_macros(
         if let Ok(index) = usize::try_from(index) {
             param_presenter.set_macro_param(index, &value);
         }
+    });
+    actions.on_macro_param_refusal(|value| {
+        MacroForm::value_problem(&value).map(|problem| problem.to_string()).unwrap_or_default().into()
     });
     actions.on_macro_form_script(run_presenter(presenter, |presenter| presenter.macro_form_script().into()));
 }

@@ -1,7 +1,6 @@
 // Application frame: status bar at the top, navigation rail on the left.
 
 import { Theme } from "../theme.slint";
-import { Units } from "../units.slint";
 import { Icons } from "../icons.slint";
 import { Backlight, Confirm, Dialogs, Navigation, Network, Page, Place, Printer, PrinterChoice, Severity } from "../state.slint";
 import { StateIcons } from "../state-icons.slint";
@@ -287,12 +286,17 @@ export component StatusBar inherits Rectangle {
             icon: Icons.thermal-nozzle;
             head: Printer.nozzle-head;
             heating: Printer.nozzle-selected && Printer.nozzle-target > 0;
-            text: !Printer.nozzle-selected ? @tr("No head") : Units.degrees(Printer.nozzle-temperature) + (Printer.nozzle-target > 0 ? " / " + Units.degrees(Printer.nozzle-target) : "");
+            text: !Printer.nozzle-selected ? @tr("No head") : Printer.nozzle-bar-text;
         }
         if Printer.has-bed && Printer.ready && !Printer.status-message-visible: TemperatureReading {
             icon: Icons.thermal-bed;
             heating: Printer.bed-target > 0;
-            text: Units.degrees(Printer.bed-temperature) + (Printer.bed-target > 0 ? " / " + Units.degrees(Printer.bed-target) : "");
+            text: Printer.bed-bar-text;
+        }
+        if Printer.has-chamber && Printer.ready && !Printer.status-message-visible: TemperatureReading {
+            icon: Icons.thermal-chamber;
+            heating: Printer.chamber-heating;
+            text: Printer.chamber-bar-text;
         }
         // In a column with room above and below, like the emergency stop: directly in the row, its fixed height would
         // cap the height of the whole row and lift the field and the readings.

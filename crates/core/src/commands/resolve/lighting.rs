@@ -17,10 +17,12 @@ pub(super) fn light(setup: &Setup, status: &PrinterStatus, led: &str, level: f64
     Command::SetLed { led: led.to_owned(), red, green, blue, white }
 }
 
-/// Switches the main light on or off.
-pub(super) fn toggle(sources: &Sources, status: &PrinterStatus) -> Result<Vec<Command>, CommandError> {
-    let led = light::main_light(sources).ok_or(CommandError::NoLight)?;
-    let lit = light::main_led(sources, &status.leds).is_some_and(|main| main.on);
+/// Switches the light on or off.
+pub(super) fn toggle(sources: &Sources, status: &PrinterStatus, led: &str) -> Result<Vec<Command>, CommandError> {
+    if !light::lights(sources).any(|light| light == led) {
+        return Err(CommandError::NoLight);
+    }
+    let lit = status.leds.iter().any(|candidate| candidate.object == led && candidate.on);
     // A WLED strip comes back with its initial preset rather than at full brightness.
     Ok(match wled::strip_name(led) {
         Some(strip) => vec![Command::SetWledStrip {

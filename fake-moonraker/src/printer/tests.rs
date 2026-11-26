@@ -866,3 +866,27 @@ fn without_the_macro_profile_or_without_spoolman_the_tool_macros_set_no_active_s
         assert!(printer.take_active_spool_events().is_empty());
     }
 }
+
+#[test]
+fn fake_mmu_pause_pauses_and_sends_happy_hares_notice() {
+    let mut printer = Printer::with_profile(1.0, MachineProfile::happy_hare(4));
+    printer.start_print(&Catalog::demo().find("benchy.gcode").unwrap().clone()).unwrap();
+    printer.take_console();
+
+    run(&mut printer, "FAKE_MMU_PAUSE MSG=1 BUTTONS=1").unwrap();
+
+    assert_eq!(printer.status()["print_stats"]["state"], "paused");
+    let lines = printer.take_console();
+    assert_eq!(lines.first().map(String::as_str), Some("// action:prompt_begin Happy Hare Pause Notice"));
+    assert!(lines.iter().any(|line| line.ends_with("text Spare spools are in the drawer under the printer")));
+    assert!(lines.iter().any(|line| line.ends_with("footer_button Purge|MMU_EJECT|secondary")));
+    assert_eq!(lines.last().map(String::as_str), Some("// action:prompt_show"));
+}
+
+#[test]
+fn fake_mmu_pause_needs_happy_hare() {
+    let mut printer = printer();
+    printer.start_print(&Catalog::demo().find("benchy.gcode").unwrap().clone()).unwrap();
+
+    assert!(run(&mut printer, "FAKE_MMU_PAUSE").is_err());
+}

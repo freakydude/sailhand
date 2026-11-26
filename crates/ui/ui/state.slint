@@ -2,10 +2,10 @@
 
 import { Icons } from "icons.slint";
 import { Theme } from "theme.slint";
-import { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroParamItem, PowerItem, UpdateItem, PresetItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
+import { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
 import { Actions } from "actions.slint";
 
-export { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroParamItem, PowerItem, UpdateItem, PresetItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
+export { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
 export { Actions } from "actions.slint";
 
 
@@ -139,6 +139,14 @@ export global Printer {
     in property <bool> has-bed;
     in property <float> bed-temperature;
     in property <float> bed-target;
+    // The temperatures of the status bar, formatted: the reading, with the target only while it is outside the control
+    // window (`150° / 215°`).
+    in property <string> nozzle-bar-text;
+    in property <string> bed-bar-text;
+    // The chamber heater or sensor chosen in the settings (found once by name); none: no reading in the bar.
+    in property <bool> has-chamber;
+    in property <bool> chamber-heating;
+    in property <string> chamber-bar-text;
     // The part fan of the nozzle in use first (the mounted head's, else `fan`), then the other fans.
     in property <[FanItem]> fans;
     in property <[LedItem]> leds;
@@ -466,6 +474,16 @@ export global UiSettings {
     // Not empty when the setup outside the program folder is older than the program: the command that updates it.
     in property <string> setup-command;
 
+    // The light of the quick switch and the chamber of the status bar, chosen per printer: what the printer in use
+    // offers and the object in its settings ("" for none). Only for a saved printer that is ready.
+    in property <bool> status-bar-choices-available;
+    in property <[ChoiceItem]> light-choices;
+    in property <string> light-choice;
+    in property <[ChoiceItem]> chamber-choices;
+    in property <string> chamber-choice;
+    callback choose-light(string);
+    callback choose-chamber(string);
+
     // Rust saves after every change.
     callback steps-changed();
     callback fullscreen-toggled(bool);
@@ -505,6 +523,8 @@ export global PrinterChoice {
     callback forget(string);
     // Address typed by hand.
     callback add(string);
+    // Why a typed address cannot be used (empty: it can); keeps the address dialog open.
+    pure callback address-refusal(string) -> string;
 }
 
 // Networks of the host sailhand runs on. Rust writes the state, the UI calls the callbacks.
@@ -628,7 +648,7 @@ export enum HeatTab { heaters, fans, sensors }
 
 // Sections of the Settings tab; Network is `Page.network` (it is watched while shown), the others live on
 // `Page.settings`. A section without content falls back to the first one that has some.
-export enum SettingsSection { display, access, logs, about }
+export enum SettingsSection { display, status-bar, access, logs, about }
 
 export global Navigation {
     in-out property <Page> page: Page.print;
@@ -677,8 +697,8 @@ export global Navigation {
         self.page = Page.temperature;
     }
 
-    // Where a jump (`go`) led to: the element there with this place (and, for a heater, this name) lights up for a
-    // moment (`Highlight`), so the eye finds it. Cleared again by `highlight-done`.
+    // Where a jump (`go`) led to: the element there with this place (and, for a heater, this name) blinks twice
+    // (`Highlight`), so the eye finds it. Cleared again by `highlight-done`.
     out property <Place> highlight: Place.none;
     out property <string> highlight-name;
 
@@ -697,8 +717,11 @@ export global Navigation {
             self.changer-tab = ChangerTab.service;
             self.page = Page.changer;
         } else if (place == Place.spools) {
-            self.filament-tab = FilamentTab.extruder;
+            // With gates or lanes the Gates tab states Spoolman's state; otherwise the spool strip of the extruder.
+            self.filament-tab = Printer.has-lanes ? FilamentTab.gates : FilamentTab.extruder;
             self.page = Page.filament;
+        } else if (place == Place.console) {
+            self.page = Page.console;
         } else if (place == Place.heater) {
             self.heat-tab = HeatTab.heaters;
             self.page = Page.temperature;

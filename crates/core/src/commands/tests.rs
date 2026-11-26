@@ -572,16 +572,17 @@ fn light_uses_white_where_there_is_one_and_toggles_the_main_light() {
         ..PrinterStatus::default()
     };
 
-    let on = Command::ToggleLight.resolve(&sources, &status).unwrap();
+    let toggle = || Command::ToggleLight { light: "neopixel chamber".into() };
+    let on = toggle().resolve(&sources, &status).unwrap();
     assert_eq!(script(on[0].clone()), "SET_LED LED=chamber RED=0.00 GREEN=0.00 BLUE=0.00 WHITE=1.00 SYNC=0");
     status.leds[0].on = true;
-    let off = Command::ToggleLight.resolve(&sources, &status).unwrap();
+    let off = toggle().resolve(&sources, &status).unwrap();
     assert_eq!(script(off[0].clone()), "SET_LED LED=chamber RED=0.00 GREEN=0.00 BLUE=0.00 WHITE=0.00 SYNC=0");
     let mixed = Command::SetLight { led: "neopixel sb".into(), level: 0.5 }.resolve(&sources, &status).unwrap();
     assert_eq!(script(mixed[0].clone()), "SET_LED LED=sb RED=0.50 GREEN=0.50 BLUE=0.50 WHITE=0.50 SYNC=0");
     let rgb = Command::SetLight { led: "neopixel status".into(), level: 0.5 }.resolve(&sources, &status).unwrap();
     assert_eq!(script(rgb[0].clone()), "SET_LED LED=status RED=0.50 GREEN=0.50 BLUE=0.50 WHITE=0.00 SYNC=0");
-    assert!(Command::ToggleLight.resolve(&printer(&[]), &status).is_err());
+    assert!(toggle().resolve(&printer(&[]), &status).is_err());
 }
 
 #[test]
@@ -594,10 +595,11 @@ fn a_wled_strip_is_switched_and_dimmed_by_moonraker() {
     let wled = |action| vec![Command::SetWledStrip { strip: "chamber".into(), action }];
     let dim = Command::SetLight { led: "wled chamber".into(), level: 0.5 };
 
-    assert_eq!(resolve(Command::ToggleLight, &status), wled(StripAction::On));
+    let toggle = || Command::ToggleLight { light: "wled chamber".into() };
+    assert_eq!(resolve(toggle(), &status), wled(StripAction::On));
     assert_eq!(resolve(dim.clone(), &status), wled(StripAction::OnAt(0.5)));
     status.leds[0].on = true;
-    assert_eq!(resolve(Command::ToggleLight, &status), wled(StripAction::Off));
+    assert_eq!(resolve(toggle(), &status), wled(StripAction::Off));
     assert_eq!(resolve(dim, &status), wled(StripAction::Dim(0.5)));
     let call = Command::SetWledStrip { strip: "chamber".into(), action: StripAction::Off }.to_call().unwrap();
     assert_eq!(call.method, "machine.wled.post_strip");

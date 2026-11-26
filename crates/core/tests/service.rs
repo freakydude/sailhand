@@ -861,7 +861,7 @@ async fn fans_lights_sensors_and_tuning_values_follow_the_printer() {
 
     let klipper = &snapshot.sources.klipper;
     assert!(klipper.fans.iter().any(|fan| fan == "fan_generic nevermore"));
-    assert_eq!(light::main_light(&snapshot.sources), Some("neopixel chamber"));
+    assert_eq!(light::detect(&snapshot.sources), Some("neopixel chamber"));
     assert_eq!(snapshot.sources.wled_strips, ["wled enclosure"]);
     assert_eq!(klipper.white_channel("neopixel chamber"), WhiteChannel::All);
     assert_eq!(klipper.white_channel("neopixel status"), WhiteChannel::None);
@@ -876,7 +876,7 @@ async fn fans_lights_sensors_and_tuning_values_follow_the_printer() {
     );
     assert_eq!(snapshot.status.fans[0].kind, FanKind::Part);
 
-    service.send(Command::ToggleLight);
+    service.send(Command::ToggleLight { light: "neopixel chamber".into() });
     service.send(Command::SetFanSpeed { fan: "fan_generic exhaust".into(), speed: 0.5 });
     service.send(Command::SetLedEffect { effect: "rainbow".into(), on: true });
     service.send(Command::StepTuning { key: TuningKey::MaxAccel, direction: 1.0 });

@@ -122,6 +122,12 @@ pub enum Command {
     /// Ends the running print with an error, like Klipper after a move out of range (`FAKE_PRINT_ERROR`; not in
     /// Klipper).
     FakePrintError,
+    /// `FAKE_MMU_PAUSE [MSG=1] [BUTTONS=1]`: Happy Hare pauses the print with its pause dialog, maybe with an extra
+    /// line and button (not in Happy Hare).
+    FakeMmuPause {
+        message: bool,
+        extra_button: bool,
+    },
     /// `M117` and `SET_DISPLAY_TEXT`: sets or (`None`) clears the display message.
     DisplayText(Option<String>),
     /// `RESPOND` and the demo macros: console lines for the session to send (with their prefix).

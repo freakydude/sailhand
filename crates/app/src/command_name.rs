@@ -30,7 +30,7 @@ pub fn command_name(command: &Command) -> String {
         Command::InitializeToolchanger { .. } => "Initialize Tool Changer".to_owned(),
         Command::SetFanSpeed { .. } => "Set Fan Speed".to_owned(),
         Command::SetLight { .. } => "Set Light".to_owned(),
-        Command::ToggleLight => "Toggle Light".to_owned(),
+        Command::ToggleLight { .. } => "Toggle Light".to_owned(),
         Command::SetLed { .. } => "Set Led".to_owned(),
         Command::SetLedEffect { .. } => "Set Led Effect".to_owned(),
         Command::AdjustZOffset { .. } => "Adjust Z Offset".to_owned(),

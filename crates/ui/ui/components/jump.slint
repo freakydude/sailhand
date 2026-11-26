@@ -6,33 +6,39 @@ import { Icons } from "../icons.slint";
 import { StateIcons } from "../state-icons.slint";
 import { Navigation, Place, Severity } from "../state.slint";
 
-// Lights up the element it lies over when a jump leads to `place` (and, if set, `name`), then fades and clears the
-// jump. Put it as the last child of a Rectangle that has no layout, so it covers it: `Highlight { place: ...; }`.
+// Blinks the element it lies over twice when a jump leads to `place` (and, if set, `name`), then clears the jump: a
+// pale `foreground` layer over its whole area, so it shows on accent buttons and dark surfaces alike. Only the alpha of
+// the colour changes (no opacity, no border), which the software renderer draws as well. Put it as the last child of a
+// Rectangle that has no layout, so it covers it: `Highlight { place: ...; }`.
 export component Highlight inherits Rectangle {
     in property <Place> place;
     // The heater, head or lane of the place; empty matches any.
     in property <string> name;
-    // How long the mark stays before it fades.
-    property <duration> lit-time: 1600ms;
+    // The corner radius of the element it covers.
+    in property <length> radius: Theme.radius;
+    // Each pulse is one phase on and one phase off; the alpha fades within the first half of a phase.
+    property <duration> phase-time: 300ms;
+    property <int> phase-count: 4;
+    property <float> peak-alpha: 0.3;
+    property <int> phase;
     property <bool> lit: Navigation.highlight == root.place && (root.name == "" || Navigation.highlight-name == root.name);
+    property <bool> on: root.lit && Math.mod(root.phase, 2) == 0;
+    changed lit => {
+        root.phase = 0;
+    }
     // Without a layout around it, a Rectangle fills its parent by default.
-    border-radius: Theme.radius;
-    border-width: 3px;
-    border-color: Theme.accent;
-    background: Theme.accent.with-alpha(0.12);
-    opacity: 0;
-    states [
-        on when root.lit: {
-            opacity: 1;
-            out {
-                animate opacity { duration: 500ms; }
+    border-radius: root.radius;
+    background: Theme.foreground.with-alpha(root.on ? root.peak-alpha : 0);
+    animate background { duration: root.phase-time / 2; easing: ease-in-out; }
+    Timer {
+        interval: root.phase-time;
+        running: root.lit;
+        triggered => {
+            root.phase += 1;
+            if (root.phase >= root.phase-count) {
+                Navigation.highlight-done();
             }
         }
-    ]
-    Timer {
-        interval: root.lit-time;
-        running: root.lit;
-        triggered => { Navigation.highlight-done(); }
     }
 }
 

@@ -230,6 +230,7 @@ fn fact_text(fact: &InterruptionFact) -> String {
     match fact {
         InterruptionFact::KlipperMessage(text)
         | InterruptionFact::MmuReason(text)
+        | InterruptionFact::MmuNotice(text)
         | InterruptionFact::MmuHint(text) => text.clone(),
         InterruptionFact::SensorEmpty { label } => format!("{label}: no filament"),
         InterruptionFact::NozzleCold { heater, temperature, target, min_extrude } => {

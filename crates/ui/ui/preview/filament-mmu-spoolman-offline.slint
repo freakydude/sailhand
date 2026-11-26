@@ -1,0 +1,15 @@
+// Preview: Gates tab of the Filament page right after the jump of "Spoolman offline": beside the tabs the state of
+// Spoolman, at the peak of the first pulse. Open in the Slint preview or render with scripts/ui-preview.sh.
+
+import { AppWindow } from "../app.slint";
+import { Navigation, Place, Printer } from "../state.slint";
+import { Sample } from "sample.slint";
+
+export component FilamentMmuSpoolmanOfflinePreview inherits AppWindow {
+    init => {
+        Sample.mmu();
+        Printer.has-spoolman = true;
+        Printer.spoolman-offline = true;
+        Navigation.go(Place.spools, "");
+    }
+}

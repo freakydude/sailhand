@@ -16,6 +16,10 @@ pub(super) fn parse(name: &str, args: &[&str]) -> Result<Option<Command>, Comman
             layer: named_index(args, "LAYER")?.map(|layer| layer as u32),
         })),
         "FAKE_PRINT_ERROR" => Ok(Command::FakePrintError),
+        "FAKE_MMU_PAUSE" => Ok(Command::FakeMmuPause {
+            message: named_index(args, "MSG")?.is_some_and(|value| value != 0),
+            extra_button: named_index(args, "BUTTONS")?.is_some_and(|value| value != 0),
+        }),
         _ => return Ok(None),
     };
     command.map(Some)

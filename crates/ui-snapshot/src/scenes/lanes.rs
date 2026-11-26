@@ -162,7 +162,8 @@ fn afc_error(session: &mut Session) -> Result<(), String> {
     session.show_page(Page::Filament, "afc-error-filament")?;
     // The hint leads to the Service tab, where "Clear error" lights up for a moment.
     session.window.global::<Navigation>().invoke_go(Place::AfcService, "".into());
-    session.pump(Duration::from_millis(200));
+    // With the 200 ms of `capture` the picture falls on the peak of the second pulse (`Highlight`).
+    session.pump(Duration::from_millis(600));
     session.capture("afc-error-service")?;
     if session.window.global::<Navigation>().get_changer_tab() != ChangerTab::Service {
         return Err("the AFC error should lead to the Service tab".into());

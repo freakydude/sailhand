@@ -2,7 +2,9 @@
 //! question is answered in exactly one place, which also decides which source wins.
 
 pub mod active_spool;
+pub mod chamber;
 pub mod changer;
+pub mod covered_prompts;
 pub mod estimates;
 pub mod faults;
 pub mod filament;

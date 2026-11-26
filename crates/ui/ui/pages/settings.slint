@@ -1,11 +1,11 @@
 // The Settings tab of the system pages: settings of this display, picked from a list on the left (display, the host's
-// network, access to the printer, logs, about). A section without content is not listed. The settings of the console
+// network, status bar of the printer in use, access to the printer, logs, about). A section without content is not listed. The settings of the console
 // are on the Console tab, temperature presets in the settings file, see docs/configuration.md.
 
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
-import { Backlight, Confirm, Navigation, Network, Page, Printer, PrinterChoice, SettingsSection, UiSettings } from "../state.slint";
-import { Card, IconButton, ToggleRow } from "../components/controls.slint";
+import { Backlight, ChoiceItem, Confirm, Navigation, Network, Page, Printer, PrinterChoice, SettingsSection, UiSettings } from "../state.slint";
+import { Card, IconButton, ScrollList, ToggleRow } from "../components/controls.slint";
 import { SystemTabs } from "../components/system-tabs.slint";
 import { NetworkSection, WifiConnectDialogs } from "network.slint";
 
@@ -158,6 +158,100 @@ component AccessCard inherits Card {
     }
 }
 
+// One row of a choice list: the name, a check on the chosen one; the whole row is the touch area.
+component ChoiceRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+    height: Theme.row-height-small;
+    border-radius: Theme.radius;
+    background: touch.pressed ? Theme.surface-active : Theme.surface-raised;
+    border-width: root.selected ? 2px : 0px;
+    border-color: Theme.accent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-checked: root.selected;
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: Theme.padding;
+        padding-right: Theme.padding;
+        spacing: Theme.spacing;
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            color: Theme.foreground;
+            font-size: Theme.font-normal;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.selected: Image {
+            cross-axis-self-alignment: center;
+            source: Icons.ui-check;
+            colorize: Theme.accent;
+            width: Theme.icon-small;
+            height: Theme.icon-small;
+        }
+    }
+}
+
+// What a printer offers for one choice, "None" first; the chosen one carries the check.
+component ChoiceList inherits VerticalLayout {
+    in property <string> title;
+    in property <[ChoiceItem]> choices;
+    in property <string> chosen;
+    callback choose(string);
+    spacing: Theme.spacing-tight;
+    Text { text: root.title; color: Theme.muted; font-size: Theme.font-small; }
+    list := ScrollList {
+        vertical-stretch: 1;
+        property <length> row-step: Theme.row-height-small + Theme.spacing-small;
+        content-height: (root.choices.length + 1) * self.row-step - Theme.spacing-small;
+        ChoiceRow {
+            y: 0;
+            width: list.row-width;
+            text: @tr("None");
+            selected: root.chosen == "";
+            clicked => { root.choose(""); }
+        }
+        for choice[index] in root.choices: ChoiceRow {
+            y: (index + 1) * list.row-step;
+            width: list.row-width;
+            text: choice.label;
+            selected: choice.object == root.chosen;
+            clicked => { root.choose(choice.object); }
+        }
+    }
+}
+
+// The light of the quick switch and the chamber reading of the status bar, for the printer in use. Found once by name
+// when the printer is first connected; from then on only what is chosen here (or in the settings file) counts.
+component StatusBarCard inherits Card {
+    title: @tr("Status bar · {}", PrinterChoice.active-name);
+    icon: Icons.thermal-chamber;
+
+    HorizontalLayout {
+        vertical-stretch: 1;
+        spacing: Theme.spacing;
+        ChoiceList {
+            horizontal-stretch: 1;
+            title: @tr("Light");
+            choices: UiSettings.light-choices;
+            chosen: UiSettings.light-choice;
+            choose(object) => { UiSettings.choose-light(object); }
+        }
+        ChoiceList {
+            horizontal-stretch: 1;
+            title: @tr("Chamber");
+            choices: UiSettings.chamber-choices;
+            chosen: UiSettings.chamber-choice;
+            choose(object) => { UiSettings.choose-chamber(object); }
+        }
+    }
+}
+
 // Android only: copies the log into the Download folder, where it can be attached to a bug report.
 component LogsCard inherits Card {
     title: @tr("Logs");
@@ -220,6 +314,8 @@ export component SettingsPage inherits Rectangle {
     // The chosen section, or the first one with content when it has none (e.g. after logging out).
     property <SettingsSection> shown: Navigation.settings-section == SettingsSection.display && root.has-display
             ? SettingsSection.display
+        : Navigation.settings-section == SettingsSection.status-bar && UiSettings.status-bar-choices-available
+            ? SettingsSection.status-bar
         : Navigation.settings-section == SettingsSection.access && root.has-access ? SettingsSection.access
         : Navigation.settings-section == SettingsSection.logs && root.has-logs ? SettingsSection.logs
         : Navigation.settings-section == SettingsSection.about ? SettingsSection.about
@@ -252,6 +348,12 @@ export component SettingsPage inherits Rectangle {
                     text: @tr("Network");
                     selected: root.network-shown;
                     clicked => { Navigation.page = Page.network; }
+                }
+                if UiSettings.status-bar-choices-available: SectionRow {
+                    icon: Icons.thermal-chamber;
+                    text: @tr("Status bar");
+                    selected: !root.network-shown && root.shown == SettingsSection.status-bar;
+                    clicked => { root.open(SettingsSection.status-bar); }
                 }
                 if root.has-access: SectionRow {
                     icon: Icons.ui-lock;
@@ -287,10 +389,12 @@ export component SettingsPage inherits Rectangle {
             if !root.network-shown: VerticalLayout {
                 horizontal-stretch: 1;
                 if root.shown == SettingsSection.display: DisplayCard { vertical-stretch: 0; }
+                if root.shown == SettingsSection.status-bar: StatusBarCard { vertical-stretch: 1; }
                 if root.shown == SettingsSection.access: AccessCard { vertical-stretch: 0; }
                 if root.shown == SettingsSection.logs: LogsCard { vertical-stretch: 0; }
                 if root.shown == SettingsSection.about: AboutCard { vertical-stretch: 0; }
-                Rectangle { vertical-stretch: 1; }
+                // The lists of the status bar fill the height themselves.
+                Rectangle { vertical-stretch: root.shown == SettingsSection.status-bar ? 0 : 1; }
             }
         }
     }

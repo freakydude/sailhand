@@ -562,6 +562,7 @@ impl Printer {
             Command::DisplayText(message) => self.display_message = message,
             Command::Respond(lines) => self.responses.extend(lines),
             Command::FakePrintError => self.fail_print()?,
+            Command::FakeMmuPause { message, extra_button } => self.mmu_pause(message, extra_button)?,
             // The session delays the answer of a dwell; the printer itself does nothing.
             Command::Help | Command::Dwell(_) | Command::Ignored => {}
         }
@@ -592,6 +593,16 @@ impl Printer {
 
     pub fn pause_print(&mut self) -> Result<(), CommandError> {
         self.transition(PrintState::Printing, PrintState::Paused)
+    }
+
+    /// Happy Hare's pause after an MMU error: the print pauses and its dialog appears (`handle_mmu_error`).
+    fn mmu_pause(&mut self, message: bool, extra_button: bool) -> Result<(), CommandError> {
+        if self.mmu.is_none() {
+            return Err(CommandError::new("Unknown command:\"FAKE_MMU_PAUSE\""));
+        }
+        self.pause_print()?;
+        self.responses.extend(crate::happy_hare::pause_notice(message, extra_button));
+        Ok(())
     }
 
     pub fn resume_print(&mut self) -> Result<(), CommandError> {
