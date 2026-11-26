@@ -7,8 +7,10 @@ import { ButtonKind, IconButton } from "../components/controls.slint";
 import { GateCheck } from "mmu-dialogs.slint";
 
 export component MmuServiceTab inherits Rectangle {
-    // Large tiles, like the extrude buttons of the Extruder tab.
-    property <length> tile-icon: 40px;
+    // Large tiles, like the extrude buttons of the Extruder tab; compact (icon beside the text, touch height) where
+    // another card shares the tab (the tool changer's), so both fit.
+    in property <bool> compact;
+    property <length> tile-icon: root.compact ? Theme.icon-large : 40px;
 
     VerticalLayout {
         padding: Theme.padding;
@@ -22,8 +24,9 @@ export component MmuServiceTab inherits Rectangle {
         }
         HorizontalLayout {
             spacing: Theme.spacing;
-            vertical-stretch: 1;
+            vertical-stretch: root.compact ? 0 : 1;
             IconButton {
+                horizontal: root.compact;
                 icon-size: root.tile-icon;
                 icon: Icons.mmu-home;
                 text: @tr("Home");
@@ -33,6 +36,7 @@ export component MmuServiceTab inherits Rectangle {
                 clicked => { Actions.mmu-home(); }
             }
             IconButton {
+                horizontal: root.compact;
                 icon-size: root.tile-icon;
                 icon: Icons.mmu-recover;
                 text: @tr("Recover");
@@ -40,6 +44,7 @@ export component MmuServiceTab inherits Rectangle {
                 clicked => { Actions.mmu-recover(); }
             }
             IconButton {
+                horizontal: root.compact;
                 icon-size: root.tile-icon;
                 icon: Icons.ui-unlock;
                 text: @tr("Unlock");
@@ -47,6 +52,7 @@ export component MmuServiceTab inherits Rectangle {
                 clicked => { Actions.mmu-unlock(); }
             }
             IconButton {
+                horizontal: root.compact;
                 icon-size: root.tile-icon;
                 icon: Icons.motion-steppers-off;
                 text: @tr("Motors off");
@@ -59,8 +65,9 @@ export component MmuServiceTab inherits Rectangle {
 
         HorizontalLayout {
             spacing: Theme.spacing;
-            vertical-stretch: 1;
+            vertical-stretch: root.compact ? 0 : 1;
             IconButton {
+                horizontal: root.compact;
                 icon-size: root.tile-icon;
                 horizontal-stretch: 2;
                 icon: Icons.mmu-check-gate;
@@ -75,6 +82,7 @@ export component MmuServiceTab inherits Rectangle {
                 }
             }
             if Printer.mmu-servo != "": IconButton {
+                horizontal: root.compact;
                 icon-size: root.tile-icon;
                 icon: Icons.mmu-servo-up;
                 text: @tr("Servo up");
@@ -83,6 +91,7 @@ export component MmuServiceTab inherits Rectangle {
                 clicked => { Actions.mmu-servo-up(); }
             }
             if Printer.mmu-servo != "": IconButton {
+                horizontal: root.compact;
                 icon-size: root.tile-icon;
                 icon: Icons.mmu-servo-down;
                 text: @tr("Servo down");

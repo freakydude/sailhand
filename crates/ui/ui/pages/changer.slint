@@ -71,7 +71,8 @@ component ToolchangerCard inherits Card {
                 text: root.status-text;
                 clicked => { Navigation.go(Place.console, ""); }
             }
-            if Printer.changer-initialize-on != "": Text {
+            // Left out in an error, so the hint keeps the card no higher than its buttons; Recover is what helps then.
+            if Printer.changer-initialize-on != "" && root.status != "error": Text {
                 text: @tr("Initializes on: {}", root.initialize-on-text);
                 color: Theme.muted;
                 font-size: Theme.font-small;
@@ -127,10 +128,14 @@ component ServiceTab inherits VerticalLayout {
     if Printer.has-afc: AfcServiceTab {
         vertical-stretch: 1;
     }
+    // Beside the tool changer the MMU keeps compact tiles at their own height; the rest goes below the card.
     if Printer.has-mmu: MmuServiceTab {
-        vertical-stretch: 1;
+        vertical-stretch: Printer.has-toolchanger ? 0 : 1;
+        compact: Printer.has-toolchanger;
     }
     if Printer.has-toolchanger: VerticalLayout {
+        alignment: start;
+        vertical-stretch: 1;
         padding: Theme.padding;
         padding-top: Printer.has-mmu || Printer.has-afc ? 0px : Theme.padding;
         ToolchangerCard {
