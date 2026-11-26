@@ -381,21 +381,24 @@ pub struct PreparedHints {
     pub temperature_differs: bool,
 }
 
-/// The hints of the prepared file in words; an extruder other than Klipper's `extruder` is named.
+/// The hints of the prepared file in words; the extruders are named unless it is Klipper's `extruder` alone.
 pub fn prepared_hints(hints: &[PrintHint]) -> PreparedHints {
-    let named = |extruder: &str| if extruder == "extruder" { String::new() } else { format!(" ({extruder})") };
+    let named = |extruders: &[String]| match extruders {
+        [only] if only == "extruder" => String::new(),
+        _ => format!(" ({})", extruders.join(", ")),
+    };
     let mut shown = PreparedHints::default();
     for hint in hints {
         let line = match hint {
-            PrintHint::NozzleDiameter { extruder, file, printer } => {
+            PrintHint::NozzleDiameter { extruders, file, printer } => {
                 shown.nozzle_differs = true;
                 let (file, printer) = (format::nozzle_diameter(*file), format::nozzle_diameter(*printer));
-                format!("File plans a {file} nozzle, the printer has {printer}{}", named(extruder))
+                format!("File plans a {file} nozzle, the printer has {printer}{}", named(extruders))
             }
-            PrintHint::NozzleTemperature { extruder, file, max } => {
+            PrintHint::NozzleTemperature { extruders, file, max } => {
                 shown.temperature_differs = true;
                 let (file, max) = (format::degrees(*file), format::degrees(*max));
-                format!("Nozzle {file} is above the printer's maximum of {max}{}", named(extruder))
+                format!("Nozzle {file} is above the printer's maximum of {max}{}", named(extruders))
             }
             PrintHint::BedTemperature { file, max } => {
                 shown.temperature_differs = true;
@@ -1043,7 +1046,12 @@ mod tests {
     #[test]
     fn hints_of_the_prepared_file_read_as_lines_and_mark_their_tiles() {
         let hints = [
-            PrintHint::NozzleDiameter { extruder: "extruder1".into(), file: 0.6, printer: 0.4 },
+            PrintHint::NozzleDiameter { extruders: vec!["extruder1".into()], file: 0.6, printer: 0.4 },
+            PrintHint::NozzleTemperature {
+                extruders: vec!["extruder".into(), "extruder1".into()],
+                file: 310.0,
+                max: 300.0,
+            },
             PrintHint::BedTemperature { file: 130.0, max: 120.0 },
         ];
 
@@ -1053,6 +1061,7 @@ mod tests {
             shown.lines,
             [
                 "File plans a 0.6 mm nozzle, the printer has 0.4 mm (extruder1)",
+                "Nozzle 310° is above the printer's maximum of 300° (extruder, extruder1)",
                 "Bed 130° is above the printer's maximum of 120°"
             ]
         );
