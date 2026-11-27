@@ -78,6 +78,14 @@ probe still counts as the probe).
   the calibration values until the next restart: flow factor, pressure advance and smooth time, velocity and
   acceleration limits, square corner velocity, minimum cruise ratio and firmware retraction; it shows where a value
   differs from the configuration and resets it.
+- **Macros** tab of Motion: the printer's macros in a list, beside it the chosen one with **Run** and the card of its
+  last run from this display: running since when, done after how long or failed and why, and the answers Klipper
+  sent while it ran ("during the run": Klipper does not say which command wrote a line). The card keeps the last run
+  of each macro until the app ends or another printer is chosen; what stood on it does not count as unread. Macros
+  starting with `_` and macros that rename a built-in command (`rename_existing`) are left out; **Edit** switches
+  further macros off and on. Macros with parameters open a form first: each parameter is read from the macro's
+  template, Klipper defaults show as placeholders in brackets. A running macro cannot be stopped (Klipper only stops
+  it with the emergency stop); macros started elsewhere show in the console, not on the card.
 - **Filament**: filament colours with transparency are drawn over a checkerboard, so a clear or translucent filament reads as see-through; extrude/retract with length and speed (lengths up to `max_extrude_only_distance`), `LOAD_FILAMENT`/`UNLOAD_FILAMENT` macros when present, filament sensors (with Happy Hare those it does not show itself).
 - **System**, in five tabs:
   - **Machine**: Klipper/firmware restart, host reboot/shutdown, service restart, power devices.
@@ -85,13 +93,9 @@ probe still counts as the probe).
   - **Network**: Wi-Fi and Ethernet (see [Network settings](configuration.md#network-settings)).
   - **Printers**: switch between several printers, found on the network or added by address, and see which of them
     answer (see [Several printers](configuration.md#several-printers)).
-  - **Console** (also from the message flyout): G-code history and live responses, a command field (on-screen keyboard
-    or physical keyboard), and an expandable list of macros. Like Mainsail it hides the temperature reports Klipper
-    sends while waiting for a heater (the thermometer button next to the command field shows them). Macros starting
-    with `_` and macros that rename a built-in command (`rename_existing`) are left out; **Edit** in the macro list
-    switches further macros off and on. Macros with parameters
-    open a form first: each parameter is read from the macro's template, Klipper defaults show as placeholders in
-    brackets.
+  - **Console** (also from the message flyout): G-code history and live responses, also those of macro runs, and a
+    command field (on-screen keyboard or physical keyboard). Like Mainsail it hides the temperature reports Klipper
+    sends while waiting for a heater (the thermometer button next to the command field shows them).
   - **Settings**: the printer in use and its login (see [Moonraker login](configuration.md#moonraker-login)), fullscreen,
     and when the screen goes off by itself (see [Brightness and standby](configuration.md#brightness-and-standby)).
     Temperature presets are set in the [settings file](configuration.md#settings-file).
@@ -110,7 +114,7 @@ probe still counts as the probe).
 | --------------------------------------------------------- | --------------------------------------------------------- |
 | The Tune tab: Z offset, speed factor and flow factor      | The Filament page: extrude, retract, load and unload      |
 | ![System › Machine](screenshots/system.png)               | ![System › Console](screenshots/console.png)              |
-| System › Machine: restarts, host and power devices        | System › Console: history, command field and macros       |
+| System › Machine: restarts, host and power devices        | System › Console: history and command field               |
 | ![Klipper in shutdown](screenshots/klippy-shutdown.png)   |                                                           |
 | When Klipper is shut down: restart it or restart the firmware|                                                           |
 

@@ -288,6 +288,14 @@ impl IncidentLog {
         self.boundary = self.next_id;
     }
 
+    /// The incident stood on the screen somewhere else as well (the run card of a macro): it stays in the list but no
+    /// longer counts as unread.
+    pub fn settle(&mut self, id: u64) {
+        if let Some(incident) = self.incidents.iter_mut().find(|incident| incident.id == id) {
+            incident.settled = true;
+        }
+    }
+
     /// The event ran out of display time. An older one does not take its place: the counter keeps it.
     pub fn hide_event(&mut self, id: u64) {
         if self.event == Some(id) {
@@ -451,6 +459,19 @@ mod tests {
 
         assert_eq!(event_text(&log), Some("Planned pauses cleared"));
         assert_eq!(log.unread().total(), 0);
+    }
+
+    #[test]
+    fn what_stood_on_the_screen_elsewhere_stays_listed_but_is_not_unread() {
+        let mut log = IncidentLog::default();
+        let error = log.add_response("Must home axis first", true, 1.0).unwrap();
+        let info = log.add_response("Heat soak started", false, 2.0).unwrap();
+        log.add_info("other", 3.0);
+        log.settle(error);
+        log.settle(info);
+
+        assert_eq!(log.unread(), Unread { errors: 0, infos: 1 });
+        assert_eq!(log.incidents().count(), 3);
     }
 
     #[test]

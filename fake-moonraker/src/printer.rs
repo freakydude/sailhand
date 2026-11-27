@@ -56,7 +56,7 @@ const MIN_SENSOR_TEMPERATURE: f64 = -273.15;
 /// still.
 const HOST_TEMPERATURE_SWING: f64 = 0.4;
 /// Macros every simulated printer knows; `_` macros are helper macros and invisible to the UI.
-const MACROS: [&str; 12] = [
+const MACROS: [&str; 13] = [
     "PRINT_START",
     "PRINT_END",
     "LOAD_FILAMENT",
@@ -69,13 +69,14 @@ const MACROS: [&str; 12] = [
     PRINT_STATS_INFO_MACRO,
     crate::gcode::DEMO_BED_CLEAR_PROMPT,
     crate::gcode::DEMO_BUTTONS_PROMPT,
+    crate::gcode::DEMO_HEAT_SOAK,
 ];
 /// Mainsail's layer pause macros (mainsail-config), see [`LayerPause`].
 const LAYER_PAUSE_NEXT_MACRO: &str = "SET_PAUSE_NEXT_LAYER";
 const LAYER_PAUSE_AT_MACRO: &str = "SET_PAUSE_AT_LAYER";
 const PRINT_STATS_INFO_MACRO: &str = "SET_PRINT_STATS_INFO";
 /// Templates of the macros above, so parameters and defaults can be read like on a real printer.
-const MACRO_TEMPLATES: [(&str, &str); 12] = [
+const MACRO_TEMPLATES: [(&str, &str); 13] = [
     ("PRINT_START", "{% set BED = params.BED|default(60) %}\nM140 S{BED}\nM109 S{params.EXTRUDER|default(210)}"),
     ("PRINT_END", "M104 S0\nM140 S0"),
     ("LOAD_FILAMENT", "{% set TEMP = params.TEMP|default(230)|float %}\nM104 S{TEMP}"),
@@ -102,6 +103,7 @@ const MACRO_TEMPLATES: [(&str, &str); 12] = [
         crate::gcode::DEMO_BUTTONS_PROMPT,
         "RESPOND TYPE=command MSG=\"action:prompt_begin Filament runout\"\nRESPOND TYPE=command MSG=\"action:prompt_show\"",
     ),
+    (crate::gcode::DEMO_HEAT_SOAK, crate::gcode::DEMO_HEAT_SOAK_BODY),
 ];
 /// Klipper's message after a move outside the axis limits, for `FAKE_PRINT_ERROR`.
 const PRINT_ERROR_MESSAGE: &str = "Move out of range: 310.000 150.000 12.400 [482.120]";

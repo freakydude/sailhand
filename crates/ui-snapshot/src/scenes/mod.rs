@@ -12,6 +12,7 @@ mod calibrate;
 mod console;
 mod lanes;
 mod login;
+mod macros;
 mod mmu;
 mod network;
 mod pages;
@@ -27,6 +28,7 @@ use calibrate::calibrate;
 use console::typing;
 use lanes::lanes;
 use login::{log_in, logged_in};
+use macros::macros;
 use network::network;
 use pages::pages;
 use printing::printing;
@@ -54,6 +56,8 @@ pub enum Scene {
     Taps,
     /// Editing keys in the text entry of the console, physical and on-screen.
     Typing,
+    /// Motion › Macros: the run card of a macro while it runs and after its answer.
+    Macros,
     /// The Calibrate tab of the Motion page: results of the bed mesh and the screws, the dialogs of the waiting modes.
     Calibrate,
     /// A dense bed mesh (30 x 40 points, 31 x 31 on a fake with `--round-bed`), which the UI draws as an image.
@@ -70,7 +74,7 @@ pub enum Scene {
 }
 
 impl Scene {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Pages,
         Self::Spools,
         Self::Toolchanger,
@@ -78,6 +82,7 @@ impl Scene {
         Self::Network,
         Self::Taps,
         Self::Typing,
+        Self::Macros,
         Self::Calibrate,
         Self::BedMeshDense,
         Self::Printing,
@@ -85,7 +90,7 @@ impl Scene {
         Self::Idle,
         Self::Login,
     ];
-    pub const DEFAULT: [Self; 10] = [
+    pub const DEFAULT: [Self; 11] = [
         Self::Pages,
         Self::Spools,
         Self::Toolchanger,
@@ -93,6 +98,7 @@ impl Scene {
         Self::Network,
         Self::Taps,
         Self::Typing,
+        Self::Macros,
         Self::Calibrate,
         Self::Printing,
         Self::Shutdown,
@@ -109,7 +115,7 @@ impl Scene {
     fn parse(name: &str) -> Result<Self, String> {
         Self::ALL.into_iter().find(|scene| scene.name() == name).ok_or_else(|| {
             format!(
-                "unknown scene '{name}' (pages, spools, toolchanger, lanes, network, taps, typing, calibrate, bed-mesh-dense, printing, shutdown, idle, \
+                "unknown scene '{name}' (pages, spools, toolchanger, lanes, network, taps, typing, macros, calibrate, bed-mesh-dense, printing, shutdown, idle, \
                  login, all)"
             )
         })
@@ -124,6 +130,7 @@ impl Scene {
             Self::Network => "network",
             Self::Taps => "taps",
             Self::Typing => "typing",
+            Self::Macros => "macros",
             Self::Calibrate => "calibrate",
             Self::BedMeshDense => "bed-mesh-dense",
             Self::Printing => "printing",
@@ -142,6 +149,7 @@ impl Scene {
             Self::Network => network(session),
             Self::Taps => taps(session),
             Self::Typing => typing(session),
+            Self::Macros => macros(session),
             Self::Calibrate => calibrate(session),
             Self::BedMeshDense => bed_mesh_dense(session),
             Self::Printing => printing(session),

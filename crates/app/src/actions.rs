@@ -424,6 +424,7 @@ fn bind_console_and_macros(
     actions.on_open_macro_form(with_presenter(presenter, |presenter, name: SharedString| {
         presenter.open_macro_form(&name)
     }));
+    actions.on_select_macro(with_presenter(presenter, |presenter, name: SharedString| presenter.select_macro(&name)));
     let param_presenter = Rc::clone(presenter);
     actions.on_set_macro_param(move |index, value| {
         if let Ok(index) = usize::try_from(index) {

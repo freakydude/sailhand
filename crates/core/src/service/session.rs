@@ -1,7 +1,7 @@
 //! One connection to Moonraker: reconnecting, handshake and login, subscription and the loop that serves requests.
 
 use super::Snapshot;
-use super::dispatch::console_line;
+use super::dispatch::{RunAnswer, console_line};
 use super::flow_record::{FlowRecorder, FlowRecording, HeaderFacts};
 use super::queries::{SessionQueries, update_status_events};
 use super::trail;
@@ -47,16 +47,20 @@ pub(super) async fn run(
                 reported_failure = None;
                 log::info!("connected to {}", endpoint.websocket_url());
                 let (wled_answers, wled_answers_rx) = mpsc::unbounded_channel();
+                let (run_answers, run_answers_rx) = mpsc::unbounded_channel();
+                let answers = Answers { wled: wled_answers, runs: run_answers };
                 let session = Session::new(
                     opened,
                     endpoint.clone(),
                     &credentials,
                     &outputs,
                     &mut watches,
-                    wled_answers,
+                    answers,
                     recording.clone(),
                 );
-                session.run(notifications, wled_answers_rx, &mut requests).await
+                session
+                    .run(notifications, AnswerQueues { wled: wled_answers_rx, runs: run_answers_rx }, &mut requests)
+                    .await
             }
             Err(OpenError::Untrusted(certificate)) => {
                 reported_failure = None;
@@ -94,6 +98,18 @@ pub(super) async fn run(
             Retry::Shutdown => return,
         }
     }
+}
+
+/// Where tasks that wait for an answer hand it back to the session loop.
+struct Answers {
+    wled: mpsc::UnboundedSender<Vec<WledStrip>>,
+    runs: mpsc::UnboundedSender<RunAnswer>,
+}
+
+/// The session loop's ends of [`Answers`].
+struct AnswerQueues {
+    wled: mpsc::UnboundedReceiver<Vec<WledStrip>>,
+    runs: mpsc::UnboundedReceiver<RunAnswer>,
 }
 
 /// An open connection with the HTTP client of the same trust.
@@ -300,6 +316,8 @@ pub(super) struct Session<'a> {
     pub(super) wled: Vec<WledStrip>,
     /// The answers of the commands to a WLED strip, which carry its new state.
     pub(super) wled_answers: mpsc::UnboundedSender<Vec<WledStrip>>,
+    /// The answers of macro runs; the loop ends a run only after the responses that came before its answer.
+    pub(super) run_answers: mpsc::UnboundedSender<RunAnswer>,
     /// Writes the flow of the print to a file of its own, when the setting asks for it.
     flow: FlowRecorder,
 }
@@ -319,7 +337,7 @@ impl<'a> Session<'a> {
         credentials: &'a CredentialStore,
         outputs: &'a Outputs,
         watches: &'a mut PrintWatches,
-        wled_answers: mpsc::UnboundedSender<Vec<WledStrip>>,
+        answers: Answers,
         recording: Option<FlowRecording>,
     ) -> Self {
         Self {
@@ -346,7 +364,8 @@ impl<'a> Session<'a> {
             file_details: Arc::new(Semaphore::new(PARALLEL_FILE_DETAILS)),
             queries: SessionQueries::new(),
             wled: Vec::new(),
-            wled_answers,
+            wled_answers: answers.wled,
+            run_answers: answers.runs,
             flow: FlowRecorder::new(recording),
         }
     }
@@ -354,7 +373,7 @@ impl<'a> Session<'a> {
     async fn run(
         mut self,
         mut notifications: mpsc::UnboundedReceiver<Notification>,
-        mut wled_answers: mpsc::UnboundedReceiver<Vec<WledStrip>>,
+        mut answers: AnswerQueues,
         requests: &mut mpsc::UnboundedReceiver<Request>,
     ) -> SessionEnd {
         match self.introduce().await {
@@ -410,7 +429,8 @@ impl<'a> Session<'a> {
                 _ = spoolman_poll.tick(), if self.klippy_ready && self.components.spoolman => {
                     self.answer(Query::Spoolman);
                 }
-                Some(strips) = wled_answers.recv() => self.update_wled(strips),
+                Some(strips) = answers.wled.recv() => self.update_wled(strips),
+                Some(answer) = answers.runs.recv() => self.end_macro_run(answer, &mut notifications).await,
                 _ = wled_poll.tick(), if self.klippy_ready && !self.wled.is_empty() => {
                     self.poll_wled();
                 }
@@ -421,6 +441,15 @@ impl<'a> Session<'a> {
                 }
             }
         }
+    }
+
+    /// The answer of a macro run, after the responses that came before it: the connection hands responses to the
+    /// session's queue before it hands the answer to the waiting task, so they are all queued when this runs.
+    async fn end_macro_run(&mut self, answer: RunAnswer, notifications: &mut mpsc::UnboundedReceiver<Notification>) {
+        while let Ok(notification) = notifications.try_recv() {
+            self.handle_notification(notification).await;
+        }
+        self.outputs.event(answer.into_event());
     }
 
     /// Identifies with Moonraker, with the stored credential of this address if there is one. Refused means

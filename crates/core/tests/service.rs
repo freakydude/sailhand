@@ -349,6 +349,46 @@ async fn intents_the_printer_cannot_carry_out_are_reported() {
         if error.to_string().contains("neither quad gantry level nor Z tilt")));
 }
 
+/// The responses of a macro run up to its end, in the order the events came.
+async fn macro_run_responses(channels: &mut ServiceChannels) -> (Vec<String>, Option<String>) {
+    let started = next_event(channels, |event| matches!(event, Event::MacroRunStarted { .. })).await;
+    let Event::MacroRunStarted { id, .. } = started else { unreachable!() };
+    let mut responses = Vec::new();
+    loop {
+        match next_event(channels, |event| {
+            matches!(event, Event::ConsoleLine(line) if line.kind == ConsoleKind::Response)
+                || matches!(event, Event::MacroRunEnded { .. })
+        })
+        .await
+        {
+            Event::ConsoleLine(line) => responses.push(line.message),
+            Event::MacroRunEnded { id: ended, error, .. } if ended == id => return (responses, error),
+            _ => {}
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_macro_run_ends_after_every_response_it_caused() {
+    let endpoint = start_fake().await;
+    let (service, mut channels) =
+        PrinterService::start(&tokio::runtime::Handle::current(), endpoint, CredentialStore::in_memory());
+    wait_for(&mut channels, ready).await;
+
+    // Responses and the answer take different ways through the connection; the end must still come last.
+    for _ in 0..20 {
+        service.send(Command::RunMacro { name: "RESPOND MSG=one\nRESPOND MSG=two\nRESPOND MSG=three".into() });
+        let (responses, error) = macro_run_responses(&mut channels).await;
+        assert_eq!(responses, ["echo: one", "echo: two", "echo: three"]);
+        assert_eq!(error, None);
+    }
+
+    service.send(Command::RunMacro { name: "RESPOND TYPE=wrong".into() });
+    let (responses, error) = macro_run_responses(&mut channels).await;
+    assert_eq!(responses.len(), 1, "{responses:?}");
+    assert!(error.is_some_and(|error| error.contains("RESPOND TYPE 'wrong' is invalid")));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_command_that_waits_long_for_its_answer_is_reported_as_running_until_it_has_one() {
     let endpoint = start_fake().await;

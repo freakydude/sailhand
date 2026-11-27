@@ -19,8 +19,9 @@ use crate::prompt_view::PromptView;
 use crate::spool_view::{SpoolView, SpoolmanLine};
 use crate::status_view::StatusView;
 use crate::{
-    AppWindow, FanItem, FilamentSensorItem, HeadItem, HeaterItem, HostInterfaceItem, LedEffectItem, LedItem, Network,
-    PowerItem, Printer, SensorItem, ToolMatchItem, TuningItem, UiSettings, UpdateItem,
+    AppWindow, Backlight, FanItem, FilamentSensorItem, HeadItem, HeaterItem, HostInterfaceItem, LedEffectItem, LedItem,
+    MotionTab, Navigation, Network, Page, PowerItem, Printer, SensorItem, ToolMatchItem, TuningItem, UiSettings,
+    UpdateItem,
 };
 use crate::{axes_view, bed_map, format, thumbnail, view};
 use chrono::Local;
@@ -291,6 +292,7 @@ impl Presenter {
         self.show_running_command();
         self.history.close();
         self.console.clear();
+        self.macros.forget_runs(printer);
         replace_rows(&self.power_devices, Vec::new());
         replace_rows(&self.updates, Vec::new());
         replace_rows(&self.host_interfaces, Vec::new());
@@ -672,12 +674,14 @@ impl Presenter {
                     observer(&line);
                 }
                 self.console.push(&line);
+                let on_run_card = self.macros.add_line(&line);
                 let changed = self.prompt.push(&line, &self.cache.borrow().snapshot.status);
                 if changed {
                     self.refresh_job_texts();
                 }
                 if line.kind == ConsoleKind::Response {
-                    self.status.console_response(&line, self.is_printing());
+                    let seen = on_run_card && self.run_card_visible();
+                    self.status.console_response(&line, self.is_printing(), seen);
                 }
             }
             Event::Spoolman(state) => self.store_spoolman(*state),
@@ -692,7 +696,9 @@ impl Presenter {
             Event::CommandFailed { command, error } => {
                 let message = error.to_string();
                 let shown = format!("{}: {message}", command_name(&command));
-                self.status.command_failed(&shown, &message);
+                let seen = matches!(&command, Command::RunMacro { name } if self.macros.is_selected(name))
+                    && self.run_card_visible();
+                self.status.command_failed(&shown, &message, seen);
             }
             Event::LoginFailed(message) => {
                 if let Some(window) = self.window.upgrade() {
@@ -707,6 +713,16 @@ impl Presenter {
             Event::CommandFinished { id } => {
                 self.running_commands.borrow_mut().retain(|(running, ..)| *running != id);
                 self.show_running_command();
+            }
+            Event::MacroRunStarted { id, script, time } => {
+                if let Some(window) = self.window.upgrade() {
+                    self.macros.run_started(&window.global::<Printer>(), id, &script, time);
+                }
+            }
+            Event::MacroRunEnded { id, error, time } => {
+                if let Some(window) = self.window.upgrade() {
+                    self.macros.run_ended(&window.global::<Printer>(), id, error, time);
+                }
             }
         }
     }
@@ -864,6 +880,21 @@ impl Presenter {
         let snapshot = self.snapshot();
         let lanes = self.lanes(&snapshot);
         self.show_job_matches(&window.global::<Printer>(), &snapshot, &lanes);
+    }
+
+    /// A macro was chosen on the Macros tab.
+    pub fn select_macro(&self, name: &str) {
+        let Some(window) = self.window.upgrade() else { return };
+        self.macros.select(&window.global::<Printer>(), name);
+    }
+
+    /// Whether the run card of the chosen macro is on the screen: what it shows counts as seen.
+    fn run_card_visible(&self) -> bool {
+        let Some(window) = self.window.upgrade() else { return false };
+        let navigation = window.global::<Navigation>();
+        navigation.get_page() == Page::Motion
+            && navigation.get_motion_tab() == MotionTab::Macros
+            && !window.global::<Backlight>().get_off()
     }
 
     /// Whether the macro takes parameters, so the form has to come before it runs.

@@ -96,10 +96,14 @@ async fn run_session(mut socket: WebSocket, state: AppState, connection_id: u64)
     let (delayed_tx, mut delayed) = tokio::sync::mpsc::unbounded_channel::<String>();
 
     loop {
-        let outgoing = tokio::select! {
+        let outgoing: Vec<String> = tokio::select! {
             incoming = socket.recv() => match incoming {
                 Some(Ok(Message::Text(text))) => {
                     let reply = session.handle_text(&state.backend, text.as_str());
+                    // What the request made Klipper write goes out before its reply, as with Moonraker: Klipper sends
+                    // both over one connection in order, Moonraker queues both in the client's one FIFO
+                    // (`common.py` `queue_message`); a notification is queued before the result it preceded.
+                    let mut outgoing = pending_notifications(&mut notifications, &session, &state.backend);
                     match (reply, session.take_reply_delay()) {
                         (Some(reply), Some(delay)) => {
                             let delayed_tx = delayed_tx.clone();
@@ -107,27 +111,47 @@ async fn run_session(mut socket: WebSocket, state: AppState, connection_id: u64)
                                 tokio::time::sleep(delay).await;
                                 let _ = delayed_tx.send(reply);
                             });
-                            None
                         }
-                        (reply, _) => reply,
+                        (reply, _) => outgoing.extend(reply),
                     }
+                    outgoing
                 }
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
-                Some(Ok(_)) => None,
+                Some(Ok(_)) => Vec::new(),
             },
-            Some(reply) = delayed.recv() => Some(reply),
-            _ = status_ticker.tick() => session.status_notification(&state.backend),
+            Some(reply) = delayed.recv() => {
+                let mut outgoing = pending_notifications(&mut notifications, &session, &state.backend);
+                outgoing.push(reply);
+                outgoing
+            }
+            _ = status_ticker.tick() => session.status_notification(&state.backend).into_iter().collect(),
             notification = notifications.recv() => match notification {
-                Ok(message) => session.authorized(&state.backend).then_some(message),
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => None,
+                Ok(message) => session.authorized(&state.backend).then_some(message).into_iter().collect(),
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => Vec::new(),
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             },
         };
 
-        if let Some(message) = outgoing
-            && socket.send(Message::Text(message.into())).await.is_err()
-        {
-            break;
+        for message in outgoing {
+            if socket.send(Message::Text(message.into())).await.is_err() {
+                return;
+            }
+        }
+    }
+}
+
+/// The notifications already broadcast and not yet sent to this client.
+fn pending_notifications(
+    notifications: &mut tokio::sync::broadcast::Receiver<String>,
+    session: &Session,
+    backend: &Backend,
+) -> Vec<String> {
+    let mut pending = Vec::new();
+    loop {
+        match notifications.try_recv() {
+            Ok(message) if session.authorized(backend) => pending.push(message),
+            Ok(_) | Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {}
+            Err(_) => return pending,
         }
     }
 }

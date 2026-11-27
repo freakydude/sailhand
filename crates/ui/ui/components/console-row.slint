@@ -1,0 +1,38 @@
+// One line of the console log: time, then the text in monospace. Used by the console and by the run card of the Macros
+// tab, so both show the lines alike.
+
+import { Theme } from "../theme.slint";
+import { StateIcons } from "../state-icons.slint";
+import { ConsoleItem, Severity } from "../state.slint";
+
+// Fixed row height, so lists can compute their content height.
+export global ConsoleRows {
+    out property <length> height: 22px;
+}
+
+export component ConsoleRow inherits Rectangle {
+    in property <ConsoleItem> line;
+    height: ConsoleRows.height;
+
+    HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
+        spacing: Theme.spacing;
+        Text {
+            overflow: elide;
+            text: root.line.time;
+            color: Theme.disabled-foreground;
+            font-size: Theme.font-small;
+            vertical-alignment: center;
+            width: 64px;
+        }
+        Text {
+            text: (root.line.is-command ? "> " : "") + root.line.text;
+            color: root.line.is-error ? StateIcons.severity-color(Severity.error) : root.line.is-command ? Theme.accent : Theme.foreground;
+            font-size: Theme.font-small;
+            font-family: "monospace";
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}

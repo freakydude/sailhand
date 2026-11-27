@@ -18,6 +18,7 @@ pub mod lane_filament;
 pub mod light;
 pub mod load_path;
 pub mod machine_tree;
+pub mod macro_runs;
 pub mod manual_probe;
 pub mod pause;
 pub mod pid_tuning;

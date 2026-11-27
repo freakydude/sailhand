@@ -1,6 +1,6 @@
 // Motion: jog, home and level the axes, tune the print while it runs (Z offset, speed and flow, the expert values of
-// the configuration) and calibrate the bed. Axes and Calibrate move the axes, so a running print greys them out and the
-// page shows Tune instead.
+// the configuration), calibrate the bed and run macros. Axes and Calibrate move the axes, so a running print greys them
+// out and the page shows Tune instead; Macros stay open (running one while printing asks first).
 
 import { Theme } from "../theme.slint";
 import { Units } from "../units.slint";
@@ -10,6 +10,7 @@ import { StateIcons } from "../state-icons.slint";
 import { ButtonKind, Card, IconButton, Note, StepSelector, TabBar, TabButton } from "../components/controls.slint";
 import { AxesPad, ModeSwitch, MoveEntryDialog } from "../components/axes-pad.slint";
 import { CalibrateTab } from "calibrate.slint";
+import { MacrosTab } from "macros.slint";
 import { TuneBasicsTab, TuneExpertTab } from "tune.slint";
 
 // One row of the Position card, drawn as a field while tappable; a tap on a homed axis opens the number entry for it.
@@ -185,7 +186,8 @@ export component MotionPage inherits Rectangle {
         || Printer.z-calibration != "" || Printer.can-quad-gantry-level || Printer.can-z-tilt;
     // The tab the user chose, fallen back where the printer has nothing for it ...
     property <MotionTab> chosen: Navigation.motion-tab == MotionTab.expert && Printer.tuning.length == 0 ? MotionTab.tune
-        : Navigation.motion-tab == MotionTab.calibrate && !root.can-calibrate ? MotionTab.axes : Navigation.motion-tab;
+        : Navigation.motion-tab == MotionTab.calibrate && !root.can-calibrate ? MotionTab.axes
+        : Navigation.motion-tab == MotionTab.macros && Printer.macro-items.length == 0 ? MotionTab.axes : Navigation.motion-tab;
     // ... and the tab shown: while printing the axes stay still, so Tune. `Navigation.motion-tab` is not touched, the
     // choice is back after the print.
     property <MotionTab> tab: Printer.motion-locked && (root.chosen == MotionTab.axes || root.chosen == MotionTab.calibrate)
@@ -219,6 +221,12 @@ export component MotionPage inherits Rectangle {
                 checked: root.tab == MotionTab.calibrate;
                 clicked => { Navigation.motion-tab = MotionTab.calibrate; }
             }
+            if Printer.macro-items.length > 0: TabButton {
+                icon: Icons.nav-macros;
+                text: @tr("Macros");
+                checked: root.tab == MotionTab.macros;
+                clicked => { Navigation.motion-tab = MotionTab.macros; }
+            }
             // While paused: moving and extruding stay possible, what would lose the print's position does not. Beside
             // the tabs, so the axes keep their full height.
             if Printer.position-locked && (root.tab == MotionTab.axes || root.tab == MotionTab.calibrate): Note {
@@ -235,6 +243,7 @@ export component MotionPage inherits Rectangle {
         if root.tab == MotionTab.tune: TuneBasicsTab { vertical-stretch: 1; }
         if root.tab == MotionTab.expert: TuneExpertTab { vertical-stretch: 1; }
         if root.tab == MotionTab.calibrate: CalibrateTab { vertical-stretch: 1; }
+        if root.tab == MotionTab.macros: MacrosTab { vertical-stretch: 1; }
     }
 
     move-entry := MoveEntryDialog { }

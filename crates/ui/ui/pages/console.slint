@@ -1,82 +1,19 @@
-// G-code console: history, expandable macro list and a command field that opens the on-screen keyboard. The settings
-// of the console live here too: which macros the list offers and whether temperature reports are shown.
+// G-code console: the log and a command field that opens the on-screen keyboard. Whether temperature reports are
+// shown is switched here too. Macros live on Motion > Macros.
 
 import { Theme } from "../theme.slint";
-import { StateIcons } from "../state-icons.slint";
 import { Icons } from "../icons.slint";
-import { Actions, Confirm, Printer, UiSettings, Severity } from "../state.slint";
-import { IconButton, ScrollList, ToggleRow, WrapText } from "../components/controls.slint";
-import { MacroFormDialog } from "../components/macro-form.slint";
+import { Actions, Printer, UiSettings } from "../state.slint";
+import { IconButton, ScrollList, ToggleRow } from "../components/controls.slint";
+import { ConsoleRow, ConsoleRows } from "../components/console-row.slint";
 import { TextEntryDialog } from "../components/entry-dialogs.slint";
 import { SystemTabs } from "../components/system-tabs.slint";
 
-// The offered macros as tiles; a tap runs one.
-component MacroTiles inherits Rectangle {
-    property <int> columns: 3;
-    property <length> tile-height: 56px;
-    property <length> cell-width: (list.row-width - (self.columns - 1) * Theme.spacing) / self.columns;
-    callback run(string);
-
-    list := ScrollList {
-        content-height: ceil(Printer.macros.length / root.columns) * (root.tile-height + Theme.spacing);
-        for macro[index] in Printer.macros: IconButton {
-            x: mod(index, root.columns) * (root.cell-width + Theme.spacing);
-            y: floor(index / root.columns) * (root.tile-height + Theme.spacing);
-            width: root.cell-width;
-            height: root.tile-height;
-            icon: Icons.nav-macros;
-            text: macro;
-            icon-size: Theme.icon-small;
-            horizontal: true;
-            clicked => { root.run(macro); }
-        }
-    }
-}
-
-// All macros of the printer with a switch each: on means the tiles offer it. Two columns leave room for long names.
-component MacroChoice inherits Rectangle {
-    property <int> columns: 2;
-    property <length> row-height: Theme.row-height-small;
-    property <length> cell-width: (list.row-width - (self.columns - 1) * Theme.spacing) / self.columns;
-
-    list := ScrollList {
-        content-height: ceil(Printer.macro-items.length / root.columns) * (root.row-height + Theme.spacing);
-        for macro[index] in Printer.macro-items: ToggleRow {
-            x: mod(index, root.columns) * (root.cell-width + Theme.spacing);
-            y: floor(index / root.columns) * (root.row-height + Theme.spacing);
-            width: root.cell-width;
-            height: root.row-height;
-            text: macro.name;
-            checked: macro.visible;
-            toggled => { Actions.set-macro-visible(macro.name, !macro.visible); }
-        }
-    }
-}
-
 export component ConsolePage inherits Rectangle {
-    property <length> line-height: 22px;
-    property <length> macro-panel-height: 160px;
+    property <length> line-height: ConsoleRows.height;
     property <string> draft;
-    // Public for the previews.
-    in-out property <bool> macros-open;
-    in-out property <bool> macros-editing;
-    // Instead of the tiles: the printer has no macros, or all of them are switched off.
-    property <string> macro-hint: Printer.macro-items.length == 0 ? @tr("No macros found in the Klipper configuration.")
-        : !root.macros-editing && Printer.macros.length == 0 ? @tr("All macros are hidden. Edit shows them again.") : "";
 
     init => { Actions.load-console(); }
-
-    // Without parameters a macro runs at once, unless a print is running. With parameters the form comes first.
-    function run-macro(macro: string) {
-        if (Actions.macro-has-params(macro)) {
-            Actions.open-macro-form(macro);
-            form.open = true;
-        } else if (Printer.print-state == "printing") {
-            Confirm.ask(@tr("Run macro"), macro, "run-macro", macro, false);
-        } else {
-            Actions.run-macro(macro);
-        }
-    }
 
     VerticalLayout {
         padding: Theme.padding;
@@ -99,27 +36,7 @@ export component ConsolePage inherits Rectangle {
                     y: 4px + index * root.line-height;
                     height: root.line-height;
                     width: log.row-width;
-                    HorizontalLayout {
-                        width: parent.width;
-                        height: parent.height;
-                        spacing: Theme.spacing;
-                        Text {
-                            overflow: elide;
-                            text: line.time;
-                            color: Theme.disabled-foreground;
-                            font-size: Theme.font-small;
-                            vertical-alignment: center;
-                            width: 64px;
-                        }
-                        Text {
-                            text: (line.is-command ? "> " : "") + line.text;
-                            color: line.is-error ? StateIcons.severity-color(Severity.error) : line.is-command ? Theme.accent : Theme.foreground;
-                            font-size: Theme.font-small;
-                            font-family: "monospace";
-                            vertical-alignment: center;
-                            overflow: elide;
-                        }
-                    }
+                    ConsoleRow { line: line; }
                     // A sent command can be put back into the field: tap it, then Enter runs it again.
                     if line.is-command: TouchArea {
                         clicked => {
@@ -131,63 +48,9 @@ export component ConsolePage inherits Rectangle {
             }
         }
 
-        if root.macros-open: Rectangle {
-            height: root.macro-panel-height;
-            background: Theme.surface;
-            border-radius: Theme.radius;
-            clip: true;
-
-            HorizontalLayout {
-                padding: Theme.spacing-small;
-                padding-left: Theme.padding;
-                spacing: Theme.spacing;
-
-                Rectangle {
-                    horizontal-stretch: 1;
-                    if !root.macros-editing: MacroTiles {
-                        width: parent.width;
-                        height: parent.height;
-                        run(macro) => { root.run-macro(macro); }
-                    }
-                    if root.macros-editing: MacroChoice {
-                        width: parent.width;
-                        height: parent.height;
-                    }
-                    if root.macro-hint != "": WrapText {
-                        width: parent.width;
-                        height: parent.height;
-                        text: root.macro-hint;
-                        color: Theme.muted;
-                        horizontal-alignment: center;
-                    }
-                }
-
-                // Which macros the panel offers is chosen here, where they are used; new ones are offered.
-                IconButton {
-                    width: Theme.touch;
-                    icon: Icons.ui-edit;
-                    text: @tr("Edit");
-                    checked: root.macros-editing;
-                    enabled: Printer.macro-items.length > 0;
-                    clicked => { root.macros-editing = !root.macros-editing; }
-                }
-            }
-        }
-
         HorizontalLayout {
             spacing: Theme.spacing;
             height: Theme.touch;
-            IconButton {
-                icon: Icons.nav-macros;
-                text: @tr("Macros");
-                horizontal: true;
-                checked: root.macros-open;
-                width: 150px;
-                clicked => {
-                    root.macros-open = !root.macros-open;
-                    root.macros-editing = false;
-                }
-            }
             Rectangle {
                 horizontal-stretch: 1;
                 background: Theme.surface;
@@ -227,8 +90,6 @@ export component ConsolePage inherits Rectangle {
             }
         }
     }
-
-    form := MacroFormDialog { }
 
     entry := TextEntryDialog {
         title: @tr("G-code");

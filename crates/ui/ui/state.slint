@@ -2,10 +2,10 @@
 
 import { Icons } from "icons.slint";
 import { Theme } from "theme.slint";
-import { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
+import { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroRun, MacroRunState, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
 import { Actions } from "actions.slint";
 
-export { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
+export { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroRun, MacroRunState, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
 export { Actions } from "actions.slint";
 
 
@@ -336,9 +336,14 @@ export global Printer {
     in property <[string]> macros;
     // Every macro of the printer with its visibility, for the settings.
     in property <[MacroItem]> macro-items;
-    // Parameter form of the macro chosen in the console.
+    // Parameter form of the macro chosen on the Macros tab.
     in property <string> macro-form-name;
     in property <[MacroParamItem]> macro-form;
+    // The macro chosen on the Macros tab (`Actions.select-macro`), empty before the first choice; its last run from
+    // this display and the answers during that run, in the order they came.
+    in property <string> macro-selected;
+    in property <MacroRun> macro-run;
+    in property <[ConsoleItem]> macro-run-lines;
     // Spoolman: configured in Moonraker, and not reachable although it is.
     in property <bool> has-spoolman;
     in property <bool> spoolman-offline;
@@ -641,7 +646,7 @@ export enum FilamentTab { gates, extruder }
 export enum ChangerTab { tools, service, sensors }
 
 // Tabs of the Motion page; a tab the printer has nothing for falls back, and while printing only Tune and Expert work.
-export enum MotionTab { axes, tune, expert, calibrate }
+export enum MotionTab { axes, tune, expert, calibrate, macros }
 
 // Tabs of the Thermal page; a tab the printer has nothing for falls back to the heaters.
 export enum HeatTab { heaters, fans, sensors }

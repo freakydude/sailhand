@@ -411,10 +411,10 @@ impl fmt::Display for CommandError {
 
 impl std::error::Error for CommandError {}
 
-pub(crate) use respond::{DEMO_BED_CLEAR_PROMPT, DEMO_BUTTONS_PROMPT};
+pub(crate) use respond::{DEMO_BED_CLEAR_PROMPT, DEMO_BUTTONS_PROMPT, DEMO_HEAT_SOAK, DEMO_HEAT_SOAK_BODY};
 
 pub fn parse_script(script: &str) -> Result<Vec<Command>, CommandError> {
-    script.lines().filter_map(significant_part).map(parse_line).collect()
+    script.lines().flat_map(respond::expand_demo_macro).filter_map(significant_part).map(parse_line).collect()
 }
 
 fn significant_part(line: &str) -> Option<&str> {

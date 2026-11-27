@@ -94,28 +94,41 @@ impl StatusView {
         self.show_event(id);
     }
 
-    /// A command Klipper or Moonraker rejected; its duplicate response is recognised by the reason.
-    pub fn command_failed(self: &Rc<Self>, shown: &str, reason: &str) {
-        let id = self.log.borrow_mut().add_command_failure(shown, reason, now_seconds());
+    /// A command Klipper or Moonraker rejected; its duplicate response is recognised by the reason. `seen`: it stood
+    /// on the screen elsewhere (the run card of a macro), so it is not unread.
+    pub fn command_failed(self: &Rc<Self>, shown: &str, reason: &str, seen: bool) {
+        let mut log = self.log.borrow_mut();
+        let id = log.add_command_failure(shown, reason, now_seconds());
+        if seen {
+            log.settle(id);
+        }
+        drop(log);
         self.show_event(id);
     }
 
     /// A `!!` (error) or `//` (information) response of Klipper. Other responses stay in the console.
     /// While a print runs, informations only go to the list: Klipper sends many of them and the status bar would flicker.
-    pub fn console_response(self: &Rc<Self>, line: &ConsoleLine, printing: bool) {
+    /// `seen`: the line stood on the screen elsewhere (the run card of a macro), so it is not unread.
+    pub fn console_response(self: &Rc<Self>, line: &ConsoleLine, printing: bool, seen: bool) {
         let is_error = line.is_error();
         if !is_error && !line.is_information() {
             return;
         }
         let text = line.text();
-        if is_error || !printing {
-            let added = self.log.borrow_mut().add_response(&text, is_error, now_seconds());
-            if let Some(id) = added {
-                self.show_event(id);
-            }
+        let mut log = self.log.borrow_mut();
+        let shown = is_error || !printing;
+        let added = if shown {
+            log.add_response(&text, is_error, now_seconds())
         } else {
-            self.log.borrow_mut().add_info_quietly(&text, now_seconds());
-            self.refresh();
+            Some(log.add_info_quietly(&text, now_seconds()))
+        };
+        if seen && let Some(id) = added {
+            log.settle(id);
+        }
+        drop(log);
+        match added {
+            Some(id) if shown => self.show_event(id),
+            _ => self.refresh(),
         }
     }
 

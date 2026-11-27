@@ -159,6 +159,8 @@ export global Actions {
     callback press-key(string);
     callback set-macro-visible(string, bool);
     callback macro-has-params(string) -> bool;
+    // A macro was chosen on the Macros tab: its last run is shown (`Printer.macro-selected`, `macro-run`).
+    callback select-macro(string);
     // Spoolman. `gate` is -1 for a printer without MMU.
     callback load-spools();
     callback set-active-spool(int);

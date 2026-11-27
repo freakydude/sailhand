@@ -1,0 +1,34 @@
+// Preview: the Macros tab with a macro that is running; one answer is longer than the card. Open in the Slint preview or render with scripts/ui-preview.sh.
+
+import { AppWindow } from "../app.slint";
+import { MotionTab, Navigation, Page, Printer, MacroRunState } from "../state.slint";
+import { Sample } from "sample.slint";
+
+export component MotionMacrosRunningPreview inherits AppWindow {
+    init => {
+        Sample.ready-printer();
+        Navigation.page = Page.motion;
+        Navigation.motion-tab = MotionTab.macros;
+        Printer.macros = ["HEAT_SOAK", "LOAD_FILAMENT", "PARK", "PARK_TOOLHEAD_AT_THE_FRONT_CENTER_FOR_NOZZLE_CHECKS", "PRINT_END", "PRINT_START", "UNLOAD_FILAMENT"];
+        Printer.macro-items = [
+            { name: "HEAT_SOAK", visible: true },
+            { name: "LOAD_FILAMENT", visible: true },
+            { name: "PARK", visible: true },
+            { name: "PARK_TOOLHEAD_AT_THE_FRONT_CENTER_FOR_NOZZLE_CHECKS", visible: true },
+            { name: "PRINT_END", visible: true },
+            { name: "PRINT_START", visible: true },
+            { name: "SET_PAUSE_AT_LAYER", visible: false },
+            { name: "UNLOAD_FILAMENT", visible: true },
+        ];
+        Printer.macro-selected = "HEAT_SOAK";
+        Printer.macro-run = { state: MacroRunState.running, script: "HEAT_SOAK TEMP=60 MINUTES=10", started: "14:02:11", duration: "", error: "" };
+        Printer.macro-run-lines = [
+            { text: "// Heat soak: 10 min at 60 °C", time: "14:02:11", is-command: false, is-error: false },
+            { text: "// Bed: 24.1 °C, target 60.0 °C", time: "14:02:11", is-command: false, is-error: false },
+            { text: "// Bed: 41.8 °C, target 60.0 °C", time: "14:03:02", is-command: false, is-error: false },
+            { text: "// Bed: 59.7 °C, target 60.0 °C", time: "14:04:15", is-command: false, is-error: false },
+            { text: "// Chamber: 31.2 °C, waiting for the soak time to pass before the next step of the print start sequence", time: "14:04:15", is-command: false, is-error: false },
+            { text: "// Soak time over, bed stays at 60 °C", time: "14:12:11", is-command: false, is-error: false },
+        ];
+    }
+}

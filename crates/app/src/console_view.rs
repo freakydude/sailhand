@@ -61,7 +61,7 @@ impl ConsoleView {
 
 /// One row per message line: the console list has fixed row heights, so a line break inside a row would overlap its neighbours.
 /// Only the first row of a message shows the time.
-fn console_items(line: &ConsoleLine) -> Vec<ConsoleItem> {
+pub(crate) fn console_items(line: &ConsoleLine) -> Vec<ConsoleItem> {
     let time = format::unix_clock(line.time);
     let is_command = line.kind == ConsoleKind::Command;
     let is_error = line.is_error();

@@ -517,6 +517,23 @@ export struct MacroItem {
     visible: bool,
 }
 
+// How the last run of a macro from this display went; `none` before the first run in this session.
+export enum MacroRunState { none, running, done, failed }
+
+// The last run of the chosen macro from this display (Motion › Macros). The answers Klipper sent while it ran are
+// `Printer.macro-run-lines`: "during the run", not "of this macro" (Klipper does not tell which command wrote a line).
+export struct MacroRun {
+    state: MacroRunState,
+    // The command as sent, e.g. `PARK Z=20`.
+    script: string,
+    // Clock time it was sent, e.g. "14:02:11".
+    started: string,
+    // How long it took, e.g. "1 min 29 s"; empty while it runs.
+    duration: string,
+    // Why Klipper refused or aborted it; empty unless failed.
+    error: string,
+}
+
 // One parameter of a macro in the run form; `placeholder` is the Klipper default, used when `value` stays empty.
 export struct MacroParamItem {
     name: string,

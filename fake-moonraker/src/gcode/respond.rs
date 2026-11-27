@@ -23,6 +23,10 @@ pub(super) fn parse(line: &str, name: &str, args: &[&str]) -> Result<Option<Comm
 
 /// The demo macros, listed with the printer's macros.
 pub(crate) const DEMO_BED_CLEAR_PROMPT: &str = "DEMO_BED_CLEAR_PROMPT";
+/// A macro that answers and then takes a while, for the run card of the Macros tab (not from a real printer): its
+/// body runs like a `gcode_macro`, the answer of the script comes after the dwell.
+pub(crate) const DEMO_HEAT_SOAK: &str = "DEMO_HEAT_SOAK";
+pub(crate) const DEMO_HEAT_SOAK_BODY: &str = "RESPOND TYPE=command MSG=\"Heat soak: 2 s at the current bed temperature\"\nRESPOND MSG=\"Chamber fan on\"\nG4 P2000";
 pub(crate) const DEMO_BUTTONS_PROMPT: &str = "DEMO_BUTTONS_PROMPT";
 const DEMO_PROMPT_ANSWER: &str = "DEMO_PROMPT_ANSWER";
 
@@ -52,6 +56,12 @@ const BUTTONS_PROMPT: [&str; 14] = [
     "footer_button Resume|DEMO_PROMPT_ANSWER|primary",
     "show",
 ];
+
+/// The lines a script line stands for: the body of a demo macro, any other line as it is.
+pub(super) fn expand_demo_macro(line: &str) -> Vec<&str> {
+    let name = line.split_whitespace().next().unwrap_or_default();
+    if name.eq_ignore_ascii_case(DEMO_HEAT_SOAK) { DEMO_HEAT_SOAK_BODY.lines().collect() } else { vec![line] }
+}
 
 fn prompt_line(text: &str) -> String {
     format!("// action:prompt_{text}")
@@ -103,6 +113,18 @@ mod tests {
             [Command::Respond(lines)] => lines.clone(),
             other => panic!("not a response: {other:?}"),
         }
+    }
+
+    #[test]
+    fn the_demo_heat_soak_answers_and_then_dwells() {
+        assert_eq!(
+            parse_script("demo_heat_soak").unwrap(),
+            [
+                Command::Respond(vec!["// Heat soak: 2 s at the current bed temperature".into()]),
+                Command::Respond(vec!["echo: Chamber fan on".into()]),
+                Command::Dwell(std::time::Duration::from_secs(2)),
+            ]
+        );
     }
 
     #[test]
