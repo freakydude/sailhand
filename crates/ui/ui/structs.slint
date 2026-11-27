@@ -488,17 +488,29 @@ export struct FileItem {
 
 export struct ConsoleItem {
     text: string,
+    // Clock time of the line, on every row; shown only where `show-time` is set: the first row of a new second, so
+    // the rows below it of the same second keep the full width.
     time: string,
+    show-time: bool,
     is-command: bool,
     is-error: bool,
 }
 
+// Where a person deals with an incident; a message jumps there (`Navigation.go`). `heater` names its heater in
+// `Navigation.place-name`.
+export enum Place { none, connection, print, afc-service, changer-service, spools, heater, console, macro-settings }
+
 export struct MessageItem {
+    id: int,
     text: string,
     time: string,
-    is-error: bool,
-    // Came after the list was closed last: stands under "New", the rest under "Earlier".
-    new: bool,
+    // error, attention (a fault that asks for a look) or info; decides symbol and colour.
+    severity: Severity,
+    // Still asks to be looked at (a standing fault, an unseen message): a pale ground in the colour of the severity.
+    tinted: bool,
+    // A fault whose state has not ended.
+    standing: bool,
+    place: Place,
     top: length,
     height: length,
 }
@@ -506,6 +518,23 @@ export struct MessageItem {
 export struct MacroItem {
     name: string,
     visible: bool,
+}
+
+// How the last run of a macro from this display went; `none` before the first run in this session.
+export enum MacroRunState { none, running, done, failed }
+
+// The last run of the chosen macro from this display (Motion › Macros). The answers Klipper sent while it ran are
+// `Printer.macro-run-lines`: "during the run", not "of this macro" (Klipper does not tell which command wrote a line).
+export struct MacroRun {
+    state: MacroRunState,
+    // The command as sent, e.g. `PARK Z=20`.
+    script: string,
+    // Clock time it was sent, e.g. "14:02:11".
+    started: string,
+    // How long it took, e.g. "1 min 29 s"; empty while it runs.
+    duration: string,
+    // Why Klipper refused or aborted it; empty unless failed.
+    error: string,
 }
 
 // One parameter of a macro in the run form; `placeholder` is the Klipper default, used when `value` stays empty.
@@ -532,6 +561,12 @@ export struct UpdateItem {
     detail: string,
     has-update: bool,
     up-to-date: bool,
+}
+
+// A light, heater or sensor that can be chosen in the settings: its Klipper object and its readable name.
+export struct ChoiceItem {
+    object: string,
+    label: string,
 }
 
 export struct PresetItem {
@@ -590,4 +625,21 @@ export struct HostInterfaceItem {
     wireless: bool,
     addresses: string,
     mac: string,
+}
+
+// How a button of a macro prompt is meant (`prompt_button <label>|<gcode>|<style>`); `plain` without or with an
+// unknown style.
+export enum PromptStyle { plain, primary, secondary, info, warning, error }
+
+export struct PromptButtonItem {
+    label: string,
+    // What the button sends to Klipper.
+    gcode: string,
+    style: PromptStyle,
+}
+
+// A line of a macro prompt: a text, or (without text) buttons that share a row.
+export struct PromptRowItem {
+    text: string,
+    buttons: [PromptButtonItem],
 }

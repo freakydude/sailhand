@@ -3,6 +3,7 @@
 use crate::{Severity, format};
 use chrono::{DateTime, Local};
 use sailhand_core::domain::estimates;
+use sailhand_core::domain::faults::Fault;
 use sailhand_core::domain::filament_match::{self, Difference, ToolMatch, Verdict};
 use sailhand_core::domain::file_catalog::FileInfo;
 use sailhand_core::domain::job_end::{self, JobLoss};
@@ -57,7 +58,7 @@ pub fn job_texts(
         name: if job.filename.is_empty() { String::new() } else { format::job_name(&job.filename) },
         elapsed: if job.filename.is_empty() { NO_VALUE.to_owned() } else { format::duration(job.print_duration) },
         total: if job.filename.is_empty() { NO_VALUE.to_owned() } else { format::duration(job.total_duration) },
-        remaining: remaining.map_or_else(|| NO_VALUE.to_owned(), |left| show_running_time(left, format::duration)),
+        remaining: remaining.map_or_else(|| NO_VALUE.to_owned(), |left| show_running_time(left, format::countdown)),
         eta: remaining.map_or_else(
             || NO_VALUE.to_owned(),
             |left| show_running_time(left, |seconds| format::finish_time(now, seconds)),
@@ -193,6 +194,33 @@ pub fn interruption_position(job: &PrintJob) -> String {
 
 /// The first line of the first fact of a pause or an error for the status bar, without where the print stands; empty
 /// if none is stated. Happy Hare's `reason_for_pause` can span several lines; the bar has room for one.
+/// The short name of a fault, as the chip of the status bar shows it. For the states the summary names it is the
+/// summary's own word, as the chip takes its place.
+pub fn fault_label(fault: &Fault) -> String {
+    match fault {
+        Fault::MoonrakerUnreachable => "Moonraker: not reachable",
+        Fault::Klipper { shutdown: true, .. } => "Klipper: shutdown",
+        Fault::Klipper { shutdown: false, .. } => "Klipper: error",
+        Fault::Print(interruption) if interruption.failed => "Print error",
+        Fault::Print(_) => "Paused",
+        Fault::AfcError => "AFC error",
+        Fault::ChangerError => "Tool changer error",
+        Fault::SpoolmanOffline => "Spoolman offline",
+    }
+    .to_owned()
+}
+
+/// The fault with what its sources state about it, for the status bar and the message list.
+pub fn fault_text(fault: &Fault) -> String {
+    let detail = match fault {
+        Fault::Klipper { message, .. } => message.clone(),
+        Fault::Print(interruption) => interruption_headline(interruption),
+        _ => String::new(),
+    };
+    let label = fault_label(fault);
+    if detail.is_empty() { label } else { format!("{label} · {detail}") }
+}
+
 pub fn interruption_headline(interruption: &Interruption) -> String {
     let first_fact = interruption.facts.first().map(fact_text).unwrap_or_default();
     first_fact.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default().to_owned()
@@ -202,6 +230,7 @@ fn fact_text(fact: &InterruptionFact) -> String {
     match fact {
         InterruptionFact::KlipperMessage(text)
         | InterruptionFact::MmuReason(text)
+        | InterruptionFact::MmuNotice(text)
         | InterruptionFact::MmuHint(text) => text.clone(),
         InterruptionFact::SensorEmpty { label } => format!("{label}: no filament"),
         InterruptionFact::NozzleCold { heater, temperature, target, min_extrude } => {
@@ -352,21 +381,24 @@ pub struct PreparedHints {
     pub temperature_differs: bool,
 }
 
-/// The hints of the prepared file in words; an extruder other than Klipper's `extruder` is named.
+/// The hints of the prepared file in words; the extruders are named unless it is Klipper's `extruder` alone.
 pub fn prepared_hints(hints: &[PrintHint]) -> PreparedHints {
-    let named = |extruder: &str| if extruder == "extruder" { String::new() } else { format!(" ({extruder})") };
+    let named = |extruders: &[String]| match extruders {
+        [only] if only == "extruder" => String::new(),
+        _ => format!(" ({})", extruders.join(", ")),
+    };
     let mut shown = PreparedHints::default();
     for hint in hints {
         let line = match hint {
-            PrintHint::NozzleDiameter { extruder, file, printer } => {
+            PrintHint::NozzleDiameter { extruders, file, printer } => {
                 shown.nozzle_differs = true;
                 let (file, printer) = (format::nozzle_diameter(*file), format::nozzle_diameter(*printer));
-                format!("File plans a {file} nozzle, the printer has {printer}{}", named(extruder))
+                format!("File plans a {file} nozzle, the printer has {printer}{}", named(extruders))
             }
-            PrintHint::NozzleTemperature { extruder, file, max } => {
+            PrintHint::NozzleTemperature { extruders, file, max } => {
                 shown.temperature_differs = true;
                 let (file, max) = (format::degrees(*file), format::degrees(*max));
-                format!("Nozzle {file} is above the printer's maximum of {max}{}", named(extruder))
+                format!("Nozzle {file} is above the printer's maximum of {max}{}", named(extruders))
             }
             PrintHint::BedTemperature { file, max } => {
                 shown.temperature_differs = true;
@@ -621,7 +653,7 @@ mod tests {
 
         assert_eq!(texts.name, "cube");
         assert_eq!(texts.elapsed, "6 min 00 s");
-        assert_eq!(texts.remaining, "54 min 00 s");
+        assert_eq!(texts.remaining, "54 min");
         assert_eq!(texts.eta, "12:54");
         assert_eq!(texts.layers, "3 / ~100");
         assert_eq!(texts.filament, "1.0 / 5.0 m");
@@ -657,7 +689,7 @@ mod tests {
 
         let texts = job_texts(&job, None, None, None, now());
 
-        assert_eq!(texts.remaining, "30 min 00 s");
+        assert_eq!(texts.remaining, "30 min");
         assert_eq!(texts.layers, "-");
         assert_eq!(texts.expectation_origin, Some(estimates::ORIGIN_PACE_ONLY));
     }
@@ -1014,7 +1046,12 @@ mod tests {
     #[test]
     fn hints_of_the_prepared_file_read_as_lines_and_mark_their_tiles() {
         let hints = [
-            PrintHint::NozzleDiameter { extruder: "extruder1".into(), file: 0.6, printer: 0.4 },
+            PrintHint::NozzleDiameter { extruders: vec!["extruder1".into()], file: 0.6, printer: 0.4 },
+            PrintHint::NozzleTemperature {
+                extruders: vec!["extruder".into(), "extruder1".into()],
+                file: 310.0,
+                max: 300.0,
+            },
             PrintHint::BedTemperature { file: 130.0, max: 120.0 },
         ];
 
@@ -1024,6 +1061,7 @@ mod tests {
             shown.lines,
             [
                 "File plans a 0.6 mm nozzle, the printer has 0.4 mm (extruder1)",
+                "Nozzle 310° is above the printer's maximum of 300° (extruder, extruder1)",
                 "Bed 130° is above the printer's maximum of 120°"
             ]
         );

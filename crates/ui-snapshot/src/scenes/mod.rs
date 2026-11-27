@@ -1,20 +1,23 @@
 //! The run, split into scenes that can be chosen on the command line.
 
 use crate::session::Session;
-use sailhand::Confirm;
+use sailhand::{Actions, Confirm, SpoolPicker};
 use sailhand_core::sources::klipper::KlippyState;
 use sailhand_core::{Command, ConnectionState, Query};
 use slint::ComponentHandle;
+use std::time::Duration;
 
 mod bed_mesh_dense;
 mod calibrate;
 mod console;
 mod lanes;
 mod login;
+mod macros;
 mod mmu;
 mod network;
 mod pages;
 mod printing;
+mod prompt;
 mod spools;
 mod system;
 mod temperature;
@@ -25,6 +28,7 @@ use calibrate::calibrate;
 use console::typing;
 use lanes::lanes;
 use login::{log_in, logged_in};
+use macros::macros;
 use network::network;
 use pages::pages;
 use printing::printing;
@@ -52,6 +56,8 @@ pub enum Scene {
     Taps,
     /// Editing keys in the text entry of the console, physical and on-screen.
     Typing,
+    /// Motion › Macros: the run card of a macro while it runs and after its answer.
+    Macros,
     /// The Calibrate tab of the Motion page: results of the bed mesh and the screws, the dialogs of the waiting modes.
     Calibrate,
     /// A dense bed mesh (30 x 40 points, 31 x 31 on a fake with `--round-bed`), which the UI draws as an image.
@@ -68,7 +74,7 @@ pub enum Scene {
 }
 
 impl Scene {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Pages,
         Self::Spools,
         Self::Toolchanger,
@@ -76,6 +82,7 @@ impl Scene {
         Self::Network,
         Self::Taps,
         Self::Typing,
+        Self::Macros,
         Self::Calibrate,
         Self::BedMeshDense,
         Self::Printing,
@@ -83,7 +90,7 @@ impl Scene {
         Self::Idle,
         Self::Login,
     ];
-    pub const DEFAULT: [Self; 10] = [
+    pub const DEFAULT: [Self; 11] = [
         Self::Pages,
         Self::Spools,
         Self::Toolchanger,
@@ -91,6 +98,7 @@ impl Scene {
         Self::Network,
         Self::Taps,
         Self::Typing,
+        Self::Macros,
         Self::Calibrate,
         Self::Printing,
         Self::Shutdown,
@@ -107,7 +115,7 @@ impl Scene {
     fn parse(name: &str) -> Result<Self, String> {
         Self::ALL.into_iter().find(|scene| scene.name() == name).ok_or_else(|| {
             format!(
-                "unknown scene '{name}' (pages, spools, toolchanger, lanes, network, taps, typing, calibrate, bed-mesh-dense, printing, shutdown, idle, \
+                "unknown scene '{name}' (pages, spools, toolchanger, lanes, network, taps, typing, macros, calibrate, bed-mesh-dense, printing, shutdown, idle, \
                  login, all)"
             )
         })
@@ -122,6 +130,7 @@ impl Scene {
             Self::Network => "network",
             Self::Taps => "taps",
             Self::Typing => "typing",
+            Self::Macros => "macros",
             Self::Calibrate => "calibrate",
             Self::BedMeshDense => "bed-mesh-dense",
             Self::Printing => "printing",
@@ -140,6 +149,7 @@ impl Scene {
             Self::Network => network(session),
             Self::Taps => taps(session),
             Self::Typing => typing(session),
+            Self::Macros => macros(session),
             Self::Calibrate => calibrate(session),
             Self::BedMeshDense => bed_mesh_dense(session),
             Self::Printing => printing(session),
@@ -151,8 +161,8 @@ impl Scene {
 }
 
 /// Connects (logging in first for the scene `login`), homes and loads host data, then runs the chosen scenes in their
-/// fixed order.
-pub fn run(session: &mut Session, chosen: &[Scene]) -> Result<(), String> {
+/// fixed order. With `keep_going` a failing scene is reported and the next one runs; the run still fails at the end.
+pub fn run(session: &mut Session, chosen: &[Scene], keep_going: bool) -> Result<(), String> {
     session.capture("connecting")?;
     if chosen.contains(&Scene::Login) {
         log_in(session)?;
@@ -168,10 +178,26 @@ pub fn run(session: &mut Session, chosen: &[Scene]) -> Result<(), String> {
     session.service.send(Command::RunGcode { script: "HELP".into() });
     session.wait_until("homing", |snapshot| snapshot.status.motion.homed.all())?;
 
+    let mut failed = Vec::new();
     for scene in Scene::ALL.into_iter().filter(|scene| chosen.contains(scene)) {
-        scene.run(session)?;
+        match scene.run(session) {
+            Err(error) if keep_going => {
+                eprintln!("ui-snapshot: scene {scene:?} failed: {error}");
+                failed.push(format!("{scene:?}"));
+                close_dialogs(session);
+            }
+            result => result?,
+        }
     }
-    Ok(())
+    if failed.is_empty() { Ok(()) } else { Err(format!("failed scenes: {}", failed.join(", "))) }
+}
+
+/// What a failed scene left open would cover the next scenes.
+fn close_dialogs(session: &mut Session) {
+    session.window.global::<Actions>().invoke_close_prompt();
+    session.window.global::<Confirm>().set_open(false);
+    session.window.global::<SpoolPicker>().set_open(false);
+    session.pump(Duration::from_millis(600));
 }
 
 /// The light symbol of the status bar (800x480, no fitting).

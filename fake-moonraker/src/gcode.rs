@@ -11,6 +11,7 @@ mod happy_hare;
 mod heating;
 mod macros;
 mod motion;
+mod respond;
 mod toolchanger;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,8 +122,16 @@ pub enum Command {
     /// Ends the running print with an error, like Klipper after a move out of range (`FAKE_PRINT_ERROR`; not in
     /// Klipper).
     FakePrintError,
+    /// `FAKE_MMU_PAUSE [MSG=1] [BUTTONS=1]`: Happy Hare pauses the print with its pause dialog, maybe with an extra
+    /// line and button (not in Happy Hare).
+    FakeMmuPause {
+        message: bool,
+        extra_button: bool,
+    },
     /// `M117` and `SET_DISPLAY_TEXT`: sets or (`None`) clears the display message.
     DisplayText(Option<String>),
+    /// `RESPOND` and the demo macros: console lines for the session to send (with their prefix).
+    Respond(Vec<String>),
     Ignored,
 }
 
@@ -402,8 +411,10 @@ impl fmt::Display for CommandError {
 
 impl std::error::Error for CommandError {}
 
+pub(crate) use respond::{DEMO_BED_CLEAR_PROMPT, DEMO_BUTTONS_PROMPT, DEMO_HEAT_SOAK, DEMO_HEAT_SOAK_BODY};
+
 pub fn parse_script(script: &str) -> Result<Vec<Command>, CommandError> {
-    script.lines().filter_map(significant_part).map(parse_line).collect()
+    script.lines().flat_map(respond::expand_demo_macro).filter_map(significant_part).map(parse_line).collect()
 }
 
 fn significant_part(line: &str) -> Option<&str> {
@@ -416,6 +427,9 @@ fn parse_line(line: &str) -> Result<Command, CommandError> {
     let name = words.next().unwrap_or_default().to_ascii_uppercase();
     let args: Vec<&str> = words.collect();
     if let Some(command) = parse_display_text(line, &name) {
+        return Ok(command);
+    }
+    if let Some(command) = respond::parse(line, &name, &args)? {
         return Ok(command);
     }
 

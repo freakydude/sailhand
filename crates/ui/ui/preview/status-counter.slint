@@ -1,13 +1,14 @@
 // Preview: the print goes on, the error has run out of display time and the counter keeps it unread.
 
 import { AppWindow } from "../app.slint";
-import { Navigation, Page, Printer } from "../state.slint";
+import { Navigation, Page, Printer, Severity } from "../state.slint";
 import { Sample } from "sample.slint";
 
 export component StatusCounterPreview inherits AppWindow {
     init => {
         Sample.printing();
         Navigation.page = Page.temperature;
-        Printer.unread-errors = 1;
+        Printer.unread-count = 3;
+        Printer.unread-severity = Severity.error;
     }
 }

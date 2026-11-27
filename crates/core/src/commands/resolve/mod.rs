@@ -39,7 +39,7 @@ impl Command {
             Self::StepTuning { key, direction } => heating::step_tuning(status, key, direction)?,
             Self::ResetTuning { key } => heating::reset_tuning(setup, key)?,
             Self::SetLight { led, level } => vec![lighting::light(setup, status, &led, level)],
-            Self::ToggleLight => lighting::toggle(sources, status)?,
+            Self::ToggleLight { light } => lighting::toggle(sources, status, &light)?,
             Self::LoadFilament => filament::load(sources, status)?,
             Self::UnloadFilament => filament::unload(sources, status)?,
             Self::DropHead => {

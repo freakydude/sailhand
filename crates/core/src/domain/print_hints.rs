@@ -15,10 +15,10 @@ const DIAMETER_TOLERANCE_MM: f64 = 0.005;
 /// One thing of the file that does not fit the machine.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PrintHint {
-    /// The slicer planned for another nozzle than the one of `extruder`.
-    NozzleDiameter { extruder: String, file: f64, printer: f64 },
-    /// The first layer temperature of the nozzle is above `max_temp` of `extruder`.
-    NozzleTemperature { extruder: String, file: f64, max: f64 },
+    /// The slicer planned for another nozzle than the one of `extruders` (all with the same nozzle, in tool order).
+    NozzleDiameter { extruders: Vec<String>, file: f64, printer: f64 },
+    /// The first layer temperature of the nozzle is above `max_temp` of `extruders` (all with the same maximum).
+    NozzleTemperature { extruders: Vec<String>, file: f64, max: f64 },
     /// The first layer temperature of the bed is above `max_temp` of the bed heater.
     BedTemperature { file: f64, max: f64 },
 }
@@ -51,12 +51,12 @@ pub fn print_hints(metadata: &FileMetadata, status: &PrinterStatus, extruders: &
         if let (Some(file), Some(printer)) = (file_diameter, heater.nozzle_diameter)
             && (file - printer).abs() > DIAMETER_TOLERANCE_MM
         {
-            hints.push(PrintHint::NozzleDiameter { extruder: extruder.clone(), file, printer });
+            add(&mut hints, PrintHint::NozzleDiameter { extruders: vec![extruder.clone()], file, printer });
         }
         if let (Some(file), Some(max)) = (file_nozzle_temp, heater.max_temp)
             && file > max
         {
-            hints.push(PrintHint::NozzleTemperature { extruder: extruder.clone(), file, max });
+            add(&mut hints, PrintHint::NozzleTemperature { extruders: vec![extruder.clone()], file, max });
         }
     }
     let bed_max = status.heater(BED_HEATER).and_then(|heater| heater.max_temp);
@@ -66,6 +66,30 @@ pub fn print_hints(metadata: &FileMetadata, status: &PrinterStatus, extruders: &
         hints.push(PrintHint::BedTemperature { file, max });
     }
     hints
+}
+
+/// Adds a nozzle hint, or its extruder to one that says the same for another extruder: one line per statement.
+fn add(hints: &mut Vec<PrintHint>, hint: PrintHint) {
+    let same = hints.iter_mut().find_map(|known| match (known, &hint) {
+        (
+            PrintHint::NozzleDiameter { extruders, file, printer },
+            PrintHint::NozzleDiameter { file: new_file, printer: new_printer, .. },
+        ) if file == new_file && printer == new_printer => Some(extruders),
+        (
+            PrintHint::NozzleTemperature { extruders, file, max },
+            PrintHint::NozzleTemperature { file: new_file, max: new_max, .. },
+        ) if file == new_file && max == new_max => Some(extruders),
+        _ => None,
+    });
+    match (same, hint) {
+        (
+            Some(extruders),
+            PrintHint::NozzleDiameter { extruders: new, .. } | PrintHint::NozzleTemperature { extruders: new, .. },
+        ) => {
+            extruders.extend(new);
+        }
+        (_, hint) => hints.push(hint),
+    }
 }
 
 #[cfg(test)]
@@ -110,7 +134,7 @@ mod tests {
     #[test]
     fn another_nozzle_diameter_is_a_hint() {
         let hints = print_hints(&file(Some(0.6), None, None), &standard_printer(), &main_extruder());
-        assert_eq!(hints, [PrintHint::NozzleDiameter { extruder: "extruder".into(), file: 0.6, printer: 0.4 }]);
+        assert_eq!(hints, [PrintHint::NozzleDiameter { extruders: vec!["extruder".into()], file: 0.6, printer: 0.4 }]);
     }
 
     #[test]
@@ -125,7 +149,7 @@ mod tests {
         assert_eq!(
             hot,
             [
-                PrintHint::NozzleTemperature { extruder: "extruder".into(), file: 310.0, max: 300.0 },
+                PrintHint::NozzleTemperature { extruders: vec!["extruder".into()], file: 310.0, max: 300.0 },
                 PrintHint::BedTemperature { file: 130.0, max: 120.0 },
             ]
         );
@@ -146,6 +170,23 @@ mod tests {
         let status = printer(vec![nozzle("extruder", Some(0.4), None), nozzle("extruder1", Some(0.6), None)]);
         let both = vec!["extruder".to_owned(), "extruder1".to_owned()];
         let hints = print_hints(&file(Some(0.4), None, None), &status, &both);
-        assert_eq!(hints, [PrintHint::NozzleDiameter { extruder: "extruder1".into(), file: 0.4, printer: 0.6 }]);
+        assert_eq!(hints, [PrintHint::NozzleDiameter { extruders: vec!["extruder1".into()], file: 0.4, printer: 0.6 }]);
+    }
+
+    #[test]
+    fn the_same_statement_for_several_extruders_is_one_hint() {
+        let status =
+            printer(vec![nozzle("extruder", Some(0.4), Some(300.0)), nozzle("extruder1", Some(0.4), Some(300.0))]);
+        let both = vec!["extruder".to_owned(), "extruder1".to_owned()];
+
+        let hints = print_hints(&file(Some(0.6), Some(310.0), None), &status, &both);
+
+        assert_eq!(
+            hints,
+            [
+                PrintHint::NozzleDiameter { extruders: both.clone(), file: 0.6, printer: 0.4 },
+                PrintHint::NozzleTemperature { extruders: both, file: 310.0, max: 300.0 },
+            ]
+        );
     }
 }

@@ -28,9 +28,31 @@ pub fn duration_in(seconds: f64, finest: &TimeUnit) -> String {
     }
 }
 
+/// A countdown without seconds once they no longer matter: `45 s` in the last minute, then `54 min`, `2 h 07 min`,
+/// `1 d 03 h` (Frank, 2026-11-27).
+pub fn countdown(seconds: f64) -> String {
+    if seconds.max(0.0).round() < MINUTE.seconds as f64 {
+        return duration_in(seconds, &SECOND);
+    }
+    duration_in(seconds, &MINUTE)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_countdown_drops_the_seconds_after_the_last_minute() {
+        assert_eq!(countdown(45.4), "45 s");
+        assert_eq!(countdown(59.6), "1 min");
+        assert_eq!(countdown(725.0), "12 min");
+        assert_eq!(countdown(3_569.0), "59 min");
+        assert_eq!(countdown(3_571.0), "1 h 00 min");
+        assert_eq!(countdown(7_620.0), "2 h 07 min");
+        assert_eq!(countdown(86_369.0), "23 h 59 min");
+        assert_eq!(countdown(97_200.0), "1 d 03 h");
+        assert_eq!(countdown(-3.0), "0 s");
+    }
 
     #[test]
     fn a_duration_shows_its_two_largest_units() {

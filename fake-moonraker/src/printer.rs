@@ -56,7 +56,7 @@ const MIN_SENSOR_TEMPERATURE: f64 = -273.15;
 /// still.
 const HOST_TEMPERATURE_SWING: f64 = 0.4;
 /// Macros every simulated printer knows; `_` macros are helper macros and invisible to the UI.
-const MACROS: [&str; 10] = [
+const MACROS: [&str; 13] = [
     "PRINT_START",
     "PRINT_END",
     "LOAD_FILAMENT",
@@ -67,13 +67,16 @@ const MACROS: [&str; 10] = [
     LAYER_PAUSE_NEXT_MACRO,
     LAYER_PAUSE_AT_MACRO,
     PRINT_STATS_INFO_MACRO,
+    crate::gcode::DEMO_BED_CLEAR_PROMPT,
+    crate::gcode::DEMO_BUTTONS_PROMPT,
+    crate::gcode::DEMO_HEAT_SOAK,
 ];
 /// Mainsail's layer pause macros (mainsail-config), see [`LayerPause`].
 const LAYER_PAUSE_NEXT_MACRO: &str = "SET_PAUSE_NEXT_LAYER";
 const LAYER_PAUSE_AT_MACRO: &str = "SET_PAUSE_AT_LAYER";
 const PRINT_STATS_INFO_MACRO: &str = "SET_PRINT_STATS_INFO";
 /// Templates of the macros above, so parameters and defaults can be read like on a real printer.
-const MACRO_TEMPLATES: [(&str, &str); 10] = [
+const MACRO_TEMPLATES: [(&str, &str); 13] = [
     ("PRINT_START", "{% set BED = params.BED|default(60) %}\nM140 S{BED}\nM109 S{params.EXTRUDER|default(210)}"),
     ("PRINT_END", "M104 S0\nM140 S0"),
     ("LOAD_FILAMENT", "{% set TEMP = params.TEMP|default(230)|float %}\nM104 S{TEMP}"),
@@ -90,6 +93,17 @@ const MACRO_TEMPLATES: [(&str, &str); 10] = [
         "{% set ENABLE = params.ENABLE|int != 0 if params.ENABLE is defined else params.LAYER is defined %}\n{% set LAYER = params.LAYER|default(0)|int %}\n{% set MACRO = params.MACRO|default('PAUSE') %}",
     ),
     (PRINT_STATS_INFO_MACRO, "SET_PRINT_STATS_INFO_BASE {rawparams}"),
+    // Demos for the client's macro prompt dialog (not from a real printer): the example of the issue and one with
+    // buttons and a button group. Each sends `RESPOND TYPE=command MSG="action:prompt_..."` lines.
+    (
+        crate::gcode::DEMO_BED_CLEAR_PROMPT,
+        "RESPOND TYPE=command MSG=\"action:prompt_begin Is the bed empty?\"\nRESPOND TYPE=command MSG=\"action:prompt_show\"",
+    ),
+    (
+        crate::gcode::DEMO_BUTTONS_PROMPT,
+        "RESPOND TYPE=command MSG=\"action:prompt_begin Filament runout\"\nRESPOND TYPE=command MSG=\"action:prompt_show\"",
+    ),
+    (crate::gcode::DEMO_HEAT_SOAK, crate::gcode::DEMO_HEAT_SOAK_BODY),
 ];
 /// Klipper's message after a move outside the axis limits, for `FAKE_PRINT_ERROR`.
 const PRINT_ERROR_MESSAGE: &str = "Move out of range: 310.000 150.000 12.400 [482.120]";
@@ -271,6 +285,8 @@ pub struct Printer {
     message: String,
     /// `display_status.message`: set by `M117` and `SET_DISPLAY_TEXT`, kept across prints.
     display_message: Option<String>,
+    /// Console lines of `RESPOND` and the demo macros, not yet sent.
+    responses: Vec<String>,
     print_duration: f64,
     total_duration: f64,
     job: Option<PrintJob>,
@@ -297,9 +313,10 @@ impl Printer {
         events
     }
 
-    /// The console lines the plugins wrote since the last call (Happy Hare's and AFC's log messages).
+    /// The console lines the plugins wrote since the last call (`RESPOND`, Happy Hare's and AFC's log messages).
     pub fn take_console(&mut self) -> Vec<String> {
-        let mut lines = self.mmu.as_mut().map(HappyHare::take_console).unwrap_or_default();
+        let mut lines = std::mem::take(&mut self.responses);
+        lines.extend(self.mmu.as_mut().map(HappyHare::take_console).unwrap_or_default());
         lines.extend(self.afc.as_mut().map(Afc::take_console).unwrap_or_default());
         lines
     }
@@ -358,6 +375,7 @@ impl Printer {
             filename: String::new(),
             message: String::new(),
             display_message: None,
+            responses: Vec::new(),
             print_duration: 0.0,
             total_duration: 0.0,
             job: None,
@@ -544,7 +562,9 @@ impl Printer {
             Command::Afc(command) => self.apply_afc(command)?,
             Command::LayerPause(command) => self.layer_pause.apply(command),
             Command::DisplayText(message) => self.display_message = message,
+            Command::Respond(lines) => self.responses.extend(lines),
             Command::FakePrintError => self.fail_print()?,
+            Command::FakeMmuPause { message, extra_button } => self.mmu_pause(message, extra_button)?,
             // The session delays the answer of a dwell; the printer itself does nothing.
             Command::Help | Command::Dwell(_) | Command::Ignored => {}
         }
@@ -575,6 +595,16 @@ impl Printer {
 
     pub fn pause_print(&mut self) -> Result<(), CommandError> {
         self.transition(PrintState::Printing, PrintState::Paused)
+    }
+
+    /// Happy Hare's pause after an MMU error: the print pauses and its dialog appears (`handle_mmu_error`).
+    fn mmu_pause(&mut self, message: bool, extra_button: bool) -> Result<(), CommandError> {
+        if self.mmu.is_none() {
+            return Err(CommandError::new("Unknown command:\"FAKE_MMU_PAUSE\""));
+        }
+        self.pause_print()?;
+        self.responses.extend(crate::happy_hare::pause_notice(message, extra_button));
+        Ok(())
     }
 
     pub fn resume_print(&mut self) -> Result<(), CommandError> {

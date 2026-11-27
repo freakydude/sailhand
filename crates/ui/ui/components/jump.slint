@@ -1,0 +1,88 @@
+// Jumps instead of buttons in messages and hints (Frank 2026-11-26): a hint says what is the matter and leads to the
+// place where it is dealt with; that place lights up for a moment.
+
+import { Theme } from "../theme.slint";
+import { Icons } from "../icons.slint";
+import { StateIcons } from "../state-icons.slint";
+import { Navigation, Place, Severity } from "../state.slint";
+import { WrapText } from "controls.slint";
+
+// Blinks the element it lies over twice when a jump leads to `place` (and, if set, `name`), then clears the jump: a
+// pale `foreground` layer over its whole area, so it shows on accent buttons and dark surfaces alike. Only the alpha of
+// the colour changes (no opacity, no border), which the software renderer draws as well. Put it as the last child of a
+// Rectangle that has no layout, so it covers it: `Highlight { place: ...; }`.
+export component Highlight inherits Rectangle {
+    in property <Place> place;
+    // The heater, head or lane of the place; empty matches any.
+    in property <string> name;
+    // The corner radius of the element it covers.
+    in property <length> radius: Theme.radius;
+    // Each pulse is one phase on and one phase off; the alpha fades within the first half of a phase.
+    property <duration> phase-time: 300ms;
+    property <int> phase-count: 4;
+    property <float> peak-alpha: 0.3;
+    property <int> phase;
+    property <bool> lit: Navigation.highlight == root.place && (root.name == "" || Navigation.highlight-name == root.name);
+    property <bool> on: root.lit && Math.mod(root.phase, 2) == 0;
+    changed lit => {
+        root.phase = 0;
+    }
+    // Without a layout around it, a Rectangle fills its parent by default.
+    border-radius: root.radius;
+    background: Theme.foreground.with-alpha(root.on ? root.peak-alpha : 0);
+    animate background { duration: root.phase-time / 2; easing: ease-in-out; }
+    Timer {
+        interval: root.phase-time;
+        running: root.lit;
+        triggered => {
+            root.phase += 1;
+            if (root.phase >= root.phase-count) {
+                Navigation.highlight-done();
+            }
+        }
+    }
+}
+
+// A hint that leads somewhere: a pale ground in the colour of its severity, its symbol, the text and an arrow; the
+// whole row is the touch area. No button of its own: the place it leads to has the controls.
+export component JumpHint inherits Rectangle {
+    in property <Severity> severity;
+    in property <string> text;
+    // A smaller text for a narrow place (beside tabs); it may wrap to two lines.
+    in property <bool> narrow;
+    callback clicked();
+    min-height: Theme.row-height-small;
+    border-radius: Theme.radius;
+    background: touch.pressed ? Theme.surface-active : StateIcons.severity-tint(root.severity);
+    accessible-role: button;
+    accessible-label: root.text;
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: Theme.spacing-medium;
+        padding-right: Theme.spacing;
+        spacing: Theme.spacing;
+        Image {
+            cross-axis-self-alignment: center;
+            source: StateIcons.severity-icon(root.severity);
+            colorize: StateIcons.severity-color(root.severity);
+            width: Theme.icon-small;
+            height: Theme.icon-small;
+        }
+        WrapText {
+            horizontal-stretch: 1;
+            min-width: 0px;
+            text: root.text;
+            color: Theme.foreground;
+            font-size: root.narrow ? Theme.font-small : Theme.font-normal;
+        }
+        Image {
+            cross-axis-self-alignment: center;
+            source: Icons.ui-chevron-right;
+            colorize: Theme.muted;
+            width: Theme.icon-small;
+            height: Theme.icon-small;
+        }
+    }
+}

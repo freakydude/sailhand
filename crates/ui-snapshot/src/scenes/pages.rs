@@ -1,6 +1,7 @@
 //! Every page in standby: the file list, the prepared job, the pages with their tabs and the MMU dialogs.
 
 use super::mmu::{mmu_bypass, mmu_gate, mmu_service, mmu_tools_and_groups};
+use super::prompt::macro_prompt;
 use super::temperature::heat_tabs;
 use crate::session::Session;
 use sailhand::{Actions, ChangerTab, Confirm, FilamentTab, MmuDialogs, MotionTab, Navigation, Page, Printer};
@@ -128,6 +129,7 @@ pub(super) fn pages(session: &mut Session) -> Result<(), String> {
     }
     changer_pages(session)?;
     messages(session)?;
+    macro_prompt(session)?;
     command_running(session)
 }
 
@@ -186,21 +188,21 @@ pub(super) fn messages(session: &mut Session) -> Result<(), String> {
     session.service.send(Command::RunGcode { script: "SET_FAN_SPEED FAN=missing SPEED=1".into() });
     session.pump(Duration::from_secs(1));
     let printer = session.window.global::<Printer>();
-    if printer.get_unread_errors() < 1 || !printer.get_status_message_visible() {
+    if printer.get_unread_count() < 1 || !printer.get_status_message_visible() {
         return Err("the status bar shows neither the error nor the counter".into());
     }
     session.capture("messages-event")?;
     let navigation = session.window.global::<Navigation>();
     navigation.invoke_open_messages();
     session.pump(Duration::from_millis(200));
-    if session.window.global::<Printer>().get_unread_errors() != 0 {
+    if session.window.global::<Printer>().get_unread_count() != 0 {
         return Err("the counter is not reset by opening the list".into());
     }
     session.capture("messages")?;
     session.window.global::<Navigation>().invoke_close_messages();
     session.pump(Duration::from_millis(200));
-    if session.window.global::<Printer>().get_messages().row_data(0).is_some_and(|message| message.new) {
-        return Err("the messages are still new after closing the list".into());
+    if session.window.global::<Printer>().get_messages().row_data(0).is_some_and(|message| message.tinted) {
+        return Err("the messages still ask for attention after closing the list".into());
     }
     // The scenes after it should not show this made-up error in the status bar.
     session.presenter.clear_messages();

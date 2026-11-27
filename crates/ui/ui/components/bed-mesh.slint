@@ -42,6 +42,7 @@ export component MeshMap inherits Rectangle {
         border-width: root.large ? 1px : 0px;
         border-color: Theme.surface;
         if root.labelled: Text {
+            overflow: elide;
             text: cell.text;
             color: cell.dark ? Theme.background : Theme.foreground;
             font-size: Theme.font-small;
@@ -67,6 +68,7 @@ component MeshLegend inherits VerticalLayout {
         text: @tr("Range");
     }
     Text {
+        overflow: elide;
         text: Printer.bed-mesh-map.range;
         color: Theme.foreground;
         font-size: Theme.font-large;
@@ -87,18 +89,21 @@ component MeshLegend inherits VerticalLayout {
         }
         VerticalLayout {
             Text {
+                overflow: elide;
                 text: "+" + Printer.bed-mesh-map.limit;
                 color: Theme.foreground;
                 font-size: Theme.font-normal;
             }
             Rectangle { vertical-stretch: 1; }
             Text {
+                overflow: elide;
                 text: "0";
                 color: Theme.muted;
                 font-size: Theme.font-normal;
             }
             Rectangle { vertical-stretch: 1; }
             Text {
+                overflow: elide;
                 text: "−" + Printer.bed-mesh-map.limit;
                 color: Theme.foreground;
                 font-size: Theme.font-normal;
@@ -255,6 +260,7 @@ export component BedMeshProfilesDialog inherits Scrim {
 
     name := TextEntryDialog {
         title: Actions.bed-mesh-name-hint(self.text) != "" ? Actions.bed-mesh-name-hint(self.text) : @tr("Profile name");
+        refusal: Actions.bed-mesh-name-refusal(self.text);
         accepted(text) => { Actions.save-bed-mesh(text); }
     }
 }

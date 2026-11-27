@@ -50,6 +50,7 @@ component StepRow inherits Rectangle {
                     accessible-label: @tr("Warning");
                 }
                 Text {
+                    overflow: elide;
                     horizontal-stretch: 1;
                     text: root.needs;
                     color: root.needs-warning ? Theme.warning : Theme.muted;
@@ -67,6 +68,7 @@ component StepRow inherits Rectangle {
                 overflow: elide;
             }
             Text {
+                overflow: elide;
                 text: root.value.pending != "" ? root.shown + " → " + root.value.pending : root.shown;
                 color: root.value.current != "" || root.value.pending != "" ? Theme.foreground : Theme.muted;
                 font-size: Theme.font-normal;
@@ -120,6 +122,7 @@ export component EddyProbeDialog inherits Scrim {
                             spacing: Theme.spacing-large;
                             Note { text: @tr("Toolhead"); vertical-alignment: center; wrap: no-wrap; }
                             Text {
+                                overflow: elide;
                                 text: "X " + Printer.position-x.to-fixed(1) + "   Y " + Printer.position-y.to-fixed(1) + "   Z " + Printer.position-z.to-fixed(1);
                                 color: Theme.foreground;
                                 font-size: Theme.font-normal;

@@ -105,7 +105,7 @@ off_when_idle_minutes: 5
 | Section | Options |
 | ------- | ------- |
 | `[sailhand]` | `fullscreen`, `keep_screen_on`, `hide_temperature_reports`, `verbose_log`, `rotation` |
-| `[printer <name>]` | `moonraker` (required): the address; `hidden_macros` (optional): list of macros hidden from the console of this printer |
+| `[printer <name>]` | `moonraker` (required): the address; `hidden_macros` (optional): list of macros hidden from the macro list (Motion › Macros) of this printer, chosen under Settings › Macros; `light` and `chamber` (optional): the light of the quick switch (`neopixel chamber`, `wled enclosure`) and the heater or sensor shown as the chamber in the status bar (`heater_generic chamber`, `temperature_sensor enclosure`). Without the entry Sailhand looks for them by name when it first connects and writes what it found, also an empty entry for none; from then on only the entry counts (Settings → Status bar) |
 | `[preset <name>]` | `extruder` and `bed` (both required): the temperature presets |
 | `[step_choices]` | `move_mm`, `z_offset_mm`, `temperature`, `extrude_mm`, `extrude_speed`, `manual_probe_mm`; each optional |
 | `[backlight]` | `device`, `brightness`, `off_when_idle_minutes`, `off_when_printing_minutes`; each optional |
@@ -243,8 +243,8 @@ Printers announce themselves when Moonraker's zeroconf component is switched on 
 in `moonraker.conf`, then restart Moonraker. Sailhand searches and checks the saved printers only while the Printers
 page is open. Sailhand connects to the printer chosen last; if none was chosen yet, to the address given with `--moonraker`;
 otherwise to `http://127.0.0.1:7125`. The printer used at the first start is kept as a saved printer (named after its
-host), so macros hidden from its console stay hidden. If the printer does not answer, the screen says so and offers the
-list, it does not switch to another printer by itself. Per printer Sailhand keeps the macros hidden from the console;
+host), so macros hidden from its macro list stay hidden. If the printer does not answer, the screen says so and offers the
+list, it does not switch to another printer by itself. Per printer Sailhand keeps the hidden macros;
 presets, step sizes and the display settings apply to all printers.
 
 ## Moonraker login

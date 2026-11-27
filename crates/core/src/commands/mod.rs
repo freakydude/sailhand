@@ -110,8 +110,10 @@ pub enum Command {
         led: String,
         level: f64,
     },
-    /// Switches the main light (see [`light::main_light`]) on or off.
-    ToggleLight,
+    /// Switches a light on or off: the main light the UI chose (see [`light::main_light`]).
+    ToggleLight {
+        light: String,
+    },
     /// Colour channels from 0 to 1 (`SET_LED`).
     SetLed {
         led: String,
@@ -475,7 +477,7 @@ impl Command {
             | Self::ApplyPreset { .. }
             | Self::CoolDown
             | Self::SetLight { .. }
-            | Self::ToggleLight
+            | Self::ToggleLight { .. }
             | Self::StepTuning { .. }
             | Self::ResetTuning { .. }
             | Self::ApplyZOffset

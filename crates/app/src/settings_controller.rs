@@ -3,10 +3,13 @@
 use crate::actions::slint_decimal;
 use crate::items::float_model;
 use crate::network_controller::NetworkController;
-use crate::presenter::Presenter;
-use crate::{AppWindow, Backlight, PresetItem, UiSettings};
+use crate::presenter::{DisplayChoices, Presenter};
+use crate::{AppWindow, Backlight, ChoiceItem, PresetItem, UiSettings};
+use sailhand_core::Snapshot;
 use sailhand_core::backlight::{BacklightService, BacklightSettings, usable_brightness};
+use sailhand_core::domain::{chamber, light};
 use sailhand_core::settings::{MAX_SHOWN_PRESETS, SavedPrinter, Settings, SettingsFile, TemperaturePreset};
+use sailhand_core::sources::PrinterStatus;
 use sailhand_core::sources::klipper::moves::DRIVE_INTERVAL;
 use sailhand_core::step_choices::{StepLists, mirrored_row, nearest_step};
 use sailhand_core::{Endpoint, PrinterService};
@@ -57,6 +60,13 @@ impl SettingsController {
             presets: Rc::default(),
         });
         controller.apply_hidden_macros();
+        controller.apply_display_choices();
+        let weak = Rc::downgrade(&controller);
+        controller.presenter.on_printer_ready(move |snapshot| {
+            if let Some(controller) = weak.upgrade() {
+                controller.note_found_choices(snapshot);
+            }
+        });
         controller.presenter.set_hide_temperature_reports(controller.settings.borrow().hide_temperature_reports);
         let weak = Rc::downgrade(&controller);
         controller.presenter.on_macros_loaded(move |macros| {
@@ -115,6 +125,18 @@ impl SettingsController {
 
     fn connect_callbacks(self: &Rc<Self>, window: &AppWindow) {
         let ui = window.global::<UiSettings>();
+        let controller = Rc::downgrade(self);
+        ui.on_choose_light(move |object| {
+            if let Some(controller) = controller.upgrade() {
+                controller.choose(|printer| printer.light = Some(object.to_string()));
+            }
+        });
+        let controller = Rc::downgrade(self);
+        ui.on_choose_chamber(move |object| {
+            if let Some(controller) = controller.upgrade() {
+                controller.choose(|printer| printer.chamber = Some(object.to_string()));
+            }
+        });
         let controller = Rc::downgrade(self);
         ui.on_steps_changed(move || {
             if let Some(controller) = controller.upgrade() {
@@ -208,9 +230,13 @@ impl SettingsController {
         self.update(|settings| settings.choose_printer(&endpoint, name, uuid));
         self.active.replace(display.clone());
         if let Some(window) = self.window.upgrade() {
-            window.global::<UiSettings>().set_moonraker(display.as_str().into());
+            let ui = window.global::<UiSettings>();
+            ui.set_moonraker(display.as_str().into());
+            // The new printer offers its own once it is ready.
+            ui.set_status_bar_choices_available(false);
         }
         self.apply_hidden_macros();
+        self.apply_display_choices();
         self.network.set_endpoint(&endpoint);
         self.service.connect_to(endpoint);
         self.presenter.show_notice(&format!("Connecting to {name}"), false);
@@ -254,6 +280,75 @@ impl SettingsController {
         self.apply_hidden_macros();
     }
 
+    /// Writes the light and chamber found on the printer in use into its entries, where they are still missing (also
+    /// as none), so they are found only once; from then on only the entries count. A printer that is not saved (an
+    /// address from the command line) keeps being searched by name. Also offers what the printer has for a choice.
+    fn note_found_choices(&self, snapshot: &Snapshot) {
+        let active = self.active_address();
+        if snapshot.endpoint != active {
+            return;
+        }
+        self.show_choices(snapshot);
+        let missing = self
+            .settings
+            .borrow()
+            .printer(&active)
+            .is_some_and(|printer| printer.light.is_none() || printer.chamber.is_none());
+        if !missing {
+            return;
+        }
+        let (found_light, found_chamber) = (light::detect(&snapshot.sources), chamber::detect(&snapshot.sources));
+        self.update(|settings| {
+            if let Some(printer) = settings.printer_mut(&active) {
+                printer.fill_missing_choices(found_light, found_chamber);
+            }
+        });
+        self.apply_display_choices();
+    }
+
+    /// The lights and the chamber candidates of a saved printer, for the settings.
+    fn show_choices(&self, snapshot: &Snapshot) {
+        let Some(window) = self.window.upgrade() else { return };
+        let ui = window.global::<UiSettings>();
+        let saved = self.settings.borrow().printer(&self.active.borrow()).is_some();
+        ui.set_status_bar_choices_available(saved);
+        let status = &snapshot.status;
+        let lights = light::lights(&snapshot.sources).map(|object| choice_item(object, light_label(status, object)));
+        let chambers =
+            chamber::candidates(&snapshot.sources).map(|object| choice_item(object, temperature_label(status, object)));
+        set_choices(&ui.get_light_choices(), lights.collect(), |rows| ui.set_light_choices(rows));
+        set_choices(&ui.get_chamber_choices(), chambers.collect(), |rows| ui.set_chamber_choices(rows));
+    }
+
+    /// A choice made in the settings for the printer in use; it shows at once.
+    fn choose(&self, change: impl FnOnce(&mut SavedPrinter)) {
+        let active = self.active_address();
+        self.update(|settings| {
+            if let Some(printer) = settings.printer_mut(&active) {
+                change(printer);
+            }
+        });
+        if self.apply_display_choices() {
+            self.presenter.show_again();
+        }
+    }
+
+    /// Hands the choices of the printer in use to the presenter and the settings; returns whether they changed.
+    fn apply_display_choices(&self) -> bool {
+        let choices = self
+            .settings
+            .borrow()
+            .printer(&self.active.borrow())
+            .map(|printer| DisplayChoices { light: printer.light.clone(), chamber: printer.chamber.clone() })
+            .unwrap_or_default();
+        if let Some(window) = self.window.upgrade() {
+            let ui = window.global::<UiSettings>();
+            ui.set_light_choice(choices.light.clone().unwrap_or_default().into());
+            ui.set_chamber_choice(choices.chamber.clone().unwrap_or_default().into());
+        }
+        self.presenter.set_display_choices(choices)
+    }
+
     fn apply_hidden_macros(&self) {
         let hidden = self.settings.borrow().hidden_macros(&self.active.borrow());
         self.presenter.set_hidden_macros(hidden);
@@ -270,6 +365,28 @@ impl SettingsController {
 }
 
 /// The standby time of the settings file as the buttons show it: minutes, 0 for never.
+fn choice_item(object: &str, label: &str) -> ChoiceItem {
+    ChoiceItem { object: object.into(), label: label.into() }
+}
+
+/// The readable name of a light as the status reports it; the object until it reports.
+fn light_label<'a>(status: &'a PrinterStatus, object: &'a str) -> &'a str {
+    status.leds.iter().find(|led| led.object == object).map_or(object, |led| led.label.as_str())
+}
+
+/// The readable name of a heater or sensor; the object until it reports.
+fn temperature_label<'a>(status: &'a PrinterStatus, object: &'a str) -> &'a str {
+    let sensor = || status.sensors.iter().find(|sensor| sensor.object == object).map(|sensor| sensor.label.as_str());
+    status.heater(object).map(|heater| heater.label.as_str()).or_else(sensor).unwrap_or(object)
+}
+
+/// Replaces the rows only when they differ, so an open list keeps its scroll position.
+fn set_choices(current: &ModelRc<ChoiceItem>, rows: Vec<ChoiceItem>, set: impl FnOnce(ModelRc<ChoiceItem>)) {
+    if current.iter().ne(rows.iter().cloned()) {
+        set(ModelRc::new(VecModel::from(rows)));
+    }
+}
+
 fn minutes_shown(minutes: Option<u32>) -> i32 {
     minutes.map_or(0, |minutes| minutes as i32)
 }

@@ -3,6 +3,7 @@
 import { Theme } from "../theme.slint";
 
 export component ToolLabel inherits Text {
+    overflow: elide;
     in property <int> tool;
 
     text: "T" + root.tool;

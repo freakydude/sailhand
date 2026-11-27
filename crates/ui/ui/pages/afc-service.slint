@@ -4,9 +4,10 @@
 
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
-import { Actions, Confirm, Printer, Severity } from "../state.slint";
+import { Actions, Confirm, Place, Printer, Severity } from "../state.slint";
 import { StateIcons } from "../state-icons.slint";
 import { AfcHubReturnItem } from "../structs.slint";
+import { Highlight } from "../components/jump.slint";
 import { ButtonKind, Card, IconButton, IconLabel, ScrollList } from "../components/controls.slint";
 
 // A lane with its button; the reason it is locked stands below its name.
@@ -56,23 +57,29 @@ export component AfcServiceTab inherits VerticalLayout {
         vertical-stretch: 0;
         title: @tr("AFC");
         icon: Icons.mmu-maintenance;
-        HorizontalLayout {
-            spacing: Theme.spacing;
+        // The place a message about an AFC error leads to.
+        Rectangle {
             height: Theme.touch;
-            IconLabel {
-                horizontal-stretch: 1;
-                icon: root.error ? Icons.state-error : Printer.afc-state == "Idle" ? Icons.ui-check : Icons.ui-info;
-                color: StateIcons.severity-color(root.error ? Severity.error : Printer.afc-state == "Idle" ? Severity.neutral : Severity.info);
-                text: Printer.afc-state == "" ? "-" : Printer.afc-state;
+            HorizontalLayout {
+                spacing: Theme.spacing;
+                padding-left: Theme.spacing;
+                padding-right: Theme.spacing;
+                IconLabel {
+                    horizontal-stretch: 1;
+                    icon: root.error ? Icons.state-error : Printer.afc-state == "Idle" ? Icons.ui-check : Icons.ui-info;
+                    color: StateIcons.severity-color(root.error ? Severity.error : Printer.afc-state == "Idle" ? Severity.neutral : Severity.info);
+                    text: Printer.afc-state == "" ? "-" : Printer.afc-state;
+                }
+                if root.error: IconButton {
+                    width: 168px;
+                    icon: Icons.mmu-recover;
+                    text: @tr("Clear error");
+                    horizontal: true;
+                    kind: ButtonKind.accent;
+                    clicked => { Actions.afc-reset-failure(); }
+                }
             }
-            if root.error: IconButton {
-                width: 168px;
-                icon: Icons.mmu-recover;
-                text: @tr("Clear error");
-                horizontal: true;
-                kind: ButtonKind.accent;
-                clicked => { Actions.afc-reset-failure(); }
-            }
+            Highlight { place: Place.afc-service; }
         }
     }
     Card {

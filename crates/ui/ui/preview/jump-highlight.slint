@@ -1,0 +1,14 @@
+// Preview: the Thermal page right after a jump to the extruder heater: its row at the peak of the first pulse (the
+// page is created with the jump already set, so the first value is not animated in). Open in the Slint preview or
+// render with scripts/ui-preview.sh.
+
+import { AppWindow } from "../app.slint";
+import { Navigation, Place } from "../state.slint";
+import { Sample } from "sample.slint";
+
+export component JumpHighlightPreview inherits AppWindow {
+    init => {
+        Sample.ready-printer();
+        Navigation.go(Place.heater, "extruder");
+    }
+}

@@ -171,6 +171,8 @@ pub struct MachineProfile {
     pub gcode_help: bool,
     /// A round bed: `[bed_mesh]` with `mesh_radius` (`bed_mesh.py` `_init_mesh_config`) instead of a rectangle.
     pub round_bed: bool,
+    /// Long names and texts on the wire (`long_names.rs`), to find where the UI overflows.
+    pub long_names: bool,
 }
 
 /// Which sync-feedback buffer the Happy Hare machine has; the variant follows from the sensors in `mmu.sensors`
@@ -244,6 +246,7 @@ impl MachineProfile {
             history: true,
             gcode_help: true,
             round_bed: false,
+            long_names: false,
         }
     }
 
@@ -274,6 +277,7 @@ impl MachineProfile {
             history: true,
             gcode_help: true,
             round_bed: false,
+            long_names: false,
         }
     }
 
@@ -304,6 +308,7 @@ impl MachineProfile {
             history: true,
             gcode_help: true,
             round_bed: false,
+            long_names: false,
         }
     }
 
@@ -389,6 +394,11 @@ impl MachineProfile {
     /// A round bed, as on a delta: the bed mesh has a radius and only the points inside the circle are probed.
     pub fn with_round_bed(self) -> Self {
         Self { round_bed: true, ..self }
+    }
+
+    /// Long but realistic names and texts everywhere the UI shows them (`--long-names`).
+    pub fn with_long_names(self) -> Self {
+        Self { long_names: true, ..self }
     }
 
     /// `printer.gcode.help` unknown, as Moonraker answers a method it has not registered

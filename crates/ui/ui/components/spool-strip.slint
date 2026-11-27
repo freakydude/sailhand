@@ -4,7 +4,8 @@
 import { Theme } from "../theme.slint";
 import { StateIcons } from "../state-icons.slint";
 import { Icons } from "../icons.slint";
-import { HeadItem, Printer, SpoolPicker, Severity } from "../state.slint";
+import { Highlight } from "jump.slint";
+import { HeadItem, Place, Printer, SpoolPicker, Severity } from "../state.slint";
 import { TextWithValue } from "controls.slint";
 import { FilamentColors, FilamentSwatch } from "filament-swatch.slint";
 
@@ -74,4 +75,6 @@ export component SpoolStrip inherits Rectangle {
             }
         }
     }
+    // The place a message about the spool in use leads to.
+    Highlight { place: Place.spools; }
 }

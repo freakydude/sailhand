@@ -58,6 +58,7 @@ impl Session<'_> {
         if let Some(script) = gcode_script(&call) {
             self.outputs.event(Event::ConsoleLine(console_line(ConsoleKind::Command, script)));
         }
+        let macro_run = matches!(command, Command::RunMacro { .. }).then(|| self.start_macro_run(&call));
         let target_set = match &command {
             Command::SetHeaterTarget { heater, target } => {
                 self.pending_targets.request(heater, *target, Instant::now());
@@ -100,6 +101,9 @@ impl Session<'_> {
                     if update_manager_call {
                         let _ = running_events.send(Event::UpdateManagerBusy(false));
                     }
+                    if let Some(run) = macro_run {
+                        run.answered(answer.as_ref().err(), &running_events);
+                    }
                     match answer {
                         Ok(_) if spools_change => {
                             let _ = spool_events.send(Event::SpoolmanChanged);
@@ -113,9 +117,22 @@ impl Session<'_> {
                     }
                 });
             }
-            Err(error) => failed(error),
+            Err(error) => {
+                if let Some(run) = macro_run {
+                    run.answered(Some(&error), &self.outputs.events);
+                }
+                failed(error);
+            }
         }
         target_set
+    }
+
+    /// Announces a macro run before its answer can come; the answer goes back through the session loop.
+    fn start_macro_run(&self, call: &Call) -> MacroRunAnswer {
+        let id = NEXT_COMMAND_ID.fetch_add(1, Ordering::Relaxed);
+        let script = gcode_script(call).unwrap_or_default().to_owned();
+        self.outputs.event(Event::MacroRunStarted { id, script, time: unix_now() });
+        MacroRunAnswer { id, answers: self.run_answers.clone() }
     }
 
     /// Reports a command that is not carried out, and why.
@@ -165,6 +182,44 @@ fn gcode_script(call: &Call) -> Option<&str> {
 }
 
 pub(super) fn console_line(kind: ConsoleKind, message: &str) -> ConsoleLine {
-    let time = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64());
-    ConsoleLine { kind, message: message.to_owned(), time }
+    ConsoleLine { kind, message: message.to_owned(), time: unix_now() }
+}
+
+fn unix_now() -> f64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_secs_f64())
+}
+
+/// Where the answer of a macro run goes: back to the session loop, which ends the run after the responses before it.
+pub(super) struct MacroRunAnswer {
+    id: u64,
+    answers: mpsc::UnboundedSender<RunAnswer>,
+}
+
+impl MacroRunAnswer {
+    /// A closed connection sends no more responses, so its end needs no queue; nor does a session that is gone.
+    fn answered(self, error: Option<&CallError>, events: &mpsc::UnboundedSender<Event>) {
+        let closed = matches!(error, Some(CallError::Closed));
+        let error = error.map(|error| match error {
+            CallError::Rpc(rpc) => rpc.message.clone(),
+            CallError::Closed => CommandError::ConnectionClosed.to_string(),
+        });
+        let answer = RunAnswer { id: self.id, error, time: unix_now() };
+        let unsent = if closed { Some(answer) } else { self.answers.send(answer).err().map(|unsent| unsent.0) };
+        if let Some(answer) = unsent {
+            let _ = events.send(answer.into_event());
+        }
+    }
+}
+
+/// The answer of a macro run as the session loop gets it.
+pub(super) struct RunAnswer {
+    id: u64,
+    error: Option<String>,
+    time: f64,
+}
+
+impl RunAnswer {
+    pub(super) fn into_event(self) -> Event {
+        Event::MacroRunEnded { id: self.id, error: self.error, time: self.time }
+    }
 }

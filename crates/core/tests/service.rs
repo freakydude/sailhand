@@ -349,6 +349,46 @@ async fn intents_the_printer_cannot_carry_out_are_reported() {
         if error.to_string().contains("neither quad gantry level nor Z tilt")));
 }
 
+/// The responses of a macro run up to its end, in the order the events came.
+async fn macro_run_responses(channels: &mut ServiceChannels) -> (Vec<String>, Option<String>) {
+    let started = next_event(channels, |event| matches!(event, Event::MacroRunStarted { .. })).await;
+    let Event::MacroRunStarted { id, .. } = started else { unreachable!() };
+    let mut responses = Vec::new();
+    loop {
+        match next_event(channels, |event| {
+            matches!(event, Event::ConsoleLine(line) if line.kind == ConsoleKind::Response)
+                || matches!(event, Event::MacroRunEnded { .. })
+        })
+        .await
+        {
+            Event::ConsoleLine(line) => responses.push(line.message),
+            Event::MacroRunEnded { id: ended, error, .. } if ended == id => return (responses, error),
+            _ => {}
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_macro_run_ends_after_every_response_it_caused() {
+    let endpoint = start_fake().await;
+    let (service, mut channels) =
+        PrinterService::start(&tokio::runtime::Handle::current(), endpoint, CredentialStore::in_memory());
+    wait_for(&mut channels, ready).await;
+
+    // Responses and the answer take different ways through the connection; the end must still come last.
+    for _ in 0..20 {
+        service.send(Command::RunMacro { name: "RESPOND MSG=one\nRESPOND MSG=two\nRESPOND MSG=three".into() });
+        let (responses, error) = macro_run_responses(&mut channels).await;
+        assert_eq!(responses, ["echo: one", "echo: two", "echo: three"]);
+        assert_eq!(error, None);
+    }
+
+    service.send(Command::RunMacro { name: "RESPOND TYPE=wrong".into() });
+    let (responses, error) = macro_run_responses(&mut channels).await;
+    assert_eq!(responses.len(), 1, "{responses:?}");
+    assert!(error.is_some_and(|error| error.contains("RESPOND TYPE 'wrong' is invalid")));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_command_that_waits_long_for_its_answer_is_reported_as_running_until_it_has_one() {
     let endpoint = start_fake().await;
@@ -758,12 +798,12 @@ async fn queries_host_functions() {
     wait_for(&mut channels, |snapshot| snapshot.status.heater("extruder").is_some_and(|heater| heater.target == 10.0))
         .await;
     service.query(Query::ConsoleHistory);
-    let Event::ConsoleHistory(lines) =
-        next_event(&mut channels, |event| matches!(event, Event::ConsoleHistory(_))).await
-    else {
-        unreachable!()
-    };
-    assert!(lines.iter().any(|line| line.message == "M104 S10"));
+    // The session loads the history once on connecting as well (for an open macro prompt); that one may come first.
+    next_event(
+        &mut channels,
+        |event| matches!(event, Event::ConsoleHistory(lines) if lines.iter().any(|line| line.message == "M104 S10")),
+    )
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -861,7 +901,7 @@ async fn fans_lights_sensors_and_tuning_values_follow_the_printer() {
 
     let klipper = &snapshot.sources.klipper;
     assert!(klipper.fans.iter().any(|fan| fan == "fan_generic nevermore"));
-    assert_eq!(light::main_light(&snapshot.sources), Some("neopixel chamber"));
+    assert_eq!(light::detect(&snapshot.sources), Some("neopixel chamber"));
     assert_eq!(snapshot.sources.wled_strips, ["wled enclosure"]);
     assert_eq!(klipper.white_channel("neopixel chamber"), WhiteChannel::All);
     assert_eq!(klipper.white_channel("neopixel status"), WhiteChannel::None);
@@ -876,7 +916,7 @@ async fn fans_lights_sensors_and_tuning_values_follow_the_printer() {
     );
     assert_eq!(snapshot.status.fans[0].kind, FanKind::Part);
 
-    service.send(Command::ToggleLight);
+    service.send(Command::ToggleLight { light: "neopixel chamber".into() });
     service.send(Command::SetFanSpeed { fan: "fan_generic exhaust".into(), speed: 0.5 });
     service.send(Command::SetLedEffect { effect: "rainbow".into(), on: true });
     service.send(Command::StepTuning { key: TuningKey::MaxAccel, direction: 1.0 });

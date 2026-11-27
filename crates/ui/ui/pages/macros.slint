@@ -1,0 +1,243 @@
+// Macros: choose one, run it, and see how its last run from this display went. The card shows the state of that run and
+// the answers Klipper sent while it ran ("during the run": Klipper does not tell which command wrote a line). Which
+// macros the list offers is chosen in Settings › Macros.
+
+import { Theme } from "../theme.slint";
+import { Icons } from "../icons.slint";
+import { StateIcons } from "../state-icons.slint";
+import { Actions, Confirm, MacroRunState, Navigation, Place, Printer, Severity } from "../state.slint";
+import { ButtonKind, IconButton, ScrollList } from "../components/controls.slint";
+import { BusyWheel } from "../components/busy-wheel.slint";
+import { ConsoleRow, ConsoleRows } from "../components/console-row.slint";
+import { JumpHint } from "../components/jump.slint";
+import { MacroFormDialog } from "../components/macro-form.slint";
+
+// One macro of the list; the chosen one has the accent border like the entries of the section list.
+component MacroRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+    height: Theme.row-height-small;
+    border-radius: Theme.radius;
+    background: touch.pressed ? Theme.surface-active : Theme.surface-raised;
+    border-width: root.selected ? 2px : 0px;
+    border-color: Theme.accent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-checked: root.selected;
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: Theme.padding;
+        padding-right: Theme.padding;
+        spacing: Theme.spacing;
+        Image {
+            cross-axis-self-alignment: center;
+            source: Icons.nav-macros;
+            colorize: root.selected ? Theme.accent : Theme.foreground;
+            width: Theme.icon-small;
+            height: Theme.icon-small;
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            color: root.selected ? Theme.accent : Theme.foreground;
+            font-size: Theme.font-normal;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// The list at the left: the offered macros; when all are hidden, a hint that leads to the settings.
+component MacroList inherits Rectangle {
+    property <length> row-step: Theme.row-height-small + Theme.spacing;
+
+    offered := ScrollList {
+        visible: Printer.macros.length > 0;
+        content-height: Printer.macros.length * root.row-step;
+        for macro[index] in Printer.macros: MacroRow {
+            y: index * root.row-step;
+            width: offered.row-width;
+            text: macro;
+            selected: macro == Printer.macro-selected;
+            clicked => { Actions.select-macro(macro); }
+        }
+    }
+    if Printer.macros.length == 0: JumpHint {
+        y: 0;
+        width: parent.width;
+        height: self.preferred-height;
+        severity: Severity.info;
+        text: @tr("All macros are hidden. Settings › Macros shows them again.");
+        clicked => { Navigation.go(Place.macro-settings, ""); }
+    }
+}
+
+// State of the last run: symbol and word, then the detail muted.
+component RunHeader inherits HorizontalLayout {
+    property <MacroRunState> state: Printer.macro-run.state;
+    property <string> word: root.state == MacroRunState.running ? @tr("Running since {}", Printer.macro-run.started)
+        : root.state == MacroRunState.done ? @tr("Done") : root.state == MacroRunState.failed ? @tr("Failed") : "";
+    property <string> detail: root.state == MacroRunState.done ? Printer.macro-run.duration + " · " + @tr("started {}", Printer.macro-run.started)
+        : root.state == MacroRunState.failed ? Printer.macro-run.error : "";
+    spacing: Theme.spacing;
+    height: Theme.icon-large;
+
+    if root.state == MacroRunState.running: BusyWheel {
+        cross-axis-self-alignment: center;
+        width: Theme.icon-large;
+        height: Theme.icon-large;
+    }
+    if root.state == MacroRunState.done: Image {
+        cross-axis-self-alignment: center;
+        source: Icons.ui-check;
+        colorize: Theme.success;
+        width: Theme.icon-large;
+        height: Theme.icon-large;
+    }
+    if root.state == MacroRunState.failed: Image {
+        cross-axis-self-alignment: center;
+        source: StateIcons.severity-icon(Severity.error);
+        colorize: StateIcons.severity-color(Severity.error);
+        width: Theme.icon-large;
+        height: Theme.icon-large;
+    }
+    Text {
+        text: root.word;
+        color: root.state == MacroRunState.failed ? StateIcons.severity-color(Severity.error) : Theme.foreground;
+        font-size: Theme.font-normal;
+        font-weight: 700;
+        vertical-alignment: center;
+        overflow: elide;
+        // The word stays whole; the detail gives way.
+        min-width: min(self.preferred-width, 200px);
+    }
+    Text {
+        horizontal-stretch: 1;
+        text: root.detail;
+        color: Theme.muted;
+        font-size: Theme.font-normal;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+component RunCard inherits Rectangle {
+    property <MacroRunState> state: Printer.macro-run.state;
+    property <string> empty-text: root.state == MacroRunState.none ? @tr("Not run yet from this display.")
+        : root.state == MacroRunState.running ? @tr("No answers yet.") : @tr("No answers during the run.");
+    background: Theme.surface;
+    border-radius: Theme.radius;
+    clip: true;
+
+    VerticalLayout {
+        padding: Theme.padding;
+        spacing: Theme.spacing;
+        if root.state != MacroRunState.none: RunHeader { }
+        if root.state != MacroRunState.none: Text {
+            text: Printer.macro-run.script;
+            color: Theme.muted;
+            font-size: Theme.font-small;
+            font-family: "monospace";
+            overflow: elide;
+        }
+        if root.state != MacroRunState.none: Text {
+            text: @tr("During the run");
+            color: Theme.muted;
+            font-size: Theme.font-small;
+            overflow: elide;
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            lines := ScrollList {
+                width: parent.width;
+                height: parent.height;
+                content-height: Printer.macro-run-lines.length * ConsoleRows.height;
+                // Newest lines at the bottom, and the end stays in view while new ones come.
+                offset: min(0px, self.height - self.content-height);
+                for line[index] in Printer.macro-run-lines: ConsoleRow {
+                    y: index * ConsoleRows.height;
+                    width: lines.row-width;
+                    line: line;
+                }
+            }
+            if Printer.macro-run-lines.length == 0: Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.empty-text;
+                color: Theme.muted;
+                font-size: Theme.font-normal;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+export component MacrosTab inherits Rectangle {
+    property <length> list-width: 272px;
+    property <string> chosen: Printer.macro-selected;
+
+    // Without parameters a macro runs at once, unless a print is running. With parameters the form comes first.
+    function run-macro(macro: string) {
+        if (Actions.macro-has-params(macro)) {
+            Actions.open-macro-form(macro);
+            form.open = true;
+        } else if (Printer.print-state == "printing") {
+            Confirm.ask(@tr("Run macro"), macro, "run-macro", macro, false);
+        } else {
+            Actions.run-macro(macro);
+        }
+    }
+
+    HorizontalLayout {
+        padding: Theme.padding;
+        spacing: Theme.spacing;
+
+        Rectangle {
+            width: root.list-width;
+            background: Theme.surface;
+            border-radius: Theme.radius;
+            VerticalLayout {
+                padding: Theme.spacing-small;
+                spacing: Theme.spacing-small;
+                MacroList { vertical-stretch: 1; }
+            }
+        }
+
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: Theme.spacing;
+            HorizontalLayout {
+                spacing: Theme.spacing;
+                height: Theme.touch;
+                Text {
+                    horizontal-stretch: 1;
+                    text: root.chosen == "" ? @tr("Choose a macro.") : root.chosen;
+                    color: root.chosen == "" ? Theme.muted : Theme.foreground;
+                    font-size: Theme.font-large;
+                    font-weight: root.chosen == "" ? 400 : 700;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+                IconButton {
+                    width: 160px;
+                    icon: Icons.ui-check;
+                    text: @tr("Run");
+                    horizontal: true;
+                    kind: ButtonKind.accent;
+                    enabled: root.chosen != "";
+                    clicked => { root.run-macro(root.chosen); }
+                }
+            }
+            if root.chosen != "": RunCard { vertical-stretch: 1; }
+            if root.chosen == "": Rectangle { vertical-stretch: 1; }
+        }
+    }
+
+    form := MacroFormDialog { }
+}

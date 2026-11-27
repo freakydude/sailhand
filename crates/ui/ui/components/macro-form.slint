@@ -110,9 +110,11 @@ export component MacroFormDialog inherits Scrim {
     }
 
     edit := TextEntryDialog {
+        refusal: Actions.macro-param-refusal(self.text);
         accepted(text) => { Actions.set-macro-param(root.edit-index, text); }
     }
     edit-number := NumberEntryDialog {
+        refusal: Actions.macro-param-refusal(self.text);
         accepted(text) => { Actions.set-macro-param(root.edit-index, text); }
     }
 }

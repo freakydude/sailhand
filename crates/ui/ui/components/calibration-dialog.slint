@@ -41,6 +41,7 @@ export component CalibrationDialog inherits Scrim {
                 close => { Dialogs.dismiss(); }
             }
             Text {
+                overflow: elide;
                 text: root.probing
                     ? @tr("Move the nozzle until a sheet of paper between nozzle and bed drags slightly, then accept.")
                     : @tr("Turn the screw until a sheet of paper drags slightly. Accept if it needed no turn, Adjusted if you turned it.");
@@ -52,6 +53,7 @@ export component CalibrationDialog inherits Scrim {
             if root.probing: HorizontalLayout {
                 spacing: Theme.spacing;
                 Text {
+                    overflow: elide;
                     text: @tr("Z {} mm", Printer.probe-z);
                     color: Theme.foreground;
                     font-size: Theme.font-huge;
@@ -59,6 +61,7 @@ export component CalibrationDialog inherits Scrim {
                     vertical-alignment: center;
                 }
                 Text {
+                    overflow: elide;
                     horizontal-stretch: 1;
                     text: (Printer.probe-z-lower != "" ? @tr("tried below: {}", Printer.probe-z-lower) : "")
                         + (Printer.probe-z-lower != "" && Printer.probe-z-upper != "" ? "\n" : "")

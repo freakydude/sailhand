@@ -138,10 +138,15 @@ impl MacroForm {
         &self.fields
     }
 
+    /// Why `value` cannot be a parameter value; `None` if it can.
+    pub fn value_problem(value: &str) -> Option<MacroValueError> {
+        value.chars().any(char::is_whitespace).then_some(MacroValueError::ContainsWhitespace)
+    }
+
     /// Sets the value of one field; an unknown index is ignored.
     pub fn set_value(&mut self, index: usize, value: &str) -> Result<(), MacroValueError> {
-        if value.chars().any(char::is_whitespace) {
-            return Err(MacroValueError::ContainsWhitespace);
+        if let Some(problem) = Self::value_problem(value) {
+            return Err(problem);
         }
         if let Some(field) = self.fields.get_mut(index) {
             field.value = value.to_owned();
@@ -395,6 +400,8 @@ mod tests {
 
         assert_eq!(form.set_value(0, "1 2"), Err(MacroValueError::ContainsWhitespace));
         assert_eq!(form.fields()[0].value, "5");
+        assert_eq!(MacroForm::value_problem("1 2"), Some(MacroValueError::ContainsWhitespace));
+        assert_eq!(MacroForm::value_problem("12"), None);
     }
 
     #[test]

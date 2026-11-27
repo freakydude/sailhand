@@ -85,6 +85,9 @@ impl PrintersController {
                 controller.add(&address);
             }
         });
+        choice.on_address_refusal(|address| {
+            Endpoint::parse(&address).err().map(|error| error.to_string()).unwrap_or_default().into()
+        });
         let controller = Rc::downgrade(self);
         choice.on_forget(move |address| {
             if let Some(controller) = controller.upgrade() {
@@ -102,7 +105,8 @@ impl PrintersController {
         }
     }
 
-    /// An address typed by hand; a saved printer at that address keeps its name.
+    /// An address typed by hand; a saved printer at that address keeps its name. The dialog refuses one that does not
+    /// parse (`address-refusal`).
     fn add(&self, address: &str) {
         match Endpoint::parse(address) {
             Ok(endpoint) => {
@@ -112,7 +116,7 @@ impl PrintersController {
                 let uuid = known.and_then(|printer| printer.uuid.clone());
                 self.switch(endpoint, &name, uuid.as_deref());
             }
-            Err(error) => self.presenter.show_notice(&error.to_string(), true),
+            Err(error) => log::warn!("printer address refused: {error}"),
         }
     }
 

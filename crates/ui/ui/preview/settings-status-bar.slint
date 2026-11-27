@@ -1,0 +1,31 @@
+// Preview: the Status bar section of the Settings page: the light of the quick switch and the chamber reading of the
+// printer in use, chosen from what it has. Open in the Slint preview or render with scripts/ui-preview.sh.
+
+import { AppWindow } from "../app.slint";
+import { Navigation, Page, PrinterChoice, SettingsSection, UiSettings } from "../state.slint";
+import { Sample } from "sample.slint";
+
+export component SettingsStatusBarPreview inherits AppWindow {
+    init => {
+        Sample.ready-printer();
+        PrinterChoice.active-name = "voron";
+        UiSettings.status-bar-choices-available = true;
+        UiSettings.light-choices = [
+            { object: "neopixel chamber", label: "Chamber" },
+            { object: "neopixel sb_leds", label: "Sb Leds" },
+            { object: "wled enclosure", label: "Enclosure" },
+        ];
+        UiSettings.light-choice = "neopixel chamber";
+        UiSettings.chamber-choices = [
+            { object: "heater_generic chamber", label: "Chamber" },
+            { object: "temperature_fan exhaust", label: "Exhaust" },
+            { object: "temperature_sensor raspberry_pi", label: "Raspberry Pi" },
+            { object: "temperature_sensor octopus", label: "Octopus" },
+            { object: "tmc2240 stepper_x", label: "Stepper X" },
+            { object: "tmc2240 stepper_y", label: "Stepper Y" },
+        ];
+        UiSettings.chamber-choice = "heater_generic chamber";
+        Navigation.settings-section = SettingsSection.status-bar;
+        Navigation.page = Page.settings;
+    }
+}

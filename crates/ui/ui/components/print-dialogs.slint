@@ -3,7 +3,7 @@
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { Actions, Dialogs, PrintObjectItem, Printer } from "../state.slint";
-import { ButtonKind, IconButton, ScrollList } from "controls.slint";
+import { ButtonKind, IconButton, ScrollList, WrapText } from "controls.slint";
 import { BedMap, BedMapLegend } from "bed-map.slint";
 import { DialogHeader, DialogPanel, Scrim } from "dialog.slint";
 
@@ -71,16 +71,15 @@ export component ExcludeObjectsDialog inherits Scrim {
                             padding-right: Theme.spacing-large;
                             spacing: Theme.spacing-large;
                             // Long names wrap onto a second line instead of being cut short.
-                            Text {
+                            WrapText {
                                 horizontal-stretch: 1;
                                 text: item.name;
                                 color: item.excluded ? Theme.disabled-foreground : Theme.foreground;
                                 font-size: Theme.font-normal;
-                                vertical-alignment: center;
                                 wrap: char-wrap;
-                                overflow: elide;
                             }
                             Text {
+                                overflow: elide;
                                 text: item.excluded ? @tr("Excluded") : item.printing ? @tr("Printing") : "";
                                 color: item.printing && !item.excluded ? Theme.accent : Theme.muted;
                                 font-size: Theme.font-small;
@@ -155,11 +154,13 @@ export component LayerPauseDialog inherits Scrim {
                 close => { root.shown = false; }
             }
             Text {
+                overflow: elide;
                 text: (Printer.total-layers > 0 ? @tr("Now at layer {} of {}", Printer.current-layer, Printer.total-layers) : @tr("Now at layer {}", Printer.current-layer)) + (Printer.print-heights != "" ? " · " + Printer.print-heights : "");
                 color: Theme.muted;
                 font-size: Theme.font-small;
             }
             if Printer.layer-pause-planned != "": Text {
+                overflow: elide;
                 text: Printer.layer-pause-planned == "next" ? @tr("Planned: pause at the next layer") : @tr("Planned: pause at layer {}", Printer.layer-pause-planned);
                 color: Theme.accent;
                 font-size: Theme.font-small;
@@ -178,6 +179,7 @@ export component LayerPauseDialog inherits Scrim {
                     horizontal-stretch: 1;
                     alignment: center;
                     Text {
+                        overflow: elide;
                         text: root.target;
                         color: Theme.foreground;
                         font-size: Theme.font-large;
@@ -186,6 +188,7 @@ export component LayerPauseDialog inherits Scrim {
                     }
                     // A layer ahead has a predicted height; the next layer also says so.
                     Text {
+                        overflow: elide;
                         text: root.next-layer ? (root.target-height != "" ? @tr("next layer · {}", root.target-height) : @tr("next layer")) : root.target-height;
                         color: Theme.muted;
                         font-size: Theme.font-small;

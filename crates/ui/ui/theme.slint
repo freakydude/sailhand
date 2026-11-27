@@ -32,11 +32,18 @@ export global Theme {
     // for what is switched on or running (that is `accent`). As light as `danger`, so it stays readable on
     // `surface-active`.
     out property <color> success: #51cf66;
-    // A deviation that deserves attention, never an error.
-    out property <color> warning: #f59f00;
+    // A deviation that deserves attention, never an error. Yellower than the accent (contrast between the two 1.60:1),
+    // so a warning never reads as "on" (Frank 2026-11-26); 9.9:1 on `surface`, 8.4:1 on `surface-raised`.
+    out property <color> warning: #fcc419;
     // Neutral information: messages, Klipper starting up, secondary chart lines.
     out property <color> info: #4dabf7;
     out property <color> disabled-foreground: #5c656f;
+    // A pale ground in the colour of a severity, for what asks to be looked at: a standing fault, an unseen message,
+    // a hint (Frank 2026-11-26, "V3"). Text on it stays `foreground` (9.9:1 at worst); saturated areas stay buttons.
+    out property <float> tint-alpha: 0.16;
+    out property <color> danger-tint: Theme.danger.with-alpha(Theme.tint-alpha);
+    out property <color> warning-tint: Theme.warning.with-alpha(Theme.tint-alpha);
+    out property <color> info-tint: Theme.info.with-alpha(Theme.tint-alpha);
     // Flyouts (messages, light) let the page shine through a little, so it is clear that they lie above it.
     out property <float> flyout-opacity: 0.8;
     // Dialogs are a little less see-through (15 %, flyouts 20 %): they carry more text and sit on the dimmed scrim.
@@ -69,6 +76,8 @@ export global Theme {
     out property <length> spacing-large: 12px;
     // Minimum size for reliably hittable touch areas.
     out property <length> touch: 56px;
+    // Wide buttons with text (flyouts, macro prompts) may be lower: their width makes them easy to hit.
+    out property <length> touch-wide: 44px;
     // Icon sizes by role, never by pixel:
     // icon-compact (16): marker next to small text (checks, history marks, lock, chevron in a chip).
     // icon-small (20): icon next to normal-size text (tabs, card headers, labels, chevrons in list rows).
@@ -89,6 +98,9 @@ export global Theme {
     out property <length> list-row-pitch: self.row-height-small + self.spacing-small;
     // A file or job name: room for two lines of `font-normal`.
     out property <length> name-height: 48px;
+    // What a material keeps before it is cut: the usual ones with a gate in front ("G12 · PETG-CF") stay whole, a long
+    // free text from Spoolman ends in "…".
+    out property <length> material-min-width: 128px;
     out property <length> button-narrow: 64px;
 
     out property <length> font-small: 13px;

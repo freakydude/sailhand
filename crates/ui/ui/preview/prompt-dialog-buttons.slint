@@ -1,0 +1,31 @@
+// Preview: a macro prompt with text, a group of buttons, single buttons of every style and footer buttons. Open in the Slint preview or render with scripts/ui-preview.sh.
+
+import { AppWindow } from "../app.slint";
+import { Navigation, Page, PromptDialog } from "../state.slint";
+import { PromptStyle } from "../structs.slint";
+import { Sample } from "sample.slint";
+
+export component PromptDialogButtonsPreview inherits AppWindow {
+    init => {
+        Sample.ready-printer();
+        Navigation.page = Page.print;
+        PromptDialog.title = "Filament runout";
+        PromptDialog.rows = [
+            { text: "The filament ran out in tool T1.", buttons: [] },
+            { text: "Load new filament and choose how to go on.", buttons: [] },
+            { text: "", buttons: [
+                { label: "Load", gcode: "LOAD", style: PromptStyle.info },
+                { label: "Unload", gcode: "UNLOAD", style: PromptStyle.warning },
+                { label: "Purge", gcode: "PURGE", style: PromptStyle.secondary },
+            ] },
+            { text: "", buttons: [{ label: "Retry", gcode: "RETRY", style: PromptStyle.primary }] },
+            { text: "", buttons: [{ label: "Abort print", gcode: "ABORT", style: PromptStyle.error }] },
+            { text: "", buttons: [{ label: "Plain, no style", gcode: "PLAIN", style: PromptStyle.plain }] },
+        ];
+        PromptDialog.footer = [
+            { label: "Later", gcode: "LATER", style: PromptStyle.secondary },
+            { label: "Resume", gcode: "RESUME", style: PromptStyle.primary },
+        ];
+        PromptDialog.open = true;
+    }
+}

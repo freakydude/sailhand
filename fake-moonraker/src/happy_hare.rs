@@ -9,6 +9,13 @@ use crate::spoolman;
 use serde_json::{Map, Value, json};
 
 const VERSION: &str = "4.1.0";
+/// The reason and hint the fake states for every pause.
+const PAUSE_REASON: &str = "Runout on gate 1";
+const PAUSE_HINT: &str = "Load a new spool into gate 1, then RESUME";
+/// The extra line and button `FAKE_MMU_PAUSE` puts into the notice (assumed texts, as a print start macro would set
+/// them with `MMU_ERROR_DIALOG MSG=` and `BUTTONS=`).
+const NOTICE_MESSAGE: &str = "Spare spools are in the drawer under the printer";
+const NOTICE_BUTTON: &str = "Purge|MMU_EJECT|secondary";
 const NONE_SELECTED: i32 = -1;
 /// `gate` and `tool` while the bypass is selected.
 const BYPASS: i32 = -2;
@@ -970,8 +977,8 @@ impl HappyHare {
                 * f64::from(if self.direction < 0 { -1 } else { 1 }),
             "action": "Idle",
             // The fake states a reason for every pause; `pause_hint` is Happy Hare 4.2 and newer.
-            "reason_for_pause": if paused { "Runout on gate 1" } else { "" },
-            "pause_hint": if paused { "Load a new spool into gate 1, then RESUME" } else { "" },
+            "reason_for_pause": if paused { PAUSE_REASON } else { "" },
+            "pause_hint": if paused { PAUSE_HINT } else { "" },
             "is_paused": paused,
             "is_locked": false,
             "sensors": self.sensors_json(printing),
@@ -1343,6 +1350,26 @@ fn extruder_wrapper_json(extruder: &str) -> Value {
         "filament_remaining_material": "",
         "filament_remaining_temp": 0,
     })
+}
+
+/// The console lines of Happy Hare's pause dialog for the fake's pause, as `MmuErrorDialog.show_error` sends them
+/// (`extras/mmu/mmu_dialog.py`, `main` and `development` 2026-11): the reason as a paragraph, the `MSG=` lines, then
+/// "Fix: <hint>"; footer buttons of `BUTTONS=` (only `development`) before RESUME and UNLOCK.
+pub(crate) fn pause_notice(message: bool, extra_button: bool) -> Vec<String> {
+    let mut lines = vec!["begin Happy Hare Pause Notice".to_owned(), format!("text {PAUSE_REASON}.")];
+    if message {
+        lines.push(format!("text {NOTICE_MESSAGE}"));
+    }
+    lines.push(format!("text Fix: {PAUSE_HINT}"));
+    if extra_button {
+        lines.push(format!("footer_button {NOTICE_BUTTON}"));
+    }
+    lines.extend([
+        "footer_button RESUME|RESUME|warning".to_owned(),
+        "footer_button UNLOCK|MMU_UNLOCK|primary".to_owned(),
+    ]);
+    lines.push("show".to_owned());
+    lines.into_iter().map(|line| format!("// action:prompt_{line}")).collect()
 }
 
 #[cfg(test)]

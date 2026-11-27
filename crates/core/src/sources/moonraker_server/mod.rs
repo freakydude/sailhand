@@ -6,6 +6,7 @@ pub mod gcode_store;
 pub mod history;
 pub mod machine;
 pub mod power;
+pub mod prompt;
 pub mod server_info;
 pub mod temperature_store;
 pub mod update_manager;

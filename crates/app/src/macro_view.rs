@@ -1,8 +1,13 @@
-//! The macros the printer offers, which of them are shown, and the form for the parameters of one.
+//! The macros the printer offers, which of them are shown, the form for the parameters of one, and the last run of
+//! the chosen one with the answers during it.
 
+use crate::console_view::ClockRows;
+use crate::format;
 use crate::items::replace_rows;
-use crate::{MacroItem, MacroParamItem, Printer};
+use crate::{ConsoleItem, MacroItem, MacroParamItem, MacroRun as MacroRunItem, MacroRunState, Printer};
+use sailhand_core::domain::macro_runs::{MacroRun, MacroRuns, RunOutcome, macro_name};
 use sailhand_core::sources::klipper::{MacroDetails, MacroForm, offered_macros};
+use sailhand_core::sources::moonraker_server::gcode_store::ConsoleLine;
 use slint::{Model, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -23,6 +28,11 @@ pub struct MacroView {
     hidden: RefCell<Vec<String>>,
     details: RefCell<Arc<BTreeMap<String, MacroDetails>>>,
     loaded: RefCell<Option<MacrosLoaded>>,
+    runs: RefCell<MacroRuns>,
+    /// The macro chosen on the Macros tab; its last run is shown.
+    selected: RefCell<String>,
+    run_lines: Rc<VecModel<ConsoleItem>>,
+    run_clock: RefCell<ClockRows>,
 }
 
 impl MacroView {
@@ -30,6 +40,64 @@ impl MacroView {
         printer.set_macros(ModelRc::from(self.visible.clone()));
         printer.set_macro_items(ModelRc::from(self.items.clone()));
         printer.set_macro_form(ModelRc::from(self.form.clone()));
+        printer.set_macro_run_lines(ModelRc::from(self.run_lines.clone()));
+    }
+
+    /// A macro was chosen: its last run is shown.
+    pub fn select(&self, printer: &Printer, name: &str) {
+        *self.selected.borrow_mut() = name.to_owned();
+        printer.set_macro_selected(SharedString::from(name));
+        self.show_run(printer);
+    }
+
+    /// Whether the chosen macro is this one (the macro a script calls).
+    pub fn is_selected(&self, script: &str) -> bool {
+        let selected = self.selected.borrow();
+        !selected.is_empty() && macro_name(script).eq_ignore_ascii_case(&selected)
+    }
+
+    /// A macro was sent from here.
+    pub fn run_started(&self, printer: &Printer, id: u64, script: &str, now: f64) {
+        self.runs.borrow_mut().start(id, script, now);
+        if self.is_selected(script) {
+            self.show_run(printer);
+        }
+    }
+
+    /// A line arrived live; true if it went to the run of the chosen macro, whose card shows it.
+    pub fn add_line(&self, line: &ConsoleLine) -> bool {
+        let reached = self.runs.borrow_mut().add_line(line).into_iter().any(|name| self.is_selected(name));
+        if reached {
+            for item in self.run_clock.borrow_mut().rows(line) {
+                self.run_lines.push(item);
+            }
+        }
+        reached
+    }
+
+    /// The answer of a run came; `error` is why it failed.
+    pub fn run_ended(&self, printer: &Printer, id: u64, error: Option<String>, now: f64) {
+        let ended = self.runs.borrow_mut().finish(id, error, now).is_some_and(|name| self.is_selected(name));
+        if ended {
+            self.show_run(printer);
+        }
+    }
+
+    /// Another printer: its macros and runs are others.
+    pub fn forget_runs(&self, printer: &Printer) {
+        self.runs.borrow_mut().clear();
+        self.select(printer, "");
+    }
+
+    fn show_run(&self, printer: &Printer) {
+        let runs = self.runs.borrow();
+        let run = runs.last(&self.selected.borrow());
+        printer.set_macro_run(run.map(run_item).unwrap_or_default());
+        let mut clock = ClockRows::default();
+        let lines: Vec<ConsoleItem> =
+            run.map(|run| run.lines.iter().flat_map(|line| clock.rows(line)).collect()).unwrap_or_default();
+        self.run_lines.set_vec(lines);
+        *self.run_clock.borrow_mut() = clock;
     }
 
     /// Called with the printer's macros after a connection, so the settings can forget vanished ones.
@@ -39,13 +107,19 @@ impl MacroView {
 
     /// Takes over the printer's macros and their details. An empty list while disconnected must not count as "all
     /// macros vanished".
-    pub fn show(&self, macros: &[String], details: &Arc<BTreeMap<String, MacroDetails>>, connected: bool) {
-        self.set_details(details);
+    pub fn show(
+        &self,
+        printer: &Printer,
+        macros: &[String],
+        details: &Arc<BTreeMap<String, MacroDetails>>,
+        connected: bool,
+    ) {
+        self.set_details(printer, details);
         if self.all.borrow().as_slice() == macros {
             return;
         }
         *self.all.borrow_mut() = macros.to_vec();
-        self.refresh();
+        self.refresh(printer);
         if connected
             && !macros.is_empty()
             && let Some(handler) = self.loaded.borrow().as_ref()
@@ -55,9 +129,9 @@ impl MacroView {
     }
 
     /// Applies the hidden macros from the settings.
-    pub fn set_hidden(&self, hidden: Vec<String>) {
+    pub fn set_hidden(&self, printer: &Printer, hidden: Vec<String>) {
         *self.hidden.borrow_mut() = hidden;
-        self.refresh();
+        self.refresh(printer);
     }
 
     /// Whether the macro takes parameters, so the form has to come before it runs.
@@ -98,23 +172,49 @@ impl MacroView {
         self.form_state.borrow().script()
     }
 
-    fn set_details(&self, details: &Arc<BTreeMap<String, MacroDetails>>) {
+    fn set_details(&self, printer: &Printer, details: &Arc<BTreeMap<String, MacroDetails>>) {
         if Arc::ptr_eq(&self.details.borrow(), details) {
             return;
         }
         *self.details.borrow_mut() = Arc::clone(details);
-        self.refresh();
+        self.refresh(printer);
     }
 
-    fn refresh(&self) {
+    /// A chosen macro that is no longer listed (hidden in the settings, or gone) is no longer chosen; while the list
+    /// is empty (disconnected) the choice stays.
+    fn refresh(&self, printer: &Printer) {
         let offered = offered_macros(&self.all.borrow(), &self.details.borrow(), &self.hidden.borrow());
         let visible: Vec<SharedString> =
             offered.iter().filter(|offer| offer.visible).map(|offer| SharedString::from(offer.name.as_str())).collect();
+        let selected_gone = {
+            let selected = self.selected.borrow();
+            !selected.is_empty()
+                && !self.all.borrow().is_empty()
+                && !visible.iter().any(|name| name.eq_ignore_ascii_case(&selected))
+        };
+        if selected_gone {
+            self.select(printer, "");
+        }
         replace_rows(&self.visible, visible);
         let items: Vec<MacroItem> = offered
             .iter()
             .map(|offer| MacroItem { name: SharedString::from(offer.name.as_str()), visible: offer.visible })
             .collect();
         replace_rows(&self.items, items);
+    }
+}
+
+fn run_item(run: &MacroRun) -> MacroRunItem {
+    let (state, error) = match &run.outcome {
+        RunOutcome::Running => (MacroRunState::Running, ""),
+        RunOutcome::Done => (MacroRunState::Done, ""),
+        RunOutcome::Failed(reason) => (MacroRunState::Failed, reason.as_str()),
+    };
+    MacroRunItem {
+        state,
+        script: SharedString::from(run.script.as_str()),
+        started: format::unix_clock(run.started).into(),
+        duration: run.duration().map(format::duration).unwrap_or_default().into(),
+        error: SharedString::from(error),
     }
 }

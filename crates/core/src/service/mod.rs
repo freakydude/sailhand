@@ -144,6 +144,20 @@ pub enum Event {
     CommandFinished {
         id: u64,
     },
+    /// A macro was sent from here (`Command::RunMacro`); the responses until `MacroRunEnded` came while it ran.
+    MacroRunStarted {
+        id: u64,
+        script: String,
+        /// Unix time in seconds when it was sent.
+        time: f64,
+    },
+    /// The answer of a macro run came, after every response Klipper sent before it. `error` is why it failed.
+    MacroRunEnded {
+        id: u64,
+        error: Option<String>,
+        /// Unix time in seconds when the answer came.
+        time: f64,
+    },
     /// Moonraker refused the login; Moonraker's reason.
     LoginFailed(String),
 }

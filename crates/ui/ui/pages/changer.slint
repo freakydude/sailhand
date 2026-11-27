@@ -5,9 +5,10 @@
 
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
-import { Actions, ChangerTab, Confirm, Navigation, Printer, Severity } from "../state.slint";
+import { Actions, ChangerTab, Confirm, Navigation, Place, Printer, Severity } from "../state.slint";
 import { StateIcons } from "../state-icons.slint";
 import { ButtonKind, Card, IconButton, IconLabel, TabBar, TabButton } from "../components/controls.slint";
+import { Highlight, JumpHint } from "../components/jump.slint";
 import { FilamentSensorGrid } from "../components/sensor-grid.slint";
 import { AfcServiceTab } from "afc-service.slint";
 import { AfcToolLaneDialog, AfcToolsTab } from "afc-tools.slint";
@@ -25,6 +26,7 @@ component SensorsTab inherits VerticalLayout {
             spacing: Theme.spacing;
             FilamentSensorGrid { }
             Text {
+                overflow: elide;
                 text: @tr("Not tied to a head");
                 color: Theme.muted;
                 font-size: Theme.font-small;
@@ -46,7 +48,7 @@ component ToolchangerCard inherits Card {
         : root.status == "uninitialized" ? @tr("Not initialized")
         : root.status == "initializing" ? @tr("Initializing")
         : root.status == "changing" ? @tr("Changing heads")
-        : root.status == "error" ? @tr("Error, see console")
+        : root.status == "error" ? @tr("Tool changer error")
         : root.status;
     property <string> initialize-on-text: Printer.changer-initialize-on == "first-use" ? @tr("first use")
         : Printer.changer-initialize-on == "home" ? @tr("homing")
@@ -59,12 +61,19 @@ component ToolchangerCard inherits Card {
             horizontal-stretch: 1;
             spacing: Theme.spacing-small;
             alignment: center;
-            IconLabel {
-                icon: root.status == "error" ? Icons.state-error : root.status == "ready" ? Icons.ui-check : Icons.ui-info;
+            if root.status != "error": IconLabel {
+                icon: root.status == "ready" ? Icons.ui-check : Icons.ui-info;
                 color: StateIcons.severity-color(root.severity);
                 text: root.status-text;
             }
-            if Printer.changer-initialize-on != "": Text {
+            // The plugin states no reason; the console has its message.
+            if root.status == "error": JumpHint {
+                severity: Severity.error;
+                text: root.status-text;
+                clicked => { Navigation.go(Place.console, ""); }
+            }
+            // Left out in an error, so the hint keeps the card no higher than its buttons; Recover is what helps then.
+            if Printer.changer-initialize-on != "" && root.status != "error": Text {
                 text: @tr("Initializes on: {}", root.initialize-on-text);
                 color: Theme.muted;
                 font-size: Theme.font-small;
@@ -83,6 +92,7 @@ component ToolchangerCard inherits Card {
                 overflow: elide;
             }
             if Printer.motion-locked: Text {
+                overflow: elide;
                 text: @tr("Not while printing");
                 color: Theme.muted;
                 font-size: Theme.font-small;
@@ -99,13 +109,17 @@ component ToolchangerCard inherits Card {
                 enabled: !Printer.motion-locked;
                 clicked => { Actions.initialize-toolchanger(false); }
             }
-            IconButton {
-                icon: Icons.mmu-recover;
-                text: @tr("Recover");
-                horizontal: true;
-                kind: root.status == "error" ? ButtonKind.accent : ButtonKind.normal;
-                enabled: !Printer.motion-locked;
-                clicked => { Confirm.ask-recover-toolchanger(); }
+            // The place a message about a tool changer error leads to.
+            Rectangle {
+                IconButton {
+                    icon: Icons.mmu-recover;
+                    text: @tr("Recover");
+                    horizontal: true;
+                    kind: root.status == "error" ? ButtonKind.accent : ButtonKind.normal;
+                    enabled: !Printer.motion-locked;
+                    clicked => { Confirm.ask-recover-toolchanger(); }
+                }
+                Highlight { place: Place.changer-service; }
             }
         }
     }
@@ -116,10 +130,14 @@ component ServiceTab inherits VerticalLayout {
     if Printer.has-afc: AfcServiceTab {
         vertical-stretch: 1;
     }
+    // Beside the tool changer the MMU keeps compact tiles at their own height; the rest goes below the card.
     if Printer.has-mmu: MmuServiceTab {
-        vertical-stretch: 1;
+        vertical-stretch: Printer.has-toolchanger ? 0 : 1;
+        compact: Printer.has-toolchanger;
     }
     if Printer.has-toolchanger: VerticalLayout {
+        alignment: start;
+        vertical-stretch: 1;
         padding: Theme.padding;
         padding-top: Printer.has-mmu || Printer.has-afc ? 0px : Theme.padding;
         ToolchangerCard {

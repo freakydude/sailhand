@@ -120,6 +120,29 @@ impl HeaterWatch {
     }
 }
 
+/// A temperature in the status bar: the reading, and the target only while the reading is outside the control window
+/// (target ± `hysteresis`, as the scale's window); inside it the reading says enough.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BarReading {
+    pub temperature: f64,
+    pub target: Option<f64>,
+    /// A target is set: the heater regulates.
+    pub regulating: bool,
+}
+
+impl BarReading {
+    pub fn of_heater(heater: &Heater) -> Self {
+        let regulating = heater.target > 0.0;
+        let inside = heater.temperature <= heater.target + heater.hysteresis
+            && (heater.cools_only || heater.temperature >= heater.target - heater.hysteresis);
+        Self { temperature: heater.temperature, target: (regulating && !inside).then_some(heater.target), regulating }
+    }
+
+    pub fn of_sensor(temperature: f64) -> Self {
+        Self { temperature, target: None, regulating: false }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,6 +165,25 @@ mod tests {
             max_temp: Some(100.0),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn the_bar_shows_the_target_only_outside_the_control_window() {
+        let target = |temperature, target| BarReading::of_heater(&heater(temperature, target)).target;
+        assert_eq!(target(150.0, 215.0), Some(215.0));
+        assert_eq!(target(210.0, 215.0), None);
+        assert_eq!(target(220.0, 215.0), None);
+        assert_eq!(target(220.1, 215.0), Some(215.0));
+        assert_eq!(target(25.0, 0.0), None);
+        assert!(!BarReading::of_heater(&heater(25.0, 0.0)).regulating);
+        assert!(BarReading::of_heater(&heater(210.0, 215.0)).regulating);
+    }
+
+    #[test]
+    fn a_cooling_fan_below_its_target_holds_it() {
+        let mut fan = heater(30.0, 40.0);
+        fan.cools_only = true;
+        assert_eq!(BarReading::of_heater(&fan).target, None);
     }
 
     #[test]

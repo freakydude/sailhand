@@ -1,0 +1,25 @@
+// Preview: the pause notice Happy Hare sends (`show_error_dialog`, `mmu_dialog.py`): long text lines and three footer buttons. Open in the Slint preview or render with scripts/ui-preview.sh.
+
+import { AppWindow } from "../app.slint";
+import { Navigation, Page, PromptDialog } from "../state.slint";
+import { PromptStyle } from "../structs.slint";
+import { Sample } from "sample.slint";
+
+export component PromptDialogHappyHarePreview inherits AppWindow {
+    init => {
+        Sample.ready-printer();
+        Navigation.page = Page.print;
+        PromptDialog.title = "Happy Hare Pause Notice";
+        PromptDialog.rows = [
+            { text: "While loading filament from gate 2 to the extruder.", buttons: [] },
+            { text: "Filament did not reach the extruder entry sensor after the full bowden length.", buttons: [] },
+            { text: "Fix: UNLOCK to restore heating, then check the filament path and gate 2.", buttons: [] },
+        ];
+        PromptDialog.footer = [
+            { label: "ABORT", gcode: "CANCEL_PRINT", style: PromptStyle.error },
+            { label: "RESUME", gcode: "RESUME", style: PromptStyle.warning },
+            { label: "UNLOCK", gcode: "MMU_UNLOCK", style: PromptStyle.primary },
+        ];
+        PromptDialog.open = true;
+    }
+}

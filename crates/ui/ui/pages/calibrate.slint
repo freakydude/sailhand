@@ -44,6 +44,7 @@ component ScrewRow inherits HorizontalLayout {
         accessible-label: root.screw.level ? @tr("level") : root.screw.clockwise ? @tr("clockwise") : @tr("counterclockwise");
     }
     Text {
+        overflow: elide;
         text: root.screw.is-base ? @tr("base") : root.screw.turns;
         color: StateIcons.ok-color(root.screw.level && !root.screw.is-base, root.screw.is-base ? Theme.muted : Theme.foreground);
         font-size: Theme.font-normal;

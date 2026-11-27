@@ -32,6 +32,7 @@ component Key inherits Rectangle {
         height: Theme.icon-large;
     }
     if root.icon.width == 0: Text {
+        overflow: elide;
         text: root.label;
         color: root.content;
         font-size: root.font-size;

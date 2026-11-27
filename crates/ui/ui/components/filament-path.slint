@@ -68,6 +68,7 @@ component PathPart inherits VerticalLayout {
     // A station keeps its whole name, so neighbours stay `Theme.spacing` apart (the spacing of the row). The name of
     // the bowden, a section between stations, gives way when its piece is too short for it.
     if root.labelled: Text {
+        overflow: elide;
         min-width: root.kind == PathPartKind.bowden ? 0px : self.preferred-width;
         visible: root.kind != PathPartKind.bowden || root.width >= self.preferred-width + Theme.spacing;
         text: root.label;
@@ -121,6 +122,7 @@ export component FilamentPath inherits HorizontalLayout {
     if root.distance != "": VerticalLayout {
         alignment: start;
         Text {
+            overflow: elide;
             height: Theme.icon-large;
             min-width: 70px;
             text: root.distance;

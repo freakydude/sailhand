@@ -286,6 +286,8 @@ off_when_idle_minutes: 5
             uuid: Some("29f7565a940247049493e8ff2a0d0c87".to_owned()),
             known_macros: names(&["PARK", "LOAD_FILAMENT", "UNLOAD_FILAMENT"]),
             hidden_macros: names(&["LOAD_FILAMENT", "UNLOAD_FILAMENT"]),
+            light: None,
+            chamber: None,
         };
         assert_eq!(settings.printers[0], voron);
         assert_eq!(settings.printers[1].known_macros, names(&["PARK"]));
@@ -326,6 +328,29 @@ off_when_idle_minutes: 5
             .replace("#*#\n#*# [printer ratrig]\n#*# known_macros = PARK\n", "");
         assert_eq!(file_text(&store), expected);
         assert_eq!(store.load().unwrap(), settings);
+    }
+
+    #[test]
+    fn found_light_and_chamber_are_written_once_also_when_there_is_none() {
+        let (_dir, store) = store_with(THREE_PRINTERS);
+        let loaded = store.load().unwrap();
+        let mut settings = loaded.clone();
+        let ratrig = settings.printer_mut("http://ratrig.local:7125").unwrap();
+        assert!(ratrig.fill_missing_choices(None, Some("temperature_sensor chamber")));
+        assert!(!ratrig.fill_missing_choices(Some("neopixel case"), None));
+
+        store.save_changes(&loaded, &settings).unwrap();
+
+        let expected = THREE_PRINTERS.replace(
+            "[printer ratrig]\nmoonraker: http://ratrig.local:7125\n",
+            "[printer ratrig]\nmoonraker: http://ratrig.local:7125\nlight:\nchamber: temperature_sensor chamber\n",
+        );
+        assert_eq!(file_text(&store), expected);
+        let reread = store.load().unwrap();
+        let ratrig = reread.printer("http://ratrig.local:7125").unwrap();
+        assert_eq!(ratrig.light.as_deref(), Some(""));
+        assert_eq!(ratrig.chamber.as_deref(), Some("temperature_sensor chamber"));
+        assert_eq!(reread.printer("http://192.168.40.6:7125").unwrap().light, None);
     }
 
     #[test]

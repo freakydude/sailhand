@@ -68,6 +68,7 @@ component FileRow inherits Rectangle {
                     color: Theme.foreground;
                 }
                 Text {
+                    overflow: elide;
                     text: root.date;
                     color: Theme.muted;
                     font-size: Theme.font-small;
@@ -87,6 +88,7 @@ component FileRow inherits Rectangle {
                         min-width: min(self.preferred-width, 72px);
                     }
                     if root.weight != "": Text {
+                        overflow: elide;
                         text: root.weight;
                         color: Theme.muted;
                         font-size: Theme.font-small;

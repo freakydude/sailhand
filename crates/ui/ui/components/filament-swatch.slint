@@ -205,13 +205,13 @@ export component FilamentText inherits VerticalLayout {
     in property <string> trail;
     in property <bool> trail-warn;
     in property <string> extra;
-    // A long text (a hint instead of a material) is cut to the room there is; a material keeps its width.
+    // A long text (a hint instead of a material) is cut to the room there is; a usual material keeps its width.
     in property <bool> material-elide;
 
     alignment: center;
     spacing: 1px;
     Text {
-        min-width: root.material-elide ? 0px : self.preferred-width;
+        min-width: root.material-elide ? 0px : min(self.preferred-width, Theme.material-min-width);
         text: root.material;
         color: root.material-color;
         font-size: Theme.font-normal;
@@ -222,6 +222,7 @@ export component FilamentText inherits VerticalLayout {
     if root.lead != "" || root.name != "" || root.trail != "" || root.extra != "": HorizontalLayout {
         property <string> separator: " · ";
         if root.lead != "": Text {
+            overflow: elide;
             horizontal-stretch: 0;
             min-width: self.preferred-width;
             text: root.lead + (root.name != "" || root.trail != "" ? parent.separator : "");
@@ -238,6 +239,7 @@ export component FilamentText inherits VerticalLayout {
             overflow: elide;
         }
         if root.trail != "": Text {
+            overflow: elide;
             horizontal-stretch: 0;
             min-width: self.preferred-width;
             text: (root.name != "" ? parent.separator : "") + root.trail;
@@ -245,6 +247,7 @@ export component FilamentText inherits VerticalLayout {
             font-size: Theme.font-small;
         }
         if root.extra != "": Text {
+            overflow: elide;
             horizontal-stretch: 0;
             min-width: self.preferred-width;
             text: " (" + root.extra + ")";

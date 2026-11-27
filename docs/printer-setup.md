@@ -53,7 +53,7 @@ Macros Sailhand recognises by name and uses when they exist:
 | `SET_PAUSE_NEXT_LAYER`, `SET_PAUSE_AT_LAYER` | [mainsail-config][mainsail-config] `client.cfg`, with `ENABLE` since v1.1.0    | planning a pause at a layer, with `ENABLE` and `LAYER` ([below](#pause-at-a-layer))               |
 | `T0` … `Tn` (any `T<n>` command)             | your macros, or a plugin that registers them (Happy Hare, tool changers)       | the comparison before a print: a tool of the file without its `T<n>` command is marked, because the print would stop there |
 
-Every other macro shows in the console's macro list, except those whose name starts with `_` and those that replace
+Every other macro shows in the macro list (Motion › Macros), except those whose name starts with `_` and those that replace
 a built-in command (`rename_existing`). Their parameters are read from the template (`params.NAME`, with
 `|default(...)` as the placeholder), as Mainsail and KlipperScreen do; none is treated as required.
 

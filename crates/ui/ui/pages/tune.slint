@@ -43,6 +43,7 @@ component Adjuster inherits Card {
         height: Theme.touch;
         IconButton { width: Theme.button-narrow; icon: Icons.ui-minus; clicked => { root.decrease(); } }
         Text {
+            overflow: elide;
             horizontal-stretch: 1;
             text: root.value;
             color: root.highlight ? StateIcons.severity-color(Severity.attention) : Theme.foreground;
@@ -73,6 +74,7 @@ component TuningRow inherits Rectangle {
             HorizontalLayout {
                 spacing: Theme.spacing;
                 Text {
+                    overflow: elide;
                     text: root.item.value;
                     color: root.item.changed ? StateIcons.severity-color(Severity.attention) : Theme.foreground;
                     font-size: Theme.font-large;
@@ -80,6 +82,7 @@ component TuningRow inherits Rectangle {
                 }
                 // The configuration's value, as a reminder that a change lasts only until the next restart.
                 if root.item.changed: Text {
+                    overflow: elide;
                     text: @tr("config {}", root.item.configured);
                     color: Theme.muted;
                     font-size: Theme.font-small;
@@ -145,6 +148,7 @@ export component TuneBasicsTab inherits Rectangle {
                 }
                 // Applied by Klipper's z_thermal_adjust on top of the babystep, so it is not part of the value above.
                 if Printer.has-thermal-z: Text {
+                    overflow: elide;
                     text: @tr("Thermal {}", (Printer.thermal-z >= 0 ? "+" : "") + Units.length(Printer.thermal-z, 3));
                     color: Theme.muted;
                     font-size: Theme.font-small;
@@ -198,6 +202,7 @@ export component TuneBasicsTab inherits Rectangle {
                 // A quiet note: the slicer planned layer times and cooling for 100 %. Below both factors, so the flow
                 // factor does not move while the speed is tapped.
                 if round(Printer.speed-factor) != 100: Text {
+                    overflow: elide;
                     text: @tr("Layer times and cooling differ from what the slicer planned.");
                     color: Theme.muted;
                     font-size: Theme.font-small;

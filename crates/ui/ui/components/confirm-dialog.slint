@@ -3,7 +3,7 @@
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { Confirm } from "../state.slint";
-import { ButtonKind, IconButton, ScrollList } from "controls.slint";
+import { ButtonKind, IconButton, ScrollList, WrapText } from "controls.slint";
 import { FilamentCompareRow } from "filament-compare.slint";
 import { Printer } from "../state.slint";
 import { DialogHeader, DialogPanel, Scrim } from "dialog.slint";
@@ -66,15 +66,13 @@ export component ConfirmDialog inherits Scrim {
                             width: Theme.icon-small;
                             height: Theme.icon-small;
                         }
-                        // Two lines at most: a long file name keeps its end.
-                        Text {
+                        // Two lines at most, so a long file name mostly keeps its end; longer ones end in "…".
+                        WrapText {
+                            max-lines: 2;
                             horizontal-stretch: 1;
                             text: item;
                             color: Theme.foreground;
                             font-size: Theme.font-normal;
-                            vertical-alignment: center;
-                            wrap: word-wrap;
-                            overflow: elide;
                         }
                     }
                 }
@@ -86,12 +84,14 @@ export component ConfirmDialog inherits Scrim {
                 padding-right: Theme.dialog-padding;
                 spacing: Theme.spacing;
                 Text {
+                    overflow: elide;
                     horizontal-stretch: 1;
                     text: @tr("File");
                     color: Theme.muted;
                     font-size: Theme.font-small;
                 }
                 Text {
+                    overflow: elide;
                     horizontal-stretch: 1;
                     text: Printer.has-mmu ? @tr("Gate") : @tr("Spool");
                     color: Theme.muted;

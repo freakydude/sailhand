@@ -1,11 +1,12 @@
 // The Settings tab of the system pages: settings of this display, picked from a list on the left (display, the host's
-// network, access to the printer, logs, about). A section without content is not listed. The settings of the console
-// are on the Console tab, temperature presets in the settings file, see docs/configuration.md.
+// network, status bar of the printer in use, access to the printer, logs, macros, about). A section without content is
+// not listed. The macros shown on Motion › Macros are chosen here; temperature presets are in the settings file, see
+// docs/configuration.md.
 
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
-import { Backlight, Confirm, Navigation, Network, Page, Printer, PrinterChoice, SettingsSection, UiSettings } from "../state.slint";
-import { Card, IconButton, ToggleRow } from "../components/controls.slint";
+import { Actions, Backlight, ChoiceItem, Confirm, Navigation, Network, Page, Printer, PrinterChoice, SettingsSection, UiSettings } from "../state.slint";
+import { Card, IconButton, ScrollList, ToggleRow } from "../components/controls.slint";
 import { SystemTabs } from "../components/system-tabs.slint";
 import { NetworkSection, WifiConnectDialogs } from "network.slint";
 
@@ -16,7 +17,7 @@ component MinutesRow inherits VerticalLayout {
     in property <int> current;
     callback chosen(int);
     spacing: Theme.spacing-tight;
-    Text { text: root.label; color: Theme.muted; font-size: Theme.font-small; }
+    Text { text: root.label; color: Theme.muted; font-size: Theme.font-small; overflow: elide; }
     HorizontalLayout {
         spacing: Theme.spacing;
         for minutes in root.choices: IconButton {
@@ -139,6 +140,7 @@ component AccessCard inherits Card {
         overflow: elide;
     }
     if Printer.trusted-certificate != "": Text {
+        overflow: elide;
         text: @tr("Trusted certificate {}", Printer.trusted-certificate);
         color: Theme.muted;
         font-size: Theme.font-small;
@@ -158,12 +160,134 @@ component AccessCard inherits Card {
     }
 }
 
+// One row of a choice list: the name, a check on the chosen one; the whole row is the touch area.
+component ChoiceRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+    height: Theme.row-height-small;
+    border-radius: Theme.radius;
+    background: touch.pressed ? Theme.surface-active : Theme.surface-raised;
+    border-width: root.selected ? 2px : 0px;
+    border-color: Theme.accent;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-checked: root.selected;
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: Theme.padding;
+        padding-right: Theme.padding;
+        spacing: Theme.spacing;
+        Text {
+            horizontal-stretch: 1;
+            text: root.text;
+            color: Theme.foreground;
+            font-size: Theme.font-normal;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        if root.selected: Image {
+            cross-axis-self-alignment: center;
+            source: Icons.ui-check;
+            colorize: Theme.accent;
+            width: Theme.icon-small;
+            height: Theme.icon-small;
+        }
+    }
+}
+
+// What a printer offers for one choice, "None" first; the chosen one carries the check.
+component ChoiceList inherits VerticalLayout {
+    in property <string> title;
+    in property <[ChoiceItem]> choices;
+    in property <string> chosen;
+    callback choose(string);
+    spacing: Theme.spacing-tight;
+    Text { text: root.title; color: Theme.muted; font-size: Theme.font-small; overflow: elide; }
+    list := ScrollList {
+        vertical-stretch: 1;
+        property <length> row-step: Theme.row-height-small + Theme.spacing-small;
+        content-height: (root.choices.length + 1) * self.row-step - Theme.spacing-small;
+        ChoiceRow {
+            y: 0;
+            width: list.row-width;
+            text: @tr("None");
+            selected: root.chosen == "";
+            clicked => { root.choose(""); }
+        }
+        for choice[index] in root.choices: ChoiceRow {
+            y: (index + 1) * list.row-step;
+            width: list.row-width;
+            text: choice.label;
+            selected: choice.object == root.chosen;
+            clicked => { root.choose(choice.object); }
+        }
+    }
+}
+
+// The light of the quick switch and the chamber reading of the status bar, for the printer in use. Found once by name
+// when the printer is first connected; from then on only what is chosen here (or in the settings file) counts.
+component StatusBarCard inherits Card {
+    title: @tr("Status bar · {}", PrinterChoice.active-name);
+    icon: Icons.thermal-chamber;
+
+    HorizontalLayout {
+        vertical-stretch: 1;
+        spacing: Theme.spacing;
+        ChoiceList {
+            horizontal-stretch: 1;
+            title: @tr("Light");
+            choices: UiSettings.light-choices;
+            chosen: UiSettings.light-choice;
+            choose(object) => { UiSettings.choose-light(object); }
+        }
+        ChoiceList {
+            horizontal-stretch: 1;
+            title: @tr("Chamber");
+            choices: UiSettings.chamber-choices;
+            chosen: UiSettings.chamber-choice;
+            choose(object) => { UiSettings.choose-chamber(object); }
+        }
+    }
+}
+
+// Which macros Motion › Macros offers: every macro of the printer with a switch.
+component MacrosCard inherits Card {
+    title: @tr("Macros · {}", PrinterChoice.active-name);
+    icon: Icons.nav-macros;
+
+    Text {
+        overflow: elide;
+        text: @tr("Macros switched off here are left out of Motion › Macros on this printer.");
+        color: Theme.muted;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+    }
+    list := ScrollList {
+        vertical-stretch: 1;
+        property <length> row-step: Theme.row-height-small + Theme.spacing-small;
+        content-height: Printer.macro-items.length * self.row-step - Theme.spacing-small;
+        for macro[index] in Printer.macro-items: ToggleRow {
+            y: index * list.row-step;
+            width: list.row-width;
+            height: Theme.row-height-small;
+            text: macro.name;
+            checked: macro.visible;
+            toggled => { Actions.set-macro-visible(macro.name, !macro.visible); }
+        }
+    }
+}
+
 // Android only: copies the log into the Download folder, where it can be attached to a bug report.
 component LogsCard inherits Card {
     title: @tr("Logs");
     icon: Icons.system-log;
 
     Text {
+        overflow: elide;
         text: @tr("Copies the log into the Download folder, e.g. for a bug report.");
         color: Theme.muted;
         font-size: Theme.font-small;
@@ -181,6 +305,7 @@ component LogsCard inherits Card {
         }
     }
     if UiSettings.log-export-result != "": Text {
+        overflow: elide;
         text: UiSettings.log-export-result;
         color: Theme.muted;
         font-size: Theme.font-small;
@@ -193,6 +318,7 @@ component AboutCard inherits Card {
     icon: Icons.ui-info;
 
     Text {
+        overflow: elide;
         text: @tr("Sailhand {}", UiSettings.version);
         color: Theme.foreground;
         font-size: Theme.font-normal;
@@ -200,6 +326,7 @@ component AboutCard inherits Card {
     }
     // Without a file the user can reach (Android keeps it in the app's private folder) only the version.
     if UiSettings.settings-file != "": Text {
+        overflow: elide;
         text: @tr("Settings saved in {}", UiSettings.settings-file);
         color: Theme.muted;
         font-size: Theme.font-small;
@@ -216,12 +343,16 @@ export component SettingsPage inherits Rectangle {
         || Backlight.available;
     property <bool> has-access: Printer.login-user != "" || Printer.api-key || Printer.trusted-certificate != "";
     property <bool> has-logs: UiSettings.log-export-available;
+    property <bool> has-macros: Printer.macro-items.length > 0;
     property <bool> network-shown: Navigation.page == Page.network;
     // The chosen section, or the first one with content when it has none (e.g. after logging out).
     property <SettingsSection> shown: Navigation.settings-section == SettingsSection.display && root.has-display
             ? SettingsSection.display
+        : Navigation.settings-section == SettingsSection.status-bar && UiSettings.status-bar-choices-available
+            ? SettingsSection.status-bar
         : Navigation.settings-section == SettingsSection.access && root.has-access ? SettingsSection.access
         : Navigation.settings-section == SettingsSection.logs && root.has-logs ? SettingsSection.logs
+        : Navigation.settings-section == SettingsSection.macros && root.has-macros ? SettingsSection.macros
         : Navigation.settings-section == SettingsSection.about ? SettingsSection.about
         : root.has-display ? SettingsSection.display : SettingsSection.about;
 
@@ -253,6 +384,12 @@ export component SettingsPage inherits Rectangle {
                     selected: root.network-shown;
                     clicked => { Navigation.page = Page.network; }
                 }
+                if UiSettings.status-bar-choices-available: SectionRow {
+                    icon: Icons.thermal-chamber;
+                    text: @tr("Status bar");
+                    selected: !root.network-shown && root.shown == SettingsSection.status-bar;
+                    clicked => { root.open(SettingsSection.status-bar); }
+                }
                 if root.has-access: SectionRow {
                     icon: Icons.ui-lock;
                     text: @tr("Access");
@@ -264,6 +401,12 @@ export component SettingsPage inherits Rectangle {
                     text: @tr("Logs");
                     selected: !root.network-shown && root.shown == SettingsSection.logs;
                     clicked => { root.open(SettingsSection.logs); }
+                }
+                if root.has-macros: SectionRow {
+                    icon: Icons.nav-macros;
+                    text: @tr("Macros");
+                    selected: !root.network-shown && root.shown == SettingsSection.macros;
+                    clicked => { root.open(SettingsSection.macros); }
                 }
                 SectionRow {
                     icon: Icons.ui-info;
@@ -287,10 +430,13 @@ export component SettingsPage inherits Rectangle {
             if !root.network-shown: VerticalLayout {
                 horizontal-stretch: 1;
                 if root.shown == SettingsSection.display: DisplayCard { vertical-stretch: 0; }
+                if root.shown == SettingsSection.status-bar: StatusBarCard { vertical-stretch: 1; }
                 if root.shown == SettingsSection.access: AccessCard { vertical-stretch: 0; }
                 if root.shown == SettingsSection.logs: LogsCard { vertical-stretch: 0; }
+                if root.shown == SettingsSection.macros: MacrosCard { vertical-stretch: 1; }
                 if root.shown == SettingsSection.about: AboutCard { vertical-stretch: 0; }
-                Rectangle { vertical-stretch: 1; }
+                // The lists of the status bar and the macros fill the height themselves.
+                Rectangle { vertical-stretch: root.shown == SettingsSection.status-bar || root.shown == SettingsSection.macros ? 0 : 1; }
             }
         }
     }

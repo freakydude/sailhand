@@ -3,6 +3,7 @@
 use crate::access::{Access, AccessConfig};
 use crate::files::Catalog;
 use crate::host::Host;
+use crate::long_names::LongNames;
 use crate::machine::MachineProfile;
 use crate::printer::Printer;
 use crate::spoolman::Spoolman;
@@ -30,6 +31,7 @@ pub struct Backend {
     started: Instant,
     notifications: broadcast::Sender<String>,
     access: Access,
+    names: LongNames,
 }
 
 impl Backend {
@@ -52,6 +54,7 @@ impl Backend {
             started: Instant::now(),
             notifications: broadcast::channel(NOTIFICATION_BUFFER).0,
             access: Access::default(),
+            names: LongNames::new(profile.long_names),
         }
     }
 
@@ -70,8 +73,13 @@ impl Backend {
         self.notifications.subscribe()
     }
 
+    /// The names on the wire (`--long-names`).
+    pub fn names(&self) -> &LongNames {
+        &self.names
+    }
+
     pub fn notify(&self, method: &str, params: Value) {
-        let message = json!({ "jsonrpc": "2.0", "method": method, "params": params });
+        let message = json!({ "jsonrpc": "2.0", "method": method, "params": self.names.to_long(params) });
         let _ = self.notifications.send(message.to_string());
     }
 

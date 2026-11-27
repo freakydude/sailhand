@@ -5,6 +5,7 @@ import { Actions, Backlight, Confirm, Dialogs, EddyDialog, MeshDialogs, MmuDialo
 import { NavRail, StatusBar } from "components/chrome.slint";
 import { CalibrationDialog } from "components/calibration-dialog.slint";
 import { ConfirmDialog } from "components/confirm-dialog.slint";
+import { MacroPrompt } from "components/prompt-dialog.slint";
 import { MessagesFlyout } from "components/messages-flyout.slint";
 import { SpoolDialog } from "components/spool-dialog.slint";
 import { HistoryDialog } from "components/history.slint";
@@ -24,7 +25,9 @@ import { PrintersPage } from "pages/printers.slint";
 import { ConnectionPage } from "pages/connection.slint";
 
 export { Actions, Backlight, Confirm, EddyDialog, MeshDialogs, MmuDialogs, Navigation, Network, Page, Printer, PrinterChoice, SpoolPicker, UiSettings }
-export { AxesAreaItem, AxisEntryItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, FileItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, MmuGateItem, MmuGatePage, MmuPageRange, MmuSensorItem, AfcHubReturnItem, AfcToolItem, SpoolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ConsoleItem, MessageItem, MacroItem, MacroParamItem, PowerItem, UpdateItem, PresetItem, PrinterItem, ScrewItem, EddyValue, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "state.slint";
+export { PromptDialog } from "state.slint";
+export { PromptButtonItem, PromptRowItem, PromptStyle } from "structs.slint";
+export { AxesAreaItem, AxisEntryItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, FileItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, MmuGateItem, MmuGatePage, MmuPageRange, MmuSensorItem, AfcHubReturnItem, AfcToolItem, SpoolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ConsoleItem, MessageItem, MacroItem, MacroRun, MacroRunState, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, ScrewItem, EddyValue, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "state.slint";
 
 export component AppWindow inherits Window {
     title: "Sailhand";
@@ -109,6 +112,8 @@ export component AppWindow inherits Window {
                 BedMeshProfilesDialog { }
                 EddyProbeDialog { }
                 ConfirmDialog { }
+                // The printer asking: above the other dialogs, and a tap on the status bar does not close it.
+                MacroPrompt { }
             }
         }
     }

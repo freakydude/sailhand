@@ -138,6 +138,7 @@ pub(super) fn printing(session: &mut Session) -> Result<(), String> {
     exclude_object(session)?;
     session.service.send(Command::ResumePrint);
     session.wait_until("print resumed", |snapshot| snapshot.status.job.state == PrintState::Printing)?;
+    super::prompt::happy_hare_pause_notice(session)?;
     ask(session, "Cancel print", "The print stops and cannot be resumed.", "cancel-print", "");
     session.capture("confirm-cancel")?;
     session.window.global::<Confirm>().invoke_execute();

@@ -1,0 +1,17 @@
+// Preview: an error lies over the whole width of the status bar up to the counter, the light and the emergency stop.
+
+import { AppWindow } from "../app.slint";
+import { Navigation, Page, Printer, Severity } from "../state.slint";
+import { Sample } from "sample.slint";
+
+export component StatusMessagePreview inherits AppWindow {
+    init => {
+        Sample.printing();
+        Navigation.page = Page.temperature;
+        Printer.status-message = "G1 X251: Move out of range: 251.000 150.000 20.000 [0.000]";
+        Printer.status-message-severity = Severity.error;
+        Printer.status-message-visible = true;
+        Printer.unread-count = 1;
+        Printer.unread-severity = Severity.error;
+    }
+}

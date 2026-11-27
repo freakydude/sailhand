@@ -44,6 +44,11 @@ export global Sample {
         Printer.has-bed = true;
         Printer.bed-temperature = 59.8;
         Printer.bed-target = 60;
+        // Both hold their target: the status bar shows the reading only.
+        Printer.nozzle-bar-text = "215°";
+        Printer.bed-bar-text = "60°";
+        Printer.has-chamber = true;
+        Printer.chamber-bar-text = "38°";
         Printer.fans = [
             { object: "fan", label: "Fan", kind: "part", controllable: true, speed: 40, rpm: "" },
             { object: "fan_generic nevermore", label: "Nevermore", kind: "generic", controllable: true, speed: 0, rpm: "" },

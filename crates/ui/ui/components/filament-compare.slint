@@ -47,6 +47,7 @@ component CompareRow inherits HorizontalLayout {
     spacing: Theme.spacing;
     min-height: 36px;
     Text {
+        overflow: elide;
         width: 110px;
         text: root.label;
         color: Theme.muted;
@@ -192,6 +193,7 @@ export component FilamentCompareRow inherits Rectangle {
             preferred-width: 0px;
             spacing: Theme.spacing;
             if root.with-gates && root.mapping.gate >= 0: Text {
+                overflow: elide;
                 width: 28px;
                 text: "G" + root.mapping.gate;
                 color: Theme.muted;
@@ -219,6 +221,7 @@ export component FilamentCompareRow inherits Rectangle {
                 if root.has-supply && (root.mapping.loaded-weight != "" || root.mapping.reserve-weight != ""): HorizontalLayout {
                     spacing: Theme.spacing-medium;
                     Text {
+                        overflow: elide;
                         text: root.mapping.loaded-weight;
                         color: root.mapping.weight-differs ? StateIcons.severity-color(Severity.attention) : Theme.muted;
                         font-size: Theme.font-small;

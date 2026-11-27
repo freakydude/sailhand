@@ -3,11 +3,12 @@
 import { Theme } from "../theme.slint";
 import { StateIcons } from "../state-icons.slint";
 import { Icons } from "../icons.slint";
-import { Actions, Navigation, Page, Printer, Severity } from "../state.slint";
+import { Actions, Navigation, Page, Place, Printer, Severity } from "../state.slint";
 import { FlyoutPanel, IconButton, ScrollList } from "controls.slint";
 import { DialogHeader } from "dialog.slint";
 
 component SectionHeading inherits Text {
+    overflow: elide;
     color: Theme.muted;
     font-size: Theme.font-small;
     font-weight: 600;
@@ -15,10 +16,13 @@ component SectionHeading inherits Text {
     vertical-alignment: center;
 }
 
-// Flyout below the field of the status bar with all errors and informations, newest first: what came since the
-// last time stands under "New", the rest under "Earlier". The page beside it stays covered by a tap catcher: a tap
+// Flyout below the field of the status bar with every incident: the faults that stand under "Now", then newest first
+// what came since the last time under "New", the rest under "Earlier". The page beside it stays covered by a tap catcher: a tap
 // there closes the flyout and does nothing else, like a menu. Every way out goes through `Navigation.close-messages()`.
 export component MessagesFlyout inherits Rectangle {
+    // Height of one text line of a row (`LINE_HEIGHT` in crates/app/src/status_log.rs): symbol, time and arrow sit
+    // in this band, level with the first line of a text that wraps.
+    property <length> line-band: 22px;
     // Below the status bar, so that its field, the light and the emergency stop stay in reach.
     TouchArea {
         y: 44px;
@@ -43,9 +47,15 @@ export component MessagesFlyout inherits Rectangle {
             messages-list := ScrollList {
                 vertical-stretch: 1;
                 content-height: Printer.messages-height;
-                if Printer.messages-has-new: SectionHeading {
+                if Printer.messages-has-now: SectionHeading {
                     x: 0;
                     y: 0;
+                    width: messages-list.row-width;
+                    text: @tr("NOW");
+                }
+                if Printer.messages-has-new: SectionHeading {
+                    x: 0;
+                    y: Printer.messages-new-top;
                     width: messages-list.row-width;
                     text: @tr("NEW");
                 }
@@ -55,36 +65,53 @@ export component MessagesFlyout inherits Rectangle {
                     width: messages-list.row-width;
                     text: @tr("EARLIER");
                 }
+                // What still asks to be looked at lies on a pale ground in its colour; the rest is history with only
+                // its symbol in colour. A message with a place leads there.
                 for message in Printer.messages: Rectangle {
                     x: 0;
                     y: message.top;
                     width: messages-list.row-width;
                     height: message.height;
-                    background: Theme.surface-raised;
+                    background: row-touch.pressed ? Theme.surface-active
+                        : message.tinted ? StateIcons.severity-tint(message.severity) : Theme.surface-raised;
                     border-radius: Theme.radius;
+                    row-touch := TouchArea {
+                        enabled: message.place != Place.none;
+                        clicked => { Navigation.go(message.place, ""); }
+                    }
                     HorizontalLayout {
                         padding: Theme.padding;
                         spacing: Theme.spacing;
                         Image {
-                            y: 0px;
-                            source: message.is-error ? Icons.state-error : Icons.ui-info;
-                            colorize: message.is-error ? StateIcons.severity-color(Severity.error) : StateIcons.severity-color(Severity.info);
+                            source: StateIcons.severity-icon(message.severity);
+                            colorize: StateIcons.severity-color(message.severity);
                             width: Theme.icon-small;
-                            height: Theme.icon-small;
+                            height: root.line-band;
+                            image-fit: contain;
                         }
                         Text {
                             horizontal-stretch: 1;
                             text: message.text;
                             color: Theme.foreground;
                             font-size: Theme.font-normal;
-                            font-weight: message.new ? 600 : 400;
+                            font-weight: message.tinted ? 600 : 400;
                             wrap: word-wrap;
                             overflow: elide;
                         }
                         Text {
-                            text: message.time;
+                            overflow: elide;
+                            height: root.line-band;
+                            text: message.standing ? @tr("since {}", message.time) : message.time;
                             color: Theme.muted;
                             font-size: Theme.font-small;
+                            vertical-alignment: center;
+                        }
+                        if message.place != Place.none: Image {
+                            source: Icons.ui-chevron-right;
+                            colorize: Theme.muted;
+                            width: Theme.icon-small;
+                            height: root.line-band;
+                            image-fit: contain;
                         }
                     }
                 }

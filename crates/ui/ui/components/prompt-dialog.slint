@@ -1,0 +1,135 @@
+// The dialog of a macro prompt: what a Klipper macro asks with `RESPOND TYPE=command MSG="action:prompt_..."`.
+// The look follows `dialog.slint`; the contents come from the macro and are not translated.
+
+import { Theme } from "../theme.slint";
+import { Icons } from "../icons.slint";
+import { StateIcons } from "../state-icons.slint";
+import { PromptButtonItem, PromptRowItem, PromptStyle, Severity } from "../structs.slint";
+import { Actions, PromptDialog } from "../state.slint";
+import { ScrollList } from "controls.slint";
+import { DialogHeader, DialogPanel, Scrim } from "dialog.slint";
+
+// A button of the prompt. `primary` is an accent fill and `error` a danger fill; the other styles stay neutral and
+// show their role by a symbol in its colour, never as a coloured area.
+component PromptButton inherits Rectangle {
+    in property <PromptButtonItem> item;
+    property <bool> filled: root.item.style == PromptStyle.primary || root.item.style == PromptStyle.error;
+    property <image> symbol: root.item.style == PromptStyle.warning ? Icons.ui-warning : root.item.style == PromptStyle.info ? Icons.ui-info : @image-url("");
+    property <color> symbol-color: root.item.style == PromptStyle.warning ? StateIcons.severity-color(Severity.attention) : StateIcons.severity-color(Severity.info);
+    property <color> base: root.item.style == PromptStyle.primary ? Theme.accent : root.item.style == PromptStyle.error ? Theme.danger-fill : Theme.surface-raised;
+    property <color> pressed: root.item.style == PromptStyle.primary ? Theme.accent-pressed : root.item.style == PromptStyle.error ? Theme.danger-fill-pressed : Theme.surface-active;
+
+    min-width: Theme.touch;
+    // Wide text buttons; at full touch height a prompt with several rows looked oversized (Frank 2026-11-26).
+    min-height: Theme.touch-wide;
+    horizontal-stretch: 1;
+    border-radius: Theme.radius;
+    background: touch.pressed ? root.pressed : root.base;
+    accessible-role: button;
+    accessible-label: root.item.label;
+
+    animate background { duration: 80ms; }
+
+    touch := TouchArea {
+        clicked => { Actions.run-gcode(root.item.gcode); }
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.padding;
+        padding-right: Theme.padding;
+        spacing: Theme.spacing;
+        alignment: center;
+        if root.symbol.width > 0: Image {
+            cross-axis-self-alignment: center;
+            source: root.symbol;
+            colorize: root.symbol-color;
+            width: Theme.icon-small;
+            min-height: Theme.icon-small;
+            image-fit: contain;
+        }
+        Text {
+            text: root.item.label;
+            color: root.item.style == PromptStyle.primary ? Theme.on-accent : Theme.foreground;
+            font-size: Theme.font-normal;
+            font-weight: 600;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+// One line of the body: a text, or buttons that share a row.
+component PromptRow inherits VerticalLayout {
+    in property <PromptRowItem> line;
+
+    if root.line.buttons.length == 0: Text {
+        overflow: elide;
+        text: root.line.text;
+        color: Theme.foreground;
+        font-size: Theme.font-normal;
+        wrap: word-wrap;
+    }
+    if root.line.buttons.length > 0: HorizontalLayout {
+        spacing: Theme.spacing;
+        for button in root.line.buttons: PromptButton {
+            item: button;
+        }
+    }
+}
+
+export component MacroPrompt inherits Scrim {
+    // Room left beside the panel (both sides together) and above/below it.
+    property <length> side-margin: 40px;
+    property <length> vertical-margin: 2 * Theme.spacing-large;
+    property <length> panel-max-width: 560px;
+    // The body starts at the top of its list and is as wide as the list less its scroll bar (36 px and a gap).
+    property <length> bar-reserve: 40px;
+    property <length> footer-button-width: 140px;
+    property <bool> has-footer: PromptDialog.footer.length > 0;
+    property <length> panel-width: min(root.width - root.side-margin, root.panel-max-width);
+    // The panel is as high as its content, up to the content area; a longer body scrolls.
+    property <length> wanted-height: 2 * Theme.dialog-padding + Theme.touch + Theme.spacing + body.content-height
+        + (root.has-footer ? Theme.spacing + Theme.touch-wide : 0px);
+
+    visible: PromptDialog.open;
+
+    DialogPanel {
+        width: root.panel-width;
+        height: min(parent.height - root.vertical-margin, root.wanted-height);
+
+        VerticalLayout {
+            padding: Theme.dialog-padding;
+            spacing: Theme.spacing;
+            DialogHeader {
+                title: PromptDialog.title;
+                close => { Actions.close-prompt(); }
+            }
+
+            body := ScrollList {
+                vertical-stretch: 1;
+                content-height: content.preferred-height;
+                content := VerticalLayout {
+                    x: 0;
+                    y: 0;
+                    width: root.panel-width - 2 * Theme.dialog-padding - root.bar-reserve;
+                    spacing: Theme.spacing;
+                    for line in PromptDialog.rows: PromptRow {
+                        line: line;
+                    }
+                }
+            }
+
+            if root.has-footer: HorizontalLayout {
+                height: Theme.touch-wide;
+                spacing: Theme.spacing;
+                alignment: end;
+                for button in PromptDialog.footer: PromptButton {
+                    item: button;
+                    horizontal-stretch: 0;
+                    min-width: root.footer-button-width;
+                }
+            }
+        }
+    }
+}

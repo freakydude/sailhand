@@ -2,7 +2,8 @@
 # Renders the pages of the Slint UI headless as PNG against a freshly started fake Moonraker.
 # Usage (repo root): scripts/ui-snapshot.sh [-o <folder>] [-p voron] [-s 800x480] [-F] [-S pages,network] [-P 7126]
 #                    [-X "--round-bed --no-history"]
-# -X: further options for the fake, space separated (see fake-moonraker --help).
+# -X: further options for the fake, space separated (see fake-moonraker --help). With --long-names the scenes' checks
+#     of known texts fail; every scene still runs (--keep-going) and the failures are listed.
 # -P: port of its own fake; 7126 by default, so a fake on Moonraker's 7125 (the debug setup) is left alone.
 # -F: no fit; the window of the given size without scaling the layout to 800x480 (as a desktop window; at least
 #     800x480). Without -F the layout is fitted to the size like the app does in fullscreen.
@@ -28,7 +29,7 @@ while getopts "o:p:s:S:P:X:Fh" option; do
         P) port=$OPTARG ;;
         F) fit_flag=(--no-fit) ;;
         X) read -r -a extra_fake_arguments <<< "$OPTARG" ;;
-        *) sed -n '2,10p' "$0"; exit 2 ;;
+        *) sed -n '2,11p' "$0"; exit 2 ;;
     esac
 done
 
@@ -63,5 +64,8 @@ done
 arguments=(--moonraker "http://127.0.0.1:$port" --out "$out_dir" --size "$size" ${fit_flag[@]+"${fit_flag[@]}"})
 if [[ -n $scenes ]]; then
     arguments+=(--scenes "$scenes")
+fi
+if [[ " ${extra_fake_arguments[*]} " == *" --long-names "* ]]; then
+    arguments+=(--keep-going)
 fi
 target/debug/ui-snapshot "${arguments[@]}"

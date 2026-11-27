@@ -7,10 +7,17 @@ mod quantity;
 use chrono::{DateTime, Local, TimeZone};
 use duration::{MINUTE, SECOND, duration_in};
 use quantity::{Fit, LENGTH, WEIGHT, fixed, quantity, quantity_pair};
+use sailhand_core::domain::temperature_limits::BarReading;
 
 /// Print times and estimates to the second: `45 s`, `12 min 05 s`, `2 h 07 min`, `1 d 03 h`.
 pub fn duration(seconds: f64) -> String {
     duration_in(seconds, &SECOND)
+}
+
+/// Time left of the running print, on the print page and in the status bar: `45 s`, `12 min`, `2 h 07 min`,
+/// `1 d 03 h`; seconds only in the last minute (Frank, 2026-11-27).
+pub fn countdown(seconds: f64) -> String {
+    duration::countdown(seconds)
 }
 
 /// Whole minutes, for the time axis of a chart (`5 min`, `1 h 30 min`).
@@ -109,6 +116,15 @@ pub fn degrees(celsius: f64) -> String {
     format!("{celsius:.0}°")
 }
 
+/// A temperature of the status bar in whole degrees: the reading, with the target while it is outside the control
+/// window (`150° / 215°`).
+pub fn bar_temperature(reading: &BarReading) -> String {
+    match reading.target {
+        Some(target) => format!("{} / {}", degrees(reading.temperature), degrees(target)),
+        None => degrees(reading.temperature),
+    }
+}
+
 pub fn clock(time: DateTime<Local>) -> String {
     time.format("%H:%M").to_string()
 }
@@ -189,6 +205,13 @@ mod tests {
         assert!(lines.lines().all(|line| line.split(':').count() == 8));
         assert_eq!(lines.replace('\n', ":"), sample_fingerprint());
         assert_eq!(lines.lines().next(), Some("03:0A:11:18:1F:26:2D:34"));
+    }
+
+    #[test]
+    fn the_bar_shows_a_target_only_when_the_core_hands_one() {
+        let reading = |temperature, target| BarReading { temperature, target, regulating: true };
+        assert_eq!(bar_temperature(&reading(214.6, None)), "215°");
+        assert_eq!(bar_temperature(&reading(150.2, Some(215.0))), "150° / 215°");
     }
 
     #[test]

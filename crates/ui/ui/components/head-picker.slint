@@ -74,6 +74,7 @@ component HeadRow inherits Rectangle {
             overflow: elide;
         }
         Text {
+            overflow: elide;
             width: 56px;
             text: root.head.has-nozzle ? Units.degrees(root.head.temperature) : "";
             color: Theme.muted;
@@ -163,6 +164,7 @@ export component HeadPicker inherits Scrim {
                 title: @tr("Heads");
                 close => { root.close(); }
                 if root.blocked != "": Text {
+                    overflow: elide;
                     text: root.blocked;
                     color: Theme.muted;
                     font-size: Theme.font-small;

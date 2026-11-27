@@ -150,6 +150,7 @@ component ToolsHeader inherits HorizontalLayout {
     spacing: Theme.spacing;
     height: Theme.touch;
     if Printer.mmu-match-file == "": Text {
+        overflow: elide;
         horizontal-stretch: 1;
         text: @tr("Tool-to-gate map");
         color: Theme.muted;
@@ -164,6 +165,7 @@ component ToolsHeader inherits HorizontalLayout {
             verdict: Printer.mmu-match-verdict;
         }
         Text {
+            overflow: elide;
             text: Printer.mmu-match-summary;
             color: Printer.mmu-match-verdict == "differs" ? StateIcons.severity-color(Severity.attention) : Theme.foreground;
             font-size: Theme.font-label;
@@ -307,6 +309,7 @@ export component EndlessSpoolDialog inherits Scrim {
                 toggled => { Actions.mmu-set-endless-spool(!Printer.mmu-endless-spool); }
             }
             Text {
+                overflow: elide;
                 text: Printer.mmu-endless-spool ? @tr("Instead of pausing, Happy Hare continues with the next gate of the same group.") : @tr("Instead of pausing, Happy Hare continues with the next gate of the same group. The groups show when it is on.");
                 color: Theme.muted;
                 font-size: Theme.font-small;
@@ -456,6 +459,7 @@ export component ToolDialog inherits Scrim {
                 source-title: root.mapping.gate >= 0 ? @tr("Gate {}", root.mapping.gate) : "";
             }
             if Printer.mmu-match-file == "" && root.mapping.gate >= 0: Text {
+                overflow: elide;
                 text: @tr("Gate {} holds", root.mapping.gate);
                 color: Theme.muted;
                 font-size: Theme.font-small;
@@ -533,6 +537,7 @@ component GateChoice inherits FilamentLine {
             border-width: root.gate.tools == "" ? 1px : 0px;
             border-color: Theme.muted;
             tools-text := Text {
+                overflow: elide;
                 text: root.gate.tools == "" ? @tr("free") : root.gate.tools;
                 color: root.gate.tools == "" ? Theme.muted : Theme.foreground;
                 font-size: Theme.font-small;
@@ -571,6 +576,7 @@ export component ToolGateDialog inherits Scrim {
                     width: 270px;
                     spacing: Theme.spacing-medium;
                     if root.mapping.used: Text {
+                        overflow: elide;
                         text: @tr("The file wants");
                         color: Theme.muted;
                         font-size: Theme.font-small;
@@ -579,6 +585,7 @@ export component ToolGateDialog inherits Scrim {
                         mapping: root.mapping;
                     }
                     if root.mapping.gate >= 0: Text {
+                        overflow: elide;
                         text: @tr("Gate {} holds", root.mapping.gate);
                         color: Theme.muted;
                         font-size: Theme.font-small;

@@ -4,7 +4,7 @@
 
 use super::pages::prepared_job;
 use crate::session::Session;
-use sailhand::{ChangerTab, Confirm, FilamentTab, HeatTab, Navigation, Page, Printer, SpoolPicker};
+use sailhand::{ChangerTab, FilamentTab, HeatTab, Navigation, Page, Printer, SpoolPicker};
 use sailhand_core::Command;
 use slint::ComponentHandle;
 use slint::Model;
@@ -15,7 +15,7 @@ use std::time::Duration;
 const HEAD_CHIP: (f32, f32) = (712.0, 90.0);
 const PICKER_ROW_T2: (f32, f32) = (300.0, 280.0);
 const PICKER_BUTTON_T2: (f32, f32) = (690.0, 280.0);
-/// The button of the hint in the tab row (Initialize, Recover).
+/// The hint in the tab row: its Initialize button, or the hint itself, which leads to the Service tab on an error.
 const NOTE_BUTTON: (f32, f32) = (550.0, 80.0);
 
 /// Without a tool changer or without Spoolman the scene is skipped.
@@ -197,10 +197,16 @@ fn head_level(session: &mut Session) -> Result<(), String> {
             // `initialize_on: first-use`: nothing to tell, the next selection initializes by itself.
             break;
         }
+        // The error hint leads to the Service tab, where Recover is; that place lights up for a moment.
         if state == "error" && reference {
             session.tap(NOTE_BUTTON.0, NOTE_BUTTON.1);
-            session.capture("toolchanger-recover-confirm")?;
-            session.window.global::<Confirm>().set_open(false);
+            // With the 200 ms of `capture` the picture falls on the peak of the second pulse (`Highlight`).
+            session.pump(Duration::from_millis(600));
+            session.capture("toolchanger-error-jump")?;
+            if session.window.global::<Navigation>().get_page() != Page::Changer {
+                return Err("the error hint should lead to the Changer page".into());
+            }
+            session.window.global::<Navigation>().set_page(Page::Filament);
         }
     }
     if reference && !session.window.global::<Printer>().get_changer_note().is_empty() {

@@ -1,0 +1,22 @@
+// Preview: the dialog of a macro prompt (the example of issue 243). Open in the Slint preview or render with scripts/ui-preview.sh.
+
+import { AppWindow } from "../app.slint";
+import { Navigation, Page, PromptDialog } from "../state.slint";
+import { PromptStyle } from "../structs.slint";
+import { Sample } from "sample.slint";
+
+export component PromptDialogPreview inherits AppWindow {
+    init => {
+        Sample.ready-printer();
+        Navigation.page = Page.print;
+        PromptDialog.title = "Is the bed empty?";
+        PromptDialog.rows = [
+            { text: "Homing Z raises the bed to the top. Anything on it gets crushed against the head.", buttons: [] },
+        ];
+        PromptDialog.footer = [
+            { label: "NO", gcode: "BED_CLEAR CANCEL=1", style: PromptStyle.secondary },
+            { label: "YES, EMPTY", gcode: "BED_CLEAR", style: PromptStyle.primary },
+        ];
+        PromptDialog.open = true;
+    }
+}

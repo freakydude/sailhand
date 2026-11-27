@@ -15,6 +15,7 @@ component Moment inherits VerticalLayout {
     }
 
     Text {
+        overflow: elide;
         text: Math.round(root.phase * 100) + " %";
         color: Theme.muted;
         font-size: Theme.font-small;
@@ -97,6 +98,7 @@ export component BusyWheelPreview inherits Window {
                 }
 
                 Text {
+                    overflow: elide;
                     text: "QUAD_GANTRY_LEVEL …";
                     color: Theme.foreground;
                     font-size: Theme.font-normal;

@@ -158,6 +158,7 @@ component AdaptersCard inherits Card {
         }
     }
     if Network.adapters.length == 0: Text {
+        overflow: elide;
         text: @tr("No network adapter.");
         color: Theme.muted;
         font-size: Theme.font-small;
@@ -223,11 +224,13 @@ component WifiCard inherits Card {
         }
     }
     if !Network.wifi-enabled: Text {
+        overflow: elide;
         text: @tr("Wi-Fi is switched off");
         color: Theme.muted;
         font-size: Theme.font-small;
     }
     if Network.wifi-enabled && Network.networks.length == 0: Text {
+        overflow: elide;
         text: @tr("No networks found.");
         color: Theme.muted;
         font-size: Theme.font-small;
@@ -242,6 +245,7 @@ component FactRow inherits HorizontalLayout {
     visible: root.value != "";
     spacing: Theme.spacing;
     Text {
+        overflow: elide;
         width: root.label-width;
         text: root.label;
         color: Theme.muted;
@@ -323,6 +327,7 @@ component HostNetworkCard inherits Card {
     HorizontalLayout {
         spacing: Theme.spacing;
         Text {
+            overflow: elide;
             text: Network.local
                 ? @tr("Wi-Fi and Ethernet can only be changed with NetworkManager on Linux: {}", Network.unavailable-reason)
                 : @tr("Sailhand runs on another computer than Moonraker, so the network can only be viewed here. Change it on the printer's own display or via SSH.");
@@ -355,6 +360,7 @@ component HostNetworkCard inherits Card {
             overflow: elide;
         }
         Text {
+            overflow: elide;
             text: interface.mac;
             color: Theme.muted;
             font-size: Theme.font-small;
@@ -362,6 +368,7 @@ component HostNetworkCard inherits Card {
         }
     }
     if Network.host-interfaces.length == 0: Text {
+        overflow: elide;
         text: Printer.is-connected ? @tr("Moonraker reports no network interfaces.") : @tr("Not connected to Moonraker.");
         color: Theme.muted;
         font-size: Theme.font-small;
