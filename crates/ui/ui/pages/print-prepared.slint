@@ -45,6 +45,7 @@ component ToolChip inherits Rectangle {
             }
         }
         Text {
+            overflow: elide;
             text: "T" + root.mapping.tool;
             color: Theme.foreground;
             font-size: Theme.font-normal;
@@ -244,6 +245,7 @@ component ExtruderMatchCard inherits Card {
             verdict: root.first.verdict;
         }
         Text {
+            overflow: elide;
             horizontal-stretch: 1;
             text: root.first.verdict == "fits" ? @tr("The spool fits the file") : @tr("The spool differs from the file");
             color: root.first.verdict == "fits" ? Theme.foreground : StateIcons.severity-color(Severity.attention);
@@ -302,6 +304,7 @@ export component PreparedJob inherits VerticalLayout {
             verdict: "differs";
         }
         Text {
+            overflow: elide;
             horizontal-stretch: 1;
             text: hint;
             color: StateIcons.severity-color(Severity.attention);

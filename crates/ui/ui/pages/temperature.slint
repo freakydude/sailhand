@@ -71,12 +71,14 @@ component HeaterRow inherits Rectangle {
             HorizontalLayout {
                 spacing: Theme.spacing;
                 Text {
+                    overflow: elide;
                     text: Units.temperature(root.heater.temperature, 1);
                     color: StateIcons.severity-color(root.heater.scale.level);
                     font-size: Theme.font-large;
                     font-weight: 600;
                 }
                 if root.heater.scale.shown: Text {
+                    overflow: elide;
                     horizontal-stretch: 1;
                     text: root.heater.scale.max-text;
                     color: Theme.muted;
@@ -103,12 +105,14 @@ component HeaterRow inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 Text {
+                    overflow: elide;
                     text: @tr("Target");
                     color: Theme.muted;
                     font-size: Theme.font-small;
                     horizontal-alignment: center;
                 }
                 Text {
+                    overflow: elide;
                     text: root.heater.target > 0 ? Units.temperature(root.heater.target, 0) : @tr("Off");
                     color: root.heater.target > 0 ? Theme.accent : Theme.muted;
                     font-size: Theme.font-large;
@@ -196,6 +200,7 @@ component FanRow inherits Rectangle {
             bar-color: Theme.accent;
         }
         if !root.fan.controllable: Text {
+            overflow: elide;
             width: 64px;
             text: @tr("Auto");
             color: Theme.muted;
@@ -328,6 +333,7 @@ component SensorsTab inherits Rectangle {
                 HorizontalLayout {
                     spacing: Theme.spacing;
                     Text {
+                        overflow: elide;
                         text: sensor.known ? Units.temperature(sensor.temperature, 1) : "-";
                         color: sensor.known ? StateIcons.severity-color(sensor.scale.level) : Theme.muted;
                         font-size: Theme.font-large;

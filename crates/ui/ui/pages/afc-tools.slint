@@ -70,6 +70,7 @@ export component AfcToolsTab inherits Rectangle {
             spacing: Theme.spacing;
             height: Theme.touch;
             Text {
+                overflow: elide;
                 horizontal-stretch: 1;
                 text: @tr("Tool-to-lane map");
                 color: Theme.muted;
@@ -132,6 +133,7 @@ component LaneChoice inherits FilamentLine {
             border-width: root.tile.tools == "" ? 1px : 0px;
             border-color: Theme.muted;
             tools-text := Text {
+                overflow: elide;
                 text: root.tile.tools == "" ? @tr("free") : root.tile.tools;
                 color: root.tile.tools == "" ? Theme.muted : Theme.foreground;
                 font-size: Theme.font-small;

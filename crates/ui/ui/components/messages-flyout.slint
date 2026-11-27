@@ -8,6 +8,7 @@ import { FlyoutPanel, IconButton, ScrollList } from "controls.slint";
 import { DialogHeader } from "dialog.slint";
 
 component SectionHeading inherits Text {
+    overflow: elide;
     color: Theme.muted;
     font-size: Theme.font-small;
     font-weight: 600;
@@ -98,6 +99,7 @@ export component MessagesFlyout inherits Rectangle {
                             overflow: elide;
                         }
                         Text {
+                            overflow: elide;
                             height: root.line-band;
                             text: message.standing ? @tr("since {}", message.time) : message.time;
                             color: Theme.muted;

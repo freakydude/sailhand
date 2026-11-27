@@ -58,7 +58,7 @@ pub fn job_texts(
         name: if job.filename.is_empty() { String::new() } else { format::job_name(&job.filename) },
         elapsed: if job.filename.is_empty() { NO_VALUE.to_owned() } else { format::duration(job.print_duration) },
         total: if job.filename.is_empty() { NO_VALUE.to_owned() } else { format::duration(job.total_duration) },
-        remaining: remaining.map_or_else(|| NO_VALUE.to_owned(), |left| show_running_time(left, format::duration)),
+        remaining: remaining.map_or_else(|| NO_VALUE.to_owned(), |left| show_running_time(left, format::countdown)),
         eta: remaining.map_or_else(
             || NO_VALUE.to_owned(),
             |left| show_running_time(left, |seconds| format::finish_time(now, seconds)),
@@ -653,7 +653,7 @@ mod tests {
 
         assert_eq!(texts.name, "cube");
         assert_eq!(texts.elapsed, "6 min 00 s");
-        assert_eq!(texts.remaining, "54 min 00 s");
+        assert_eq!(texts.remaining, "54 min");
         assert_eq!(texts.eta, "12:54");
         assert_eq!(texts.layers, "3 / ~100");
         assert_eq!(texts.filament, "1.0 / 5.0 m");
@@ -672,7 +672,7 @@ mod tests {
 
         let texts = job_texts(&job, Some(&metadata("a.gcode")), Some(&last_print), None, now());
 
-        assert_eq!(texts.remaining, "1 h 03 min");
+        assert_eq!(texts.remaining, "1:03 h");
         assert!(!texts.eta.starts_with('~'), "{}", texts.eta);
         assert_eq!(texts.expectation_origin, Some(estimates::ORIGIN_LAST_PRINT));
     }
@@ -689,7 +689,7 @@ mod tests {
 
         let texts = job_texts(&job, None, None, None, now());
 
-        assert_eq!(texts.remaining, "30 min 00 s");
+        assert_eq!(texts.remaining, "30 min");
         assert_eq!(texts.layers, "-");
         assert_eq!(texts.expectation_origin, Some(estimates::ORIGIN_PACE_ONLY));
     }

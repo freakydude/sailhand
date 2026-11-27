@@ -256,6 +256,7 @@ export component NumberEntryDialog inherits Scrim {
                             }
                         }
                         if root.unit != "": Text {
+                            overflow: elide;
                             text: root.unit;
                             color: Theme.muted;
                             font-size: Theme.font-large;
@@ -264,6 +265,7 @@ export component NumberEntryDialog inherits Scrim {
                     }
                 }
                 if root.hint != "" && !root.hint-warning && !root.show-refusal: Text {
+                    overflow: elide;
                     text: root.hint;
                     color: Theme.muted;
                     font-size: Theme.font-small;

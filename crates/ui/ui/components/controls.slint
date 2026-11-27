@@ -7,9 +7,18 @@ import { Severity } from "../structs.slint";
 
 // Small explanatory text in the muted colour.
 export component Note inherits Text {
+    overflow: elide;
     color: Theme.muted;
     font-size: Theme.font-small;
     wrap: word-wrap;
+}
+
+// Wrapped text, centred in its height while it fits. Once it needs more lines than fit, it starts at the top so the
+// "…" falls at its end: Slint 1.19 centres the whole block and would cut a line from the middle.
+export component WrapText inherits Text {
+    wrap: word-wrap;
+    overflow: elide;
+    vertical-alignment: self.preferred-height > self.height ? TextVerticalAlignment.top : TextVerticalAlignment.center;
 }
 
 // What a button stands for: a plain action, the confirming action (accent) or a dangerous one.
@@ -197,7 +206,10 @@ export component StepSelector inherits HorizontalLayout {
     spacing: Theme.spacing-small;
     alignment: center;
 
+    // Label and values are short and known: they keep their width, the row is laid out for six steps.
     if root.label != "": Text {
+        overflow: elide;
+        min-width: self.preferred-width;
         text: root.label;
         color: Theme.muted;
         font-size: Theme.font-small;
@@ -226,6 +238,8 @@ export component StepSelector inherits HorizontalLayout {
             padding-left: Theme.padding;
             padding-right: Theme.padding;
             Text {
+                overflow: elide;
+                min-width: self.preferred-width;
                 text: root.unit != "" ? value + " " + root.unit : value;
                 color: value <= root.max-enabled ? Theme.foreground : Theme.disabled-foreground;
                 font-size: Theme.font-small;
@@ -293,6 +307,7 @@ export component TabButton inherits Rectangle {
                 border-radius: self.height / 2;
                 background: Theme.accent;
                 count-text := Text {
+                    overflow: elide;
                     text: root.count;
                     color: Theme.on-accent;
                     font-size: Theme.font-small;
@@ -484,10 +499,13 @@ export component ValueTile inherits Rectangle {
             Image {
                 source: root.action-icon;
                 colorize: root.action-note != "" ? Theme.accent : Theme.muted;
-                width: Theme.icon-small;
+                // Fixed only in height: a fixed width would cap the column, and the note under it would elide.
+                min-width: Theme.icon-small;
                 height: Theme.icon-small;
+                image-fit: contain;
             }
             if root.action-note != "": Text {
+                overflow: elide;
                 text: root.action-note;
                 color: Theme.accent;
                 font-size: Theme.font-small;
@@ -699,6 +717,7 @@ export component TextWithValue inherits HorizontalLayout {
         overflow: elide;
     }
     if root.value != "": Text {
+        overflow: elide;
         min-width: self.preferred-width;
         text: (root.text != "" ? root.separator : "") + root.value;
         color: root.value-color;
@@ -767,6 +786,7 @@ export component SliderRow inherits Rectangle {
             width: 170px;
             Text { text: root.label; color: Theme.muted; font-size: Theme.font-small; overflow: elide; }
             Text {
+                overflow: elide;
                 text: root.value-text;
                 color: Theme.foreground;
                 font-size: Theme.font-normal;

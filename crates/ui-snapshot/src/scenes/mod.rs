@@ -1,10 +1,11 @@
 //! The run, split into scenes that can be chosen on the command line.
 
 use crate::session::Session;
-use sailhand::Confirm;
+use sailhand::{Actions, Confirm, SpoolPicker};
 use sailhand_core::sources::klipper::KlippyState;
 use sailhand_core::{Command, ConnectionState, Query};
 use slint::ComponentHandle;
+use std::time::Duration;
 
 mod bed_mesh_dense;
 mod calibrate;
@@ -152,8 +153,8 @@ impl Scene {
 }
 
 /// Connects (logging in first for the scene `login`), homes and loads host data, then runs the chosen scenes in their
-/// fixed order.
-pub fn run(session: &mut Session, chosen: &[Scene]) -> Result<(), String> {
+/// fixed order. With `keep_going` a failing scene is reported and the next one runs; the run still fails at the end.
+pub fn run(session: &mut Session, chosen: &[Scene], keep_going: bool) -> Result<(), String> {
     session.capture("connecting")?;
     if chosen.contains(&Scene::Login) {
         log_in(session)?;
@@ -169,10 +170,26 @@ pub fn run(session: &mut Session, chosen: &[Scene]) -> Result<(), String> {
     session.service.send(Command::RunGcode { script: "HELP".into() });
     session.wait_until("homing", |snapshot| snapshot.status.motion.homed.all())?;
 
+    let mut failed = Vec::new();
     for scene in Scene::ALL.into_iter().filter(|scene| chosen.contains(scene)) {
-        scene.run(session)?;
+        match scene.run(session) {
+            Err(error) if keep_going => {
+                eprintln!("ui-snapshot: scene {scene:?} failed: {error}");
+                failed.push(format!("{scene:?}"));
+                close_dialogs(session);
+            }
+            result => result?,
+        }
     }
-    Ok(())
+    if failed.is_empty() { Ok(()) } else { Err(format!("failed scenes: {}", failed.join(", "))) }
+}
+
+/// What a failed scene left open would cover the next scenes.
+fn close_dialogs(session: &mut Session) {
+    session.window.global::<Actions>().invoke_close_prompt();
+    session.window.global::<Confirm>().set_open(false);
+    session.window.global::<SpoolPicker>().set_open(false);
+    session.pump(Duration::from_millis(600));
 }
 
 /// The light symbol of the status bar (800x480, no fitting).

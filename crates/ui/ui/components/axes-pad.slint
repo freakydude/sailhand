@@ -8,6 +8,7 @@ import { Units } from "../units.slint";
 import { Icons } from "../icons.slint";
 import { Actions, AxisEntryItem, Printer, UiSettings } from "../state.slint";
 import { NumberEntryDialog } from "entry-dialogs.slint";
+import { WrapText } from "controls.slint";
 
 // Two chips like those of the StepSelector: Buttons | Live.
 export component ModeSwitch inherits HorizontalLayout {
@@ -41,6 +42,7 @@ export component ModeSwitch inherits HorizontalLayout {
                 cross-axis-self-alignment: center;
             }
             Text {
+                overflow: elide;
                 text: label;
                 color: Theme.foreground;
                 font-size: Theme.font-small;
@@ -178,6 +180,7 @@ component XyPad inherits Rectangle {
         }
 
         if root.enabled && !touch.pressed: Text {
+            overflow: elide;
             y: parent.height - self.height - Theme.padding;
             width: parent.width;
             text: @tr("Touch and drag: direction and speed");
@@ -186,6 +189,7 @@ component XyPad inherits Rectangle {
             horizontal-alignment: center;
         }
         if !root.enabled: Text {
+            overflow: elide;
             width: parent.width;
             height: parent.height;
             text: @tr("Home X and Y first");
@@ -215,6 +219,7 @@ component XyPad inherits Rectangle {
         height: root.marker;
     }
     if root.enabled: Text {
+        overflow: elide;
         x: root.pad-x + clamp(root.head-x - self.width / 2, 0px, root.pad-width - self.width);
         y: root.pad-height + root.ruler-gap + root.marker + 1px;
         width: root.x-label-width;
@@ -240,6 +245,7 @@ component XyPad inherits Rectangle {
         height: self.preferred-height;
         width: root.y-ruler-width - root.ruler-gap - root.marker - Theme.spacing-small;
         Text {
+            overflow: elide;
             text: "Y";
             color: Theme.muted;
             font-size: Theme.font-small;
@@ -247,6 +253,7 @@ component XyPad inherits Rectangle {
             horizontal-alignment: right;
         }
         Text {
+            overflow: elide;
             text: Printer.position-y.to-fixed(1);
             color: Theme.foreground;
             font-size: Theme.font-label;
@@ -326,6 +333,7 @@ component ZPad inherits Rectangle {
             background: Theme.accent;
         }
         if root.enabled && !touch.pressed: Text {
+            overflow: elide;
             width: parent.width;
             height: parent.height;
             text: @tr("Touch and drag");
@@ -334,15 +342,13 @@ component ZPad inherits Rectangle {
             horizontal-alignment: center;
             vertical-alignment: center;
         }
-        if !root.enabled: Text {
+        if !root.enabled: WrapText {
             width: parent.width;
             height: parent.height;
             text: @tr("Home Z first");
             color: Theme.muted;
             font-size: Theme.font-small;
             horizontal-alignment: center;
-            vertical-alignment: center;
-            wrap: word-wrap;
         }
 
         DragMarks {
@@ -387,12 +393,14 @@ component ZPad inherits Rectangle {
         y: clamp(root.head-z - self.height / 2, 0px, root.pad-height - self.height);
         height: self.preferred-height;
         Text {
+            overflow: elide;
             text: "Z";
             color: Theme.muted;
             font-size: Theme.font-small;
             font-weight: 700;
         }
         Text {
+            overflow: elide;
             text: Printer.position-z.to-fixed(2);
             color: Theme.foreground;
             font-size: Theme.font-label;

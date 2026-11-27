@@ -64,6 +64,7 @@ component PromptRow inherits VerticalLayout {
     in property <PromptRowItem> line;
 
     if root.line.buttons.length == 0: Text {
+        overflow: elide;
         text: root.line.text;
         color: Theme.foreground;
         font-size: Theme.font-normal;

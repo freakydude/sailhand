@@ -12,6 +12,7 @@ const DEFAULT_MMU_GATES: usize = 4;
 const USAGE: &str = "Usage: fake-moonraker [--port <port>] [--time-scale <factor>] \
     [--profile basic|voron|happy-hare|ercf|happy-hare-encoder|happy-hare-co|happy-hare-to|toolchanger|toolchanger-required|happy-hare-units|toolchanger-mmu|afc|afc-toolchanger] \
     [--gates <1-16>, only for the Happy Hare profiles] [--auth <user>:<password>] [--tls] [--no-history] [--no-gcode-help] [--round-bed] \
+    [--long-names, long but realistic names and texts, with every profile] \
     [--spoolman-mode off|readonly|push|pull, only for the Happy Hare profiles] \
     [--no-spoolman, only for the profiles afc, afc-toolchanger, toolchanger and toolchanger-required]";
 
@@ -43,6 +44,7 @@ struct Options {
     round_bed: bool,
     spoolman_mode: Option<SpoolmanMode>,
     no_spoolman: bool,
+    long_names: bool,
 }
 
 impl Options {
@@ -51,6 +53,7 @@ impl Options {
         let profile = if self.no_history { profile.without_history() } else { profile };
         let profile = if self.no_gcode_help { profile.without_gcode_help() } else { profile };
         let profile = if self.round_bed { profile.with_round_bed() } else { profile };
+        let profile = if self.long_names { profile.with_long_names() } else { profile };
         let profile = match self.spoolman_mode {
             Some(mode) => profile.with_spoolman_mode(mode)?,
             None => profile,
@@ -90,6 +93,7 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
         round_bed: false,
         spoolman_mode: None,
         no_spoolman: false,
+        long_names: false,
     };
 
     while let Some(flag) = args.next() {
@@ -112,6 +116,10 @@ fn parse_options(mut args: impl Iterator<Item = String>) -> Result<Options, Stri
             }
             "--no-spoolman" => {
                 options.no_spoolman = true;
+                continue;
+            }
+            "--long-names" => {
+                options.long_names = true;
                 continue;
             }
             _ => {}

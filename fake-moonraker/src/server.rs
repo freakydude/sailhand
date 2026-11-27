@@ -143,6 +143,7 @@ async fn thumbnail(
     if !state.backend.access().allows_download(query.get("token").map(String::as_str), api_key) {
         return StatusCode::UNAUTHORIZED.into_response();
     }
+    let path = state.backend.names().path_to_short(&path);
     match state.backend.catalog().thumbnail(&path) {
         Some(image) => ([(header::CONTENT_TYPE, image.content_type())], image.into_bytes()).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),

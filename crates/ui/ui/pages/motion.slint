@@ -34,6 +34,7 @@ component AxisValue inherits Rectangle {
         padding-right: Theme.spacing-small;
         spacing: Theme.spacing-small;
         Text {
+            overflow: elide;
             text: root.axis;
             color: StateIcons.ok-color(root.homed, Theme.muted);
             font-size: Theme.font-normal;
@@ -41,6 +42,7 @@ component AxisValue inherits Rectangle {
             vertical-alignment: center;
         }
         Text {
+            overflow: elide;
             text: root.homed ? root.value.to-fixed(2) : "?";
             color: Theme.foreground;
             font-size: Theme.font-large;

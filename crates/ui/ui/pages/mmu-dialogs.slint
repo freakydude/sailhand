@@ -195,12 +195,14 @@ export component GateDialog inherits Scrim {
                 height: self.has-sensors ? Theme.font-small * 1.6 : 0px;
                 visible: self.has-sensors;
                 if root.item.entry-sensor != "": Text {
+                    overflow: elide;
                     text: @tr("Entry sensor: {}", MmuTexts.sensor(root.item.entry-sensor));
                     color: Theme.muted;
                     font-size: Theme.font-small;
                     vertical-alignment: center;
                 }
                 if root.item.exit-sensor != "": Text {
+                    overflow: elide;
                     text: @tr("Exit sensor: {}", MmuTexts.sensor(root.item.exit-sensor));
                     color: Theme.muted;
                     font-size: Theme.font-small;
@@ -223,6 +225,7 @@ export component GateDialog inherits Scrim {
 
             // What moves filament waits for the end of the print; the settings below stay.
             if Printer.motion-locked: Text {
+                overflow: elide;
                 text: @tr("Not while printing");
                 color: Theme.muted;
                 font-size: Theme.font-small;
@@ -357,12 +360,14 @@ export component BypassDialog inherits Scrim {
                 close => { root.close(); }
             }
             Text {
+                overflow: elide;
                 text: @tr("Filament fed by hand past the gates, straight to the extruder. Load pulls it in once it is pushed into the bypass.");
                 color: Theme.muted;
                 font-size: Theme.font-small;
                 wrap: word-wrap;
             }
             if Printer.motion-locked: Text {
+                overflow: elide;
                 text: @tr("Not while printing");
                 color: Theme.muted;
                 font-size: Theme.font-small;

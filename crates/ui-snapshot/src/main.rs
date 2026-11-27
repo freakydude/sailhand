@@ -1,7 +1,8 @@
 //! Development tool: renders the sailhand UI headless (software renderer, no window, no GPU)
 //! against a running (fake) Moonraker and writes one PNG per view.
 //!
-//! `cargo run -p ui-snapshot -- [--moonraker <url>] [--out <folder>] [--size 800x480] [--no-fit] [--scenes pages,network|all]`
+//! `cargo run -p ui-snapshot -- [--moonraker <url>] [--out <folder>] [--size 800x480] [--no-fit] [--scenes pages,network|all]
+//! [--keep-going]`
 
 mod scenes;
 mod session;
@@ -20,6 +21,8 @@ struct Options {
     /// Scales the layout to the size like the app does; off shows the plain window of that size.
     fit: bool,
     scenes: Vec<Scene>,
+    /// Reports a failing scene and runs the others (long names from the fake fail the checks for known texts).
+    keep_going: bool,
 }
 
 fn parse_options() -> Result<Options, String> {
@@ -30,11 +33,16 @@ fn parse_options() -> Result<Options, String> {
         height: 480,
         fit: true,
         scenes: Scene::DEFAULT.to_vec(),
+        keep_going: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         if flag == "--no-fit" {
             options.fit = false;
+            continue;
+        }
+        if flag == "--keep-going" {
+            options.keep_going = true;
             continue;
         }
         let value = args.next().ok_or_else(|| format!("missing value for {flag}"))?;
@@ -68,8 +76,9 @@ fn check_unfitted_size(options: &Options) -> Result<(), String> {
 fn run() -> Result<(), String> {
     let options = parse_options()?;
     let scenes = options.scenes.clone();
+    let keep_going = options.keep_going;
     let mut session = Session::start(options)?;
-    scenes::run(&mut session, &scenes)
+    scenes::run(&mut session, &scenes, keep_going)
 }
 
 fn main() -> ExitCode {
@@ -87,7 +96,15 @@ mod tests {
     use super::*;
 
     fn options(width: u32, height: u32, fit: bool) -> Options {
-        Options { moonraker: String::new(), out: PathBuf::new(), width, height, fit, scenes: Vec::new() }
+        Options {
+            moonraker: String::new(),
+            out: PathBuf::new(),
+            width,
+            height,
+            fit,
+            scenes: Vec::new(),
+            keep_going: false,
+        }
     }
 
     #[test]

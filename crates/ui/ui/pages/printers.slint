@@ -3,7 +3,7 @@
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { Confirm, Printer, PrinterChoice, PrinterItem } from "../state.slint";
-import { Card, IconButton, ListRow, ScrollList, TextWithValue } from "../components/controls.slint";
+import { Card, IconButton, ListRow, ScrollList, TextWithValue, WrapText } from "../components/controls.slint";
 import { TextEntryDialog } from "../components/entry-dialogs.slint";
 import { SystemTabs } from "../components/system-tabs.slint";
 
@@ -76,13 +76,11 @@ component PrintersCard inherits Card {
     HorizontalLayout {
         spacing: Theme.spacing;
         height: Theme.touch;
-        Text {
+        WrapText {
             horizontal-stretch: 1;
-            vertical-alignment: center;
             text: @tr("Printers announce themselves when [zeroconf] is in moonraker.conf.");
             color: Theme.muted;
             font-size: Theme.font-small;
-            wrap: word-wrap;
         }
         IconButton {
             icon: Icons.ui-plus;

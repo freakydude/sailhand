@@ -39,6 +39,7 @@ export component ConnectionPage inherits Rectangle {
                 }
             }
             Text {
+                overflow: elide;
                 text: root.login-required ? @tr("Moonraker wants a login")
                     : root.untrusted ? (root.changed ? @tr("Certificate has changed") : @tr("Certificate not trusted"))
                     : !root.connected
@@ -53,12 +54,14 @@ export component ConnectionPage inherits Rectangle {
                 wrap: word-wrap;
             }
             Text {
+                overflow: elide;
                 text: root.connected ? Printer.klippy-message : Printer.endpoint;
                 color: Theme.muted;
                 font-size: Theme.font-normal;
                 wrap: word-wrap;
             }
             if root.untrusted: Text {
+                overflow: elide;
                 text: root.changed
                     ? @tr("The printer presents a different certificate than the one trusted before. Replace it only if the printer got a new certificate.")
                     : @tr("Compare the SHA-256 fingerprint with the printer's certificate before you trust it.");
@@ -68,23 +71,27 @@ export component ConnectionPage inherits Rectangle {
             }
             if root.untrusted: VerticalLayout {
                 Text {
+                    overflow: elide;
                     text: "SHA-256";
                     color: Theme.muted;
                     font-size: Theme.font-small;
                 }
                 Text {
+                    overflow: elide;
                     text: Printer.certificate-fingerprint-lines;
                     color: Theme.foreground;
                     font-size: Theme.font-normal;
                 }
             }
             if root.untrusted && root.changed: Text {
+                overflow: elide;
                 text: @tr("Trusted before: {}", Printer.certificate-before);
                 color: Theme.muted;
                 font-size: Theme.font-small;
                 wrap: word-wrap;
             }
             if root.login-required && Printer.login-error != "": Text {
+                overflow: elide;
                 text: Printer.login-error;
                 color: StateIcons.severity-color(Severity.attention);
                 font-size: Theme.font-normal;

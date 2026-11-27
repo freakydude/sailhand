@@ -64,7 +64,7 @@ export component SystemPage inherits Rectangle {
                             clicked => { Confirm.ask(@tr("Shut down host"), @tr("The printer host powers off and must be switched on by hand."), "shutdown-host", "", true); }
                         }
                     }
-                    Text { text: @tr("Restart service"); color: Theme.muted; font-size: Theme.font-small; }
+                    Text { text: @tr("Restart service"); color: Theme.muted; font-size: Theme.font-small; overflow: elide; }
                     HorizontalLayout {
                         spacing: Theme.spacing;
                         height: root.action-row-height;

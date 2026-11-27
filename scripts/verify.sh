@@ -36,6 +36,7 @@ run_step "cargo clippy" cargo clippy --workspace --all-targets -- -D warnings
 run_step "cargo test" cargo test --workspace
 # The whole workspace, not only -p sailhand: the same features as the test run, so the UI crate is not compiled again.
 run_step "cargo build" cargo build --workspace --bins
+run_step "text overflow" scripts/check-text-overflow.sh
 run_step "ui previews" scripts/ui-preview.sh
 
 # Clippy for Android as in CI: code behind `cfg(target_os = "android")` is not compiled on the desktop (#239 broke

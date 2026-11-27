@@ -85,6 +85,7 @@ export component SpoolDialog inherits Scrim {
                             }
                         }
                         Text {
+                            overflow: elide;
                             text: spool.place;
                             color: Theme.foreground;
                             font-size: Theme.font-small;
@@ -97,6 +98,7 @@ export component SpoolDialog inherits Scrim {
                 }
             }
             if Printer.spools.length == 0: Text {
+                overflow: elide;
                 text: Printer.spools-loading ? @tr("Loading") : @tr("No spools");
                 color: Theme.muted;
                 font-size: Theme.font-normal;

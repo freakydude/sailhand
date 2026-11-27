@@ -41,6 +41,7 @@ component TemperatureReading inherits Rectangle {
             height: Theme.icon-small;
         }
         Text {
+            overflow: elide;
             text: root.text;
             color: Theme.foreground;
             font-size: Theme.font-normal;
@@ -69,6 +70,7 @@ component UnreadCounter inherits Rectangle {
             height: Theme.icon-compact;
         }
         Text {
+            overflow: elide;
             text: root.count;
             color: Theme.foreground;
             font-size: Theme.font-normal;
@@ -103,6 +105,7 @@ component FaultChip inherits Rectangle {
             height: Theme.icon-small;
         }
         Text {
+            overflow: elide;
             min-width: self.preferred-width;
             text: Printer.fault-label;
             color: Theme.foreground;
@@ -111,6 +114,7 @@ component FaultChip inherits Rectangle {
             vertical-alignment: center;
         }
         if Printer.fault-more > 0: Text {
+            overflow: elide;
             text: "+" + Printer.fault-more;
             color: Theme.muted;
             font-size: Theme.font-normal;
@@ -225,6 +229,7 @@ export component StatusBar inherits Rectangle {
                         horizontal-stretch: 1;
                         spacing: Theme.spacing;
                         if StateIcons.summary-label() != "" && !(Printer.fault-visible && Printer.fault-is-state): Text {
+                            overflow: elide;
                             min-width: self.preferred-width;
                             text: StateIcons.summary-label();
                             color: StateIcons.label-color(root.severity);
@@ -233,6 +238,7 @@ export component StatusBar inherits Rectangle {
                             vertical-alignment: center;
                         }
                         if StateIcons.summary-value() != "": Text {
+                            overflow: elide;
                             min-width: self.preferred-width;
                             text: StateIcons.summary-value();
                             color: Theme.foreground;

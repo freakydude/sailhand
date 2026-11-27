@@ -60,7 +60,7 @@ component LegendEntry inherits HorizontalLayout {
         border-width: 2px;
         border-color: root.stroke;
     }
-    Text { text: root.text; color: Theme.muted; font-size: Theme.font-small; vertical-alignment: center; }
+    Text { text: root.text; color: Theme.muted; font-size: Theme.font-small; vertical-alignment: center; overflow: elide; }
 }
 
 export component BedMapLegend inherits HorizontalLayout {

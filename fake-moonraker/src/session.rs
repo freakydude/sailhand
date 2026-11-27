@@ -147,23 +147,24 @@ impl Session {
             "method": "notify_status_update",
             "params": [changes, backend.eventtime()],
         });
-        Some(notification.to_string())
+        Some(backend.names().to_long(notification).to_string())
     }
 
     fn handle_request(&mut self, backend: &Backend, request: &Value) -> Option<Value> {
         let id = request.get("id").cloned();
         let outcome = match request.get("method").and_then(Value::as_str) {
             Some(method) => {
-                let params = request.get("params").cloned().unwrap_or(Value::Null);
+                let params = backend.names().to_short(request.get("params").cloned().unwrap_or(Value::Null));
                 self.dispatch(backend, method, &params)
             }
             None => Err(RpcError::new(INVALID_REQUEST, "Invalid Request")),
         };
         let id = id?;
-        Some(match outcome {
+        let response = match outcome {
             Ok(result) => json!({ "jsonrpc": "2.0", "result": result, "id": id }),
             Err(error) => failure(id, &error),
-        })
+        };
+        Some(backend.names().to_long(response))
     }
 
     fn dispatch(&mut self, backend: &Backend, method: &str, params: &Value) -> Result<Value, RpcError> {
@@ -869,6 +870,27 @@ mod tests {
             reply["result"]["objects"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
         assert!(names.contains(&"mmu"));
         assert!(names.contains(&"quad_gantry_level"));
+    }
+
+    #[test]
+    fn long_names_are_reported_and_accepted_in_commands() {
+        let mut session = Session::new(1);
+        let backend = Backend::with_profile(1.0, MachineProfile::voron().with_long_names());
+        const LONG_FAN: &str = "fan_generic nevermore_stealthmax_carbon_filter_in_the_rear_corner";
+
+        let reply = exchange(&mut session, &backend, call("printer.objects.list", json!({})));
+        let names: Vec<&str> =
+            reply["result"]["objects"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(names.contains(&LONG_FAN));
+        assert!(!names.contains(&"fan_generic nevermore"));
+
+        let fan = LONG_FAN.strip_prefix("fan_generic ").unwrap();
+        let script = format!("SET_FAN_SPEED FAN={fan} SPEED=0.5");
+        let reply = exchange(&mut session, &backend, call("printer.gcode.script", json!({ "script": script })));
+        assert_eq!(reply["result"], "ok");
+        let reply =
+            exchange(&mut session, &backend, call("printer.objects.query", json!({ "objects": { LONG_FAN: null } })));
+        assert_eq!(reply["result"]["status"][LONG_FAN]["speed"], 0.5);
     }
 
     #[test]

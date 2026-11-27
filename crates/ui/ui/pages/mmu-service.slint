@@ -18,6 +18,7 @@ export component MmuServiceTab inherits Rectangle {
 
         // Recover and Unlock stay: they are what a paused print needs. The rest moves selector, servo or filament.
         if Printer.motion-locked: Text {
+            overflow: elide;
             text: @tr("Not while printing");
             color: Theme.muted;
             font-size: Theme.font-small;

@@ -26,6 +26,7 @@ component SensorsTab inherits VerticalLayout {
             spacing: Theme.spacing;
             FilamentSensorGrid { }
             Text {
+                overflow: elide;
                 text: @tr("Not tied to a head");
                 color: Theme.muted;
                 font-size: Theme.font-small;
@@ -91,6 +92,7 @@ component ToolchangerCard inherits Card {
                 overflow: elide;
             }
             if Printer.motion-locked: Text {
+                overflow: elide;
                 text: @tr("Not while printing");
                 color: Theme.muted;
                 font-size: Theme.font-small;

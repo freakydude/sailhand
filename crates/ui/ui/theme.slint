@@ -98,6 +98,9 @@ export global Theme {
     out property <length> list-row-pitch: self.row-height-small + self.spacing-small;
     // A file or job name: room for two lines of `font-normal`.
     out property <length> name-height: 48px;
+    // What a material keeps before it is cut: the usual ones with a gate in front ("G12 · PETG-CF") stay whole, a long
+    // free text from Spoolman ends in "…".
+    out property <length> material-min-width: 128px;
     out property <length> button-narrow: 64px;
 
     out property <length> font-small: 13px;

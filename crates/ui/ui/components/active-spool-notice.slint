@@ -37,6 +37,7 @@ export component ActiveSpoolNotice inherits Rectangle {
             height: Theme.icon-small;
         }
         Text {
+            overflow: elide;
             text: @tr("Active spool");
             color: Theme.muted;
             font-size: Theme.font-small;

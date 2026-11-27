@@ -5,6 +5,7 @@ import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { StateIcons } from "../state-icons.slint";
 import { Navigation, Place, Severity } from "../state.slint";
+import { WrapText } from "controls.slint";
 
 // Blinks the element it lies over twice when a jump leads to `place` (and, if set, `name`), then clears the jump: a
 // pale `foreground` layer over its whole area, so it shows on accent buttons and dark surfaces alike. Only the alpha of
@@ -69,15 +70,12 @@ export component JumpHint inherits Rectangle {
             width: Theme.icon-small;
             height: Theme.icon-small;
         }
-        Text {
+        WrapText {
             horizontal-stretch: 1;
             min-width: 0px;
             text: root.text;
             color: Theme.foreground;
             font-size: root.narrow ? Theme.font-small : Theme.font-normal;
-            wrap: word-wrap;
-            overflow: elide;
-            vertical-alignment: center;
         }
         Image {
             cross-axis-self-alignment: center;

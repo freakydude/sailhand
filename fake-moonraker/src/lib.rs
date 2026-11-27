@@ -13,6 +13,7 @@ pub mod happy_hare;
 pub mod history;
 pub mod host;
 pub mod layer_pause;
+pub mod long_names;
 pub mod machine;
 pub mod pid_tuning;
 pub mod print_objects;

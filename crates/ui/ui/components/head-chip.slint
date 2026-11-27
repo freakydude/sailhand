@@ -8,7 +8,7 @@ import { Units } from "../units.slint";
 import { Icons } from "../icons.slint";
 import { Actions, HeadItem, Navigation, Place, Printer, Severity } from "../state.slint";
 import { StateIcons } from "../state-icons.slint";
-import { IconButton } from "controls.slint";
+import { IconButton, WrapText } from "controls.slint";
 import { JumpHint } from "jump.slint";
 import { FilamentSwatch } from "filament-swatch.slint";
 
@@ -61,6 +61,7 @@ export component HeadChip inherits Rectangle {
             overflow: elide;
         }
         if root.head.has-nozzle: Text {
+            overflow: elide;
             text: Units.degrees(root.head.temperature);
             color: Theme.muted;
             font-size: Theme.font-small;
@@ -106,15 +107,12 @@ export component ChangerHint inherits HorizontalLayout {
         width: Theme.icon-small;
         height: Theme.icon-small;
     }
-    if Printer.changer-note != "error": Text {
+    if Printer.changer-note != "error": WrapText {
         horizontal-stretch: 1;
         text: Printer.changer-note == "mismatch" ? @tr("{} selected, {} detected", Printer.changer-selected, Printer.changer-detected)
             : @tr("Not initialized");
         color: StateIcons.severity-color(Printer.changer-note == "mismatch" ? Severity.attention : Severity.info);
         font-size: root.narrow ? Theme.font-small : Theme.font-normal;
-        wrap: word-wrap;
-        overflow: elide;
-        vertical-alignment: center;
     }
     if Printer.changer-note == "uninitialized": IconButton {
         icon: Icons.ui-refresh;

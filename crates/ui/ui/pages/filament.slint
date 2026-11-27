@@ -77,6 +77,7 @@ component ExtruderTab inherits Rectangle {
                     HorizontalLayout {
                         spacing: Theme.spacing;
                         Text {
+                            overflow: elide;
                             text: Units.temperature-of(root.nozzle-temperature, root.nozzle-target, 1);
                             color: Theme.foreground;
                             font-size: Theme.font-large;
@@ -85,6 +86,7 @@ component ExtruderTab inherits Rectangle {
                         }
                         Rectangle { horizontal-stretch: 1; }
                         if !root.parked && Printer.motion-locked: Text {
+                            overflow: elide;
                             text: @tr("Not while printing");
                             color: Theme.muted;
                             font-size: Theme.font-small;

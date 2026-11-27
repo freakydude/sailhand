@@ -5,7 +5,7 @@ import { Theme } from "../theme.slint";
 import { StateIcons } from "../state-icons.slint";
 import { Icons } from "../icons.slint";
 import { Actions, Confirm, Printer, UiSettings, Severity } from "../state.slint";
-import { IconButton, ScrollList, ToggleRow } from "../components/controls.slint";
+import { IconButton, ScrollList, ToggleRow, WrapText } from "../components/controls.slint";
 import { MacroFormDialog } from "../components/macro-form.slint";
 import { TextEntryDialog } from "../components/entry-dialogs.slint";
 import { SystemTabs } from "../components/system-tabs.slint";
@@ -104,6 +104,7 @@ export component ConsolePage inherits Rectangle {
                         height: parent.height;
                         spacing: Theme.spacing;
                         Text {
+                            overflow: elide;
                             text: line.time;
                             color: Theme.disabled-foreground;
                             font-size: Theme.font-small;
@@ -152,14 +153,12 @@ export component ConsolePage inherits Rectangle {
                         width: parent.width;
                         height: parent.height;
                     }
-                    if root.macro-hint != "": Text {
+                    if root.macro-hint != "": WrapText {
                         width: parent.width;
                         height: parent.height;
                         text: root.macro-hint;
                         color: Theme.muted;
-                        wrap: word-wrap;
                         horizontal-alignment: center;
-                        vertical-alignment: center;
                     }
                 }
 

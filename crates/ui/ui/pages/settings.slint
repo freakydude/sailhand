@@ -16,7 +16,7 @@ component MinutesRow inherits VerticalLayout {
     in property <int> current;
     callback chosen(int);
     spacing: Theme.spacing-tight;
-    Text { text: root.label; color: Theme.muted; font-size: Theme.font-small; }
+    Text { text: root.label; color: Theme.muted; font-size: Theme.font-small; overflow: elide; }
     HorizontalLayout {
         spacing: Theme.spacing;
         for minutes in root.choices: IconButton {
@@ -139,6 +139,7 @@ component AccessCard inherits Card {
         overflow: elide;
     }
     if Printer.trusted-certificate != "": Text {
+        overflow: elide;
         text: @tr("Trusted certificate {}", Printer.trusted-certificate);
         color: Theme.muted;
         font-size: Theme.font-small;
@@ -204,7 +205,7 @@ component ChoiceList inherits VerticalLayout {
     in property <string> chosen;
     callback choose(string);
     spacing: Theme.spacing-tight;
-    Text { text: root.title; color: Theme.muted; font-size: Theme.font-small; }
+    Text { text: root.title; color: Theme.muted; font-size: Theme.font-small; overflow: elide; }
     list := ScrollList {
         vertical-stretch: 1;
         property <length> row-step: Theme.row-height-small + Theme.spacing-small;
@@ -258,6 +259,7 @@ component LogsCard inherits Card {
     icon: Icons.system-log;
 
     Text {
+        overflow: elide;
         text: @tr("Copies the log into the Download folder, e.g. for a bug report.");
         color: Theme.muted;
         font-size: Theme.font-small;
@@ -275,6 +277,7 @@ component LogsCard inherits Card {
         }
     }
     if UiSettings.log-export-result != "": Text {
+        overflow: elide;
         text: UiSettings.log-export-result;
         color: Theme.muted;
         font-size: Theme.font-small;
@@ -287,6 +290,7 @@ component AboutCard inherits Card {
     icon: Icons.ui-info;
 
     Text {
+        overflow: elide;
         text: @tr("Sailhand {}", UiSettings.version);
         color: Theme.foreground;
         font-size: Theme.font-normal;
@@ -294,6 +298,7 @@ component AboutCard inherits Card {
     }
     // Without a file the user can reach (Android keeps it in the app's private folder) only the version.
     if UiSettings.settings-file != "": Text {
+        overflow: elide;
         text: @tr("Settings saved in {}", UiSettings.settings-file);
         color: Theme.muted;
         font-size: Theme.font-small;

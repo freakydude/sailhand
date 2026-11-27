@@ -65,6 +65,7 @@ export component MmuGatesTab inherits Rectangle {
             }
             Rectangle { horizontal-stretch: 1; }
             Text {
+                overflow: elide;
                 text: root.current.first-gate < 0 ? "" : root.current.first-gate == root.current.last-gate ? @tr("Gate {}", root.current.first-gate) : @tr("Gates {}–{}", root.current.first-gate, root.current.last-gate);
                 color: Theme.muted;
                 font-size: Theme.font-small;
@@ -182,6 +183,7 @@ export component MmuGatesTab inherits Rectangle {
                     }
                     // Moving the filament waits for the end of the print.
                     if Printer.motion-locked: Text {
+                        overflow: elide;
                         text: @tr("Not while printing");
                         color: Theme.muted;
                         font-size: Theme.font-small;

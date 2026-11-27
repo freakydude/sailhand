@@ -14,6 +14,12 @@ pub fn duration(seconds: f64) -> String {
     duration_in(seconds, &SECOND)
 }
 
+/// Time left of the running print, in the large type of the print page and in the status bar: `45 s`, `12 min`,
+/// `2:07 h`, `1 d 03 h` (Frank, 2026-11-27: two units in large type do not fit the narrow column).
+pub fn countdown(seconds: f64) -> String {
+    duration::countdown(seconds)
+}
+
 /// Whole minutes, for the time axis of a chart (`5 min`, `1 h 30 min`).
 pub fn duration_minutes(seconds: f64) -> String {
     duration_in(seconds, &MINUTE)

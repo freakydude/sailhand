@@ -144,14 +144,16 @@ export component GateTile inherits SlotTile {
             // The nozzle temperature the source loads it at stands beside the material, if there is one and room left.
             HorizontalLayout {
                 spacing: Theme.spacing-small;
+                // Whole while the tile has room; a long free text from Spoolman ends in "…" instead of pushing the tile.
                 Text {
-                    min-width: self.preferred-width;
+                    overflow: elide;
                     text: root.material;
                     color: root.has-filament ? Theme.foreground : Theme.muted;
                     font-size: root.material-size;
                     font-weight: 700;
                 }
                 Text {
+                    overflow: elide;
                     horizontal-stretch: 1;
                     visible: root.gate.temperature > 0 && root.gate.material != "" && self.width >= self.preferred-width;
                     text: Units.temperature(root.gate.temperature, 0);
@@ -225,6 +227,7 @@ export component BypassTile inherits SlotTile {
     label: @tr("Bypass");
 
     Text {
+        overflow: elide;
         text: @tr("Bypass");
         color: Theme.foreground;
         font-size: Theme.font-normal;
@@ -397,6 +400,7 @@ export component FlowGuardInstrument inherits VerticalLayout {
     if root.has-buffer: HorizontalLayout {
         spacing: Theme.spacing;
         Text {
+            overflow: elide;
             text: root.guarded ? @tr("Tangle") : @tr("Tension");
             color: StateIcons.severity-color(Printer.mmu-flowguard-tangle-end);
             font-size: Theme.font-small;
@@ -415,6 +419,7 @@ export component FlowGuardInstrument inherits VerticalLayout {
             marker-color: StateIcons.severity-color(Printer.mmu-buffer-marker);
         }
         Text {
+            overflow: elide;
             text: root.guarded ? @tr("Clog") : @tr("Compression");
             color: StateIcons.severity-color(Printer.mmu-flowguard-clog-end);
             font-size: Theme.font-small;
