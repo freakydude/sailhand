@@ -1,10 +1,11 @@
 // The Settings tab of the system pages: settings of this display, picked from a list on the left (display, the host's
-// network, status bar of the printer in use, access to the printer, logs, about). A section without content is not listed. The settings of the console
-// are on the Console tab, temperature presets in the settings file, see docs/configuration.md.
+// network, status bar of the printer in use, access to the printer, logs, macros, about). A section without content is
+// not listed. The macros shown on Motion › Macros are chosen here; temperature presets are in the settings file, see
+// docs/configuration.md.
 
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
-import { Backlight, ChoiceItem, Confirm, Navigation, Network, Page, Printer, PrinterChoice, SettingsSection, UiSettings } from "../state.slint";
+import { Actions, Backlight, ChoiceItem, Confirm, Navigation, Network, Page, Printer, PrinterChoice, SettingsSection, UiSettings } from "../state.slint";
 import { Card, IconButton, ScrollList, ToggleRow } from "../components/controls.slint";
 import { SystemTabs } from "../components/system-tabs.slint";
 import { NetworkSection, WifiConnectDialogs } from "network.slint";
@@ -253,6 +254,33 @@ component StatusBarCard inherits Card {
     }
 }
 
+// Which macros Motion › Macros offers: every macro of the printer with a switch.
+component MacrosCard inherits Card {
+    title: @tr("Macros · {}", PrinterChoice.active-name);
+    icon: Icons.nav-macros;
+
+    Text {
+        overflow: elide;
+        text: @tr("Macros switched off here are left out of Motion › Macros on this printer.");
+        color: Theme.muted;
+        font-size: Theme.font-small;
+        wrap: word-wrap;
+    }
+    list := ScrollList {
+        vertical-stretch: 1;
+        property <length> row-step: Theme.row-height-small + Theme.spacing-small;
+        content-height: Printer.macro-items.length * self.row-step - Theme.spacing-small;
+        for macro[index] in Printer.macro-items: ToggleRow {
+            y: index * list.row-step;
+            width: list.row-width;
+            height: Theme.row-height-small;
+            text: macro.name;
+            checked: macro.visible;
+            toggled => { Actions.set-macro-visible(macro.name, !macro.visible); }
+        }
+    }
+}
+
 // Android only: copies the log into the Download folder, where it can be attached to a bug report.
 component LogsCard inherits Card {
     title: @tr("Logs");
@@ -315,6 +343,7 @@ export component SettingsPage inherits Rectangle {
         || Backlight.available;
     property <bool> has-access: Printer.login-user != "" || Printer.api-key || Printer.trusted-certificate != "";
     property <bool> has-logs: UiSettings.log-export-available;
+    property <bool> has-macros: Printer.macro-items.length > 0;
     property <bool> network-shown: Navigation.page == Page.network;
     // The chosen section, or the first one with content when it has none (e.g. after logging out).
     property <SettingsSection> shown: Navigation.settings-section == SettingsSection.display && root.has-display
@@ -323,6 +352,7 @@ export component SettingsPage inherits Rectangle {
             ? SettingsSection.status-bar
         : Navigation.settings-section == SettingsSection.access && root.has-access ? SettingsSection.access
         : Navigation.settings-section == SettingsSection.logs && root.has-logs ? SettingsSection.logs
+        : Navigation.settings-section == SettingsSection.macros && root.has-macros ? SettingsSection.macros
         : Navigation.settings-section == SettingsSection.about ? SettingsSection.about
         : root.has-display ? SettingsSection.display : SettingsSection.about;
 
@@ -372,6 +402,12 @@ export component SettingsPage inherits Rectangle {
                     selected: !root.network-shown && root.shown == SettingsSection.logs;
                     clicked => { root.open(SettingsSection.logs); }
                 }
+                if root.has-macros: SectionRow {
+                    icon: Icons.nav-macros;
+                    text: @tr("Macros");
+                    selected: !root.network-shown && root.shown == SettingsSection.macros;
+                    clicked => { root.open(SettingsSection.macros); }
+                }
                 SectionRow {
                     icon: Icons.ui-info;
                     text: @tr("About");
@@ -397,9 +433,10 @@ export component SettingsPage inherits Rectangle {
                 if root.shown == SettingsSection.status-bar: StatusBarCard { vertical-stretch: 1; }
                 if root.shown == SettingsSection.access: AccessCard { vertical-stretch: 0; }
                 if root.shown == SettingsSection.logs: LogsCard { vertical-stretch: 0; }
+                if root.shown == SettingsSection.macros: MacrosCard { vertical-stretch: 1; }
                 if root.shown == SettingsSection.about: AboutCard { vertical-stretch: 0; }
-                // The lists of the status bar fill the height themselves.
-                Rectangle { vertical-stretch: root.shown == SettingsSection.status-bar ? 0 : 1; }
+                // The lists of the status bar and the macros fill the height themselves.
+                Rectangle { vertical-stretch: root.shown == SettingsSection.status-bar || root.shown == SettingsSection.macros ? 0 : 1; }
             }
         }
     }

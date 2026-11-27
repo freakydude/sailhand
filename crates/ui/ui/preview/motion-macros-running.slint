@@ -23,12 +23,12 @@ export component MotionMacrosRunningPreview inherits AppWindow {
         Printer.macro-selected = "HEAT_SOAK";
         Printer.macro-run = { state: MacroRunState.running, script: "HEAT_SOAK TEMP=60 MINUTES=10", started: "14:02:11", duration: "", error: "" };
         Printer.macro-run-lines = [
-            { text: "// Heat soak: 10 min at 60 °C", time: "14:02:11", is-command: false, is-error: false },
-            { text: "// Bed: 24.1 °C, target 60.0 °C", time: "14:02:11", is-command: false, is-error: false },
-            { text: "// Bed: 41.8 °C, target 60.0 °C", time: "14:03:02", is-command: false, is-error: false },
-            { text: "// Bed: 59.7 °C, target 60.0 °C", time: "14:04:15", is-command: false, is-error: false },
-            { text: "// Chamber: 31.2 °C, waiting for the soak time to pass before the next step of the print start sequence", time: "14:04:15", is-command: false, is-error: false },
-            { text: "// Soak time over, bed stays at 60 °C", time: "14:12:11", is-command: false, is-error: false },
+            { text: "Heat soak: 10 min at 60 °C", time: "14:02:11", show-time: true, is-command: false, is-error: false },
+            { text: "Bed: 24.1 °C, target 60.0 °C", time: "14:02:11", show-time: false, is-command: false, is-error: false },
+            { text: "Bed: 41.8 °C, target 60.0 °C", time: "14:03:02", show-time: true, is-command: false, is-error: false },
+            { text: "Bed: 59.7 °C, target 60.0 °C", time: "14:04:15", show-time: true, is-command: false, is-error: false },
+            { text: "Chamber: 31.2 °C, waiting for the soak time to pass before the next step of the print start sequence", time: "14:04:15", show-time: false, is-command: false, is-error: false },
+            { text: "Soak time over, bed stays at 60 °C", time: "14:12:11", show-time: true, is-command: false, is-error: false },
         ];
     }
 }

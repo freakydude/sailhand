@@ -1,8 +1,9 @@
 //! Motion › Macros: the fake's demo macro answers and then takes a while; the run card shows it running with the
 //! answers so far (`motion-macros-running`), then done (`motion-macros-done`). What stood on the card is not unread.
+//! Which macros the tab lists is chosen under System › Settings › Macros (`settings-macros`).
 
 use crate::session::Session;
-use sailhand::{Actions, MacroRunState, MotionTab, Navigation, Page, Printer};
+use sailhand::{Actions, MacroRunState, MotionTab, Navigation, Page, Place, Printer};
 use slint::{ComponentHandle, Model};
 use std::time::Duration;
 
@@ -33,7 +34,10 @@ pub(super) fn macros(session: &mut Session) -> Result<(), String> {
     }
     session.capture("motion-macros-done")?;
     session.window.global::<Navigation>().set_motion_tab(MotionTab::Axes);
-    Ok(())
+
+    session.window.global::<Navigation>().invoke_go(Place::MacroSettings, "".into());
+    session.pump(Duration::from_millis(300));
+    session.capture("settings-macros")
 }
 
 fn expect_state(session: &Session, state: MacroRunState, when: &str) -> Result<(), String> {

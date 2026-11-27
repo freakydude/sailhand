@@ -488,14 +488,17 @@ export struct FileItem {
 
 export struct ConsoleItem {
     text: string,
+    // Clock time of the line, on every row; shown only where `show-time` is set: the first row of a new second, so
+    // the rows below it of the same second keep the full width.
     time: string,
+    show-time: bool,
     is-command: bool,
     is-error: bool,
 }
 
 // Where a person deals with an incident; a message jumps there (`Navigation.go`). `heater` names its heater in
 // `Navigation.place-name`.
-export enum Place { none, connection, print, afc-service, changer-service, spools, heater, console }
+export enum Place { none, connection, print, afc-service, changer-service, spools, heater, console, macro-settings }
 
 export struct MessageItem {
     id: int,

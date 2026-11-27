@@ -500,7 +500,12 @@ impl Presenter {
         printer.set_has_unload_macro(macros.is_some_and(|macros| macros.unload));
         printer.set_has_power(snapshot.sources.moonraker.power);
         printer.set_has_update_manager(snapshot.sources.moonraker.update_manager);
-        self.macros.show(&klipper.macros, &klipper.macro_details, snapshot.connection == ConnectionState::Connected);
+        self.macros.show(
+            printer,
+            &klipper.macros,
+            &klipper.macro_details,
+            snapshot.connection == ConnectionState::Connected,
+        );
     }
 
     /// The filament: sensors, the MMU, the job's file compared with it and the spool in use.
@@ -754,7 +759,8 @@ impl Presenter {
 
     /// Applies the hidden macros from the settings.
     pub fn set_hidden_macros(&self, hidden: Vec<String>) {
-        self.macros.set_hidden(hidden);
+        let Some(window) = self.window.upgrade() else { return };
+        self.macros.set_hidden(&window.global::<Printer>(), hidden);
     }
 
     /// Takes the light and the chamber chosen in the settings of the printer in use; they show with the next snapshot

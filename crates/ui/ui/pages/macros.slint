@@ -1,14 +1,15 @@
 // Macros: choose one, run it, and see how its last run from this display went. The card shows the state of that run and
 // the answers Klipper sent while it ran ("during the run": Klipper does not tell which command wrote a line). Which
-// macros the list offers is chosen here too (Edit).
+// macros the list offers is chosen in Settings › Macros.
 
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
 import { StateIcons } from "../state-icons.slint";
-import { Actions, Confirm, MacroRunState, Printer, Severity } from "../state.slint";
-import { ButtonKind, IconButton, ScrollList, ToggleRow, WrapText } from "../components/controls.slint";
+import { Actions, Confirm, MacroRunState, Navigation, Place, Printer, Severity } from "../state.slint";
+import { ButtonKind, IconButton, ScrollList } from "../components/controls.slint";
 import { BusyWheel } from "../components/busy-wheel.slint";
 import { ConsoleRow, ConsoleRows } from "../components/console-row.slint";
+import { JumpHint } from "../components/jump.slint";
 import { MacroFormDialog } from "../components/macro-form.slint";
 
 // One macro of the list; the chosen one has the accent border like the entries of the section list.
@@ -50,13 +51,12 @@ component MacroRow inherits Rectangle {
     }
 }
 
-// The list at the left: the offered macros, or every macro with a switch while editing.
+// The list at the left: the offered macros; when all are hidden, a hint that leads to the settings.
 component MacroList inherits Rectangle {
-    in property <bool> editing;
     property <length> row-step: Theme.row-height-small + Theme.spacing;
-    property <string> hint: !root.editing && Printer.macros.length == 0 ? @tr("All macros are hidden. Edit shows them again.") : "";
 
-    if !root.editing: offered := ScrollList {
+    offered := ScrollList {
+        visible: Printer.macros.length > 0;
         content-height: Printer.macros.length * root.row-step;
         for macro[index] in Printer.macros: MacroRow {
             y: index * root.row-step;
@@ -66,23 +66,13 @@ component MacroList inherits Rectangle {
             clicked => { Actions.select-macro(macro); }
         }
     }
-    if root.editing: choice := ScrollList {
-        content-height: Printer.macro-items.length * root.row-step;
-        for macro[index] in Printer.macro-items: ToggleRow {
-            y: index * root.row-step;
-            width: choice.row-width;
-            height: Theme.row-height-small;
-            text: macro.name;
-            checked: macro.visible;
-            toggled => { Actions.set-macro-visible(macro.name, !macro.visible); }
-        }
-    }
-    if root.hint != "": WrapText {
+    if Printer.macros.length == 0: JumpHint {
+        y: 0;
         width: parent.width;
-        height: parent.height;
-        text: root.hint;
-        color: Theme.muted;
-        horizontal-alignment: center;
+        height: self.preferred-height;
+        severity: Severity.info;
+        text: @tr("All macros are hidden. Settings › Macros shows them again.");
+        clicked => { Navigation.go(Place.macro-settings, ""); }
     }
 }
 
@@ -189,8 +179,6 @@ component RunCard inherits Rectangle {
 }
 
 export component MacrosTab inherits Rectangle {
-    // Public for the previews.
-    in-out property <bool> editing;
     property <length> list-width: 272px;
     property <string> chosen: Printer.macro-selected;
 
@@ -217,20 +205,7 @@ export component MacrosTab inherits Rectangle {
             VerticalLayout {
                 padding: Theme.spacing-small;
                 spacing: Theme.spacing-small;
-                MacroList {
-                    vertical-stretch: 1;
-                    editing: root.editing;
-                }
-                // Which macros the list offers is chosen here, where they are used; new ones are offered.
-                IconButton {
-                    icon: Icons.ui-edit;
-                    text: @tr("Edit");
-                    horizontal: true;
-                    height: Theme.touch;
-                    checked: root.editing;
-                    enabled: Printer.macro-items.length > 0;
-                    clicked => { root.editing = !root.editing; }
-                }
+                MacroList { vertical-stretch: 1; }
             }
         }
 

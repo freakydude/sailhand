@@ -653,7 +653,7 @@ export enum HeatTab { heaters, fans, sensors }
 
 // Sections of the Settings tab; Network is `Page.network` (it is watched while shown), the others live on
 // `Page.settings`. A section without content falls back to the first one that has some.
-export enum SettingsSection { display, status-bar, access, logs, about }
+export enum SettingsSection { display, status-bar, access, logs, macros, about }
 
 export global Navigation {
     in-out property <Page> page: Page.print;
@@ -727,6 +727,9 @@ export global Navigation {
             self.page = Page.filament;
         } else if (place == Place.console) {
             self.page = Page.console;
+        } else if (place == Place.macro-settings) {
+            self.settings-section = SettingsSection.macros;
+            self.page = Page.settings;
         } else if (place == Place.heater) {
             self.heat-tab = HeatTab.heaters;
             self.page = Page.temperature;

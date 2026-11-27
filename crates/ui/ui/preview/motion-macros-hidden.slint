@@ -1,0 +1,19 @@
+// Preview: the Macros tab with every macro switched off in Settings. Open in the Slint preview or render with scripts/ui-preview.sh.
+
+import { AppWindow } from "../app.slint";
+import { MotionTab, Navigation, Page, Printer } from "../state.slint";
+import { Sample } from "sample.slint";
+
+export component MotionMacrosHiddenPreview inherits AppWindow {
+    init => {
+        Sample.ready-printer();
+        Navigation.page = Page.motion;
+        Navigation.motion-tab = MotionTab.macros;
+        Printer.macros = [];
+        Printer.macro-items = [
+            { name: "HEAT_SOAK", visible: false },
+            { name: "LOAD_FILAMENT", visible: false },
+            { name: "PARK", visible: false },
+        ];
+    }
+}

@@ -82,8 +82,8 @@ probe still counts as the probe).
   last run from this display: running since when, done after how long or failed and why, and the answers Klipper
   sent while it ran ("during the run": Klipper does not say which command wrote a line). The card keeps the last run
   of each macro until the app ends or another printer is chosen; what stood on it does not count as unread. Macros
-  starting with `_` and macros that rename a built-in command (`rename_existing`) are left out; **Edit** switches
-  further macros off and on. Macros with parameters open a form first: each parameter is read from the macro's
+  starting with `_` and macros that rename a built-in command (`rename_existing`) are left out; further macros are
+  switched off and on under System › Settings › Macros. Macros with parameters open a form first: each parameter is read from the macro's
   template, Klipper defaults show as placeholders in brackets. A running macro cannot be stopped (Klipper only stops
   it with the emergency stop); macros started elsewhere show in the console, not on the card.
 - **Filament**: filament colours with transparency are drawn over a checkerboard, so a clear or translucent filament reads as see-through; extrude/retract with length and speed (lengths up to `max_extrude_only_distance`), `LOAD_FILAMENT`/`UNLOAD_FILAMENT` macros when present, filament sensors (with Happy Hare those it does not show itself).
@@ -96,7 +96,7 @@ probe still counts as the probe).
   - **Console** (also from the message flyout): G-code history and live responses, also those of macro runs, and a
     command field (on-screen keyboard or physical keyboard). Like Mainsail it hides the temperature reports Klipper
     sends while waiting for a heater (the thermometer button next to the command field shows them).
-  - **Settings**: the printer in use and its login (see [Moonraker login](configuration.md#moonraker-login)), fullscreen,
+  - **Settings**: the macros Motion › Macros lists, the printer in use and its login (see [Moonraker login](configuration.md#moonraker-login)), fullscreen,
     and when the screen goes off by itself (see [Brightness and standby](configuration.md#brightness-and-standby)).
     Temperature presets are set in the [settings file](configuration.md#settings-file).
 
