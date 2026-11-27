@@ -28,23 +28,13 @@ pub fn duration_in(seconds: f64, finest: &TimeUnit) -> String {
     }
 }
 
-/// A countdown in one short figure that fits the large type of the print page: `45 s` in the last minute, then whole
-/// minutes (`45 min`), from an hour on `2:07 h`, from a day on `1 d 03 h`. Seconds only where they still matter.
+/// A countdown without seconds once they no longer matter: `45 s` in the last minute, then `54 min`, `2 h 07 min`,
+/// `1 d 03 h` (Frank, 2026-11-27).
 pub fn countdown(seconds: f64) -> String {
-    let total = seconds.max(0.0).round() as u64;
-    if total < MINUTE.seconds {
-        return format!("{total} {}", SECOND.symbol);
+    if seconds.max(0.0).round() < MINUTE.seconds as f64 {
+        return duration_in(seconds, &SECOND);
     }
-    let minutes = (total as f64 / MINUTE.seconds as f64).round() as u64;
-    let minutes_per_hour = HOUR.seconds / MINUTE.seconds;
-    let minutes_per_day = DAY.seconds / MINUTE.seconds;
-    if minutes < minutes_per_hour {
-        format!("{minutes} {}", MINUTE.symbol)
-    } else if minutes < minutes_per_day {
-        format!("{}:{:02} {}", minutes / minutes_per_hour, minutes % minutes_per_hour, HOUR.symbol)
-    } else {
-        duration_in(seconds, &HOUR)
-    }
+    duration_in(seconds, &MINUTE)
 }
 
 #[cfg(test)]
@@ -52,14 +42,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_countdown_is_one_short_figure() {
+    fn a_countdown_drops_the_seconds_after_the_last_minute() {
         assert_eq!(countdown(45.4), "45 s");
         assert_eq!(countdown(59.6), "1 min");
         assert_eq!(countdown(725.0), "12 min");
         assert_eq!(countdown(3_569.0), "59 min");
-        assert_eq!(countdown(3_571.0), "1:00 h");
-        assert_eq!(countdown(7_620.0), "2:07 h");
-        assert_eq!(countdown(86_369.0), "23:59 h");
+        assert_eq!(countdown(3_571.0), "1 h 00 min");
+        assert_eq!(countdown(7_620.0), "2 h 07 min");
+        assert_eq!(countdown(86_369.0), "23 h 59 min");
         assert_eq!(countdown(97_200.0), "1 d 03 h");
         assert_eq!(countdown(-3.0), "0 s");
     }

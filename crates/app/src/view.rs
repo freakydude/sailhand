@@ -672,7 +672,7 @@ mod tests {
 
         let texts = job_texts(&job, Some(&metadata("a.gcode")), Some(&last_print), None, now());
 
-        assert_eq!(texts.remaining, "1:03 h");
+        assert_eq!(texts.remaining, "1 h 03 min");
         assert!(!texts.eta.starts_with('~'), "{}", texts.eta);
         assert_eq!(texts.expectation_origin, Some(estimates::ORIGIN_LAST_PRINT));
     }

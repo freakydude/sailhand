@@ -51,13 +51,19 @@ component TemperatureReading inherits Rectangle {
 }
 
 // Counter of the errors and informations not seen yet; it stays until the message list is opened. One shape for
-// both, a pale ground and the symbol in the colour of the more serious kind among them.
+// both, a pale ground and the symbol in the colour of the more serious kind among them. A tap opens the list.
 component UnreadCounter inherits Rectangle {
     in property <int> count;
     in property <Severity> severity;
+    callback clicked();
     width: counter-row.preferred-width;
     border-radius: self.height / 2;
-    background: StateIcons.severity-tint(root.severity);
+    background: counter-touch.pressed ? Theme.surface-active : StateIcons.severity-tint(root.severity);
+    accessible-role: button;
+    accessible-label: @tr("{} new messages", root.count);
+    counter-touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
     counter-row := HorizontalLayout {
         padding-left: Theme.spacing-medium;
         padding-right: Theme.spacing;
@@ -139,6 +145,15 @@ export component StatusBar inherits Rectangle {
     height: 44px;
     background: Theme.surface;
 
+    function toggle-messages() {
+        if (Navigation.messages-open) {
+            Navigation.close-messages();
+        } else {
+            Dialogs.dismiss();
+            Navigation.open-messages();
+        }
+    }
+
     HorizontalLayout {
         padding-left: Theme.spacing-small;
         padding-right: Theme.spacing-tight;
@@ -155,14 +170,7 @@ export component StatusBar inherits Rectangle {
             accessible-role: button;
             accessible-label: Printer.status-message-visible ? Printer.status-message : StateIcons.summary-label();
             field-touch := TouchArea {
-                clicked => {
-                    if (Navigation.messages-open) {
-                        Navigation.close-messages();
-                    } else {
-                        Dialogs.dismiss();
-                        Navigation.open-messages();
-                    }
-                }
+                clicked => { root.toggle-messages(); }
             }
 
             HorizontalLayout {
@@ -287,6 +295,19 @@ export component StatusBar inherits Rectangle {
             }
         }
 
+        // Right beside the field it belongs to, before the readings. In a column with room above and below, like the
+        // emergency stop: directly in the row, its fixed height would cap the height of the whole row and lift the
+        // field and the readings.
+        if Printer.unread-count > 0: VerticalLayout {
+            padding-top: (root.height - root.counter-height) / 2;
+            padding-bottom: self.padding-top;
+            UnreadCounter {
+                height: root.counter-height;
+                count: Printer.unread-count;
+                severity: Printer.unread-severity;
+                clicked => { root.toggle-messages(); }
+            }
+        }
         // A message takes the room of the readings while it is shown; they come back when it leaves.
         if Printer.ready && !Printer.status-message-visible: TemperatureReading {
             icon: Icons.thermal-nozzle;
@@ -303,17 +324,6 @@ export component StatusBar inherits Rectangle {
             icon: Icons.thermal-chamber;
             heating: Printer.chamber-heating;
             text: Printer.chamber-bar-text;
-        }
-        // In a column with room above and below, like the emergency stop: directly in the row, its fixed height would
-        // cap the height of the whole row and lift the field and the readings.
-        if Printer.unread-count > 0: VerticalLayout {
-            padding-top: (root.height - root.counter-height) / 2;
-            padding-bottom: self.padding-top;
-            UnreadCounter {
-                height: root.counter-height;
-                count: Printer.unread-count;
-                severity: Printer.unread-severity;
-            }
         }
         // Opens the light panel; lit while the main light (chamber or case light) is on. A controllable backlight
         // of the display is reason enough, also without a ready printer.
