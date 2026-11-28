@@ -88,11 +88,12 @@ pub(super) fn pages(session: &mut Session) -> Result<(), String> {
     session.window.global::<Actions>().invoke_clear_file_marks();
     session.window.global::<Navigation>().set_files_open(false);
     prepared_job(session)?;
-    // The console comes before the Thermal page, whose fan test would fill it with the fake's commands.
+    // The console comes first, with Klipper's help list: the live pad on Motion and the fan test on Thermal would fill
+    // it with commands.
     for (page, name) in [
+        (Page::Console, "console"),
         (Page::Motion, "motion"),
         (Page::Routines, "routines"),
-        (Page::Console, "console"),
         (Page::Temperature, "temperature"),
         (Page::Filament, "filament"),
         (Page::System, "system"),

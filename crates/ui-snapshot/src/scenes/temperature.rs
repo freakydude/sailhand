@@ -139,8 +139,10 @@ pub(super) fn nozzle_history(session: &mut Session) -> Result<(), String> {
     Ok(())
 }
 
-/// The "Cool down" button of the nozzle row on the Heat page, below the tabs (800x480, no fitting).
-const COOL_DOWN_BUTTON: (f32, f32) = (628.0, 148.0);
+/// The "Cool down" button of the first nozzle row on the Heaters tab, below the tabs (800x480, no fitting). Its x lies
+/// on the button with and without the scrollbar of a long heater list: x 597..659 on `voron`, 557..619 on
+/// `toolchanger` (three nozzles).
+const COOL_DOWN_BUTTON: (f32, f32) = (608.0, 148.0);
 
 const TAP_ROUNDS: usize = 10;
 
@@ -213,15 +215,22 @@ fn typed_target(session: &mut Session) -> Result<(), String> {
     Ok(())
 }
 
-/// A tap on the nozzle temperature of the status bar opens the heaters; checked in the reference layout only.
-/// The nozzle temperature of the status bar while a print runs (800x480, no fitting).
-const STATUS_BAR_NOZZLE: (f32, f32) = (510.0, 22.0);
+/// The nozzle temperature of the status bar while benchy prints (800x480, no fitting). The readings stand
+/// right-aligned, so the nozzle moves right without a chamber reading after it: on `basic` it is drawn at x 537..588,
+/// and x 510 would hit the printer name.
+const STATUS_BAR_NOZZLE_BEFORE_CHAMBER: (f32, f32) = (510.0, 22.0);
+const STATUS_BAR_NOZZLE_WITHOUT_CHAMBER: (f32, f32) = (562.0, 22.0);
 
+/// A tap on the nozzle temperature of the status bar opens the heaters; checked in the reference layout only.
 pub(super) fn temperature_leads_to_heaters(session: &mut Session) -> Result<(), String> {
     if !session.has_reference_layout() {
         return Ok(());
     }
-    let (x, y) = STATUS_BAR_NOZZLE;
+    let (x, y) = if session.window.global::<Printer>().get_has_chamber() {
+        STATUS_BAR_NOZZLE_BEFORE_CHAMBER
+    } else {
+        STATUS_BAR_NOZZLE_WITHOUT_CHAMBER
+    };
     session.tap(x, y);
     let navigation = session.window.global::<Navigation>();
     if navigation.get_page() != Page::Temperature || navigation.get_heat_tab() != HeatTab::Heaters {
