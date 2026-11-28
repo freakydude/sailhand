@@ -1,7 +1,7 @@
 //! Heat tabs, nozzle history, PID tuning, stalled fan and taps while temperatures change.
 
 use crate::session::Session;
-use sailhand::{Backlight, HeatTab, Navigation, Page, Printer};
+use sailhand::{Actions, Backlight, HeatTab, Navigation, Page, Printer, RoutinesTab};
 use sailhand_core::sources::moonraker_server::wled::{self, StripAction};
 use sailhand_core::{Command, Snapshot};
 use slint::ComponentHandle;
@@ -71,16 +71,19 @@ pub(super) fn heat_tabs(session: &mut Session) -> Result<(), String> {
     Ok(())
 }
 
-/// The nozzle's dialog with the PID footer: the start, `PID_CALIBRATE` running (the status bar names it, the dialog
-/// shows nothing of its own), and the result Klipper keeps for `SAVE_CONFIG`. The tuning is short at 60 °C in the fake.
+/// The PID tab with the nozzle: the start, `PID_CALIBRATE` running (the status bar names it, the tab shows its own
+/// note), and the result Klipper keeps for `SAVE_CONFIG`. The tuning is short at 60 °C in the fake.
 fn pid_tuning(session: &mut Session) -> Result<(), String> {
     const TARGET: f64 = 60.0;
     const RUNNING_LABEL: &str = "PID tune";
     // A command shows as running after one second (`LONG_COMMAND`); the tuning in the fake lasts a few seconds.
     const NAMED_WITHIN: Duration = Duration::from_secs(5);
-    session.presenter.open_history("extruder");
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Pid);
+    session.window.global::<Navigation>().set_page(Page::Routines);
+    session.pump(Duration::from_millis(300));
+    session.window.global::<Actions>().invoke_follow_pid("extruder".into());
     session.pump(Duration::from_secs(1));
-    session.capture("temperature-pid-start")?;
+    session.capture("routines-pid-start")?;
     session.service.send(Command::PidCalibrate { heater: "extruder".into(), target: TARGET });
     let deadline = Instant::now() + NAMED_WITHIN;
     while session.window.global::<Printer>().get_running_command() != RUNNING_LABEL {
@@ -89,13 +92,14 @@ fn pid_tuning(session: &mut Session) -> Result<(), String> {
         }
         session.pump(Duration::from_millis(50));
     }
-    session.capture("temperature-pid-running")?;
+    session.capture("routines-pid-running")?;
     session.wait_until("Klipper to keep the found values", |snapshot| {
         snapshot.status.calibration.pending.iter().any(|section| section.section == "extruder")
     })?;
     session.pump(Duration::from_secs(1));
-    session.capture("temperature-pid-done")?;
-    session.presenter.close_history();
+    session.capture("routines-pid-done")?;
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Macros);
+    session.window.global::<Navigation>().set_page(Page::Temperature);
     session.service.send(Command::SaveConfig);
     session.wait_until("the saved values", |snapshot| snapshot.status.calibration.pending.is_empty())
 }
@@ -135,8 +139,10 @@ pub(super) fn nozzle_history(session: &mut Session) -> Result<(), String> {
     Ok(())
 }
 
-/// The "Cool down" button of the nozzle row on the Heat page, below the tabs (800x480, no fitting).
-const COOL_DOWN_BUTTON: (f32, f32) = (628.0, 148.0);
+/// The "Cool down" button of the first nozzle row on the Heaters tab, below the tabs (800x480, no fitting). Its x lies
+/// on the button with and without the scrollbar of a long heater list: x 597..659 on `voron`, 557..619 on
+/// `toolchanger` (three nozzles).
+const COOL_DOWN_BUTTON: (f32, f32) = (608.0, 148.0);
 
 const TAP_ROUNDS: usize = 10;
 
@@ -209,15 +215,22 @@ fn typed_target(session: &mut Session) -> Result<(), String> {
     Ok(())
 }
 
-/// A tap on the nozzle temperature of the status bar opens the heaters; checked in the reference layout only.
-/// The nozzle temperature of the status bar while a print runs (800x480, no fitting).
-const STATUS_BAR_NOZZLE: (f32, f32) = (510.0, 22.0);
+/// The nozzle temperature of the status bar while benchy prints (800x480, no fitting). The readings stand
+/// right-aligned, so the nozzle moves right without a chamber reading after it: on `basic` it is drawn at x 537..588,
+/// and x 510 would hit the printer name.
+const STATUS_BAR_NOZZLE_BEFORE_CHAMBER: (f32, f32) = (510.0, 22.0);
+const STATUS_BAR_NOZZLE_WITHOUT_CHAMBER: (f32, f32) = (562.0, 22.0);
 
+/// A tap on the nozzle temperature of the status bar opens the heaters; checked in the reference layout only.
 pub(super) fn temperature_leads_to_heaters(session: &mut Session) -> Result<(), String> {
     if !session.has_reference_layout() {
         return Ok(());
     }
-    let (x, y) = STATUS_BAR_NOZZLE;
+    let (x, y) = if session.window.global::<Printer>().get_has_chamber() {
+        STATUS_BAR_NOZZLE_BEFORE_CHAMBER
+    } else {
+        STATUS_BAR_NOZZLE_WITHOUT_CHAMBER
+    };
     session.tap(x, y);
     let navigation = session.window.global::<Navigation>();
     if navigation.get_page() != Page::Temperature || navigation.get_heat_tab() != HeatTab::Heaters {

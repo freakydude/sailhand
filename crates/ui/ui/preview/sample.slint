@@ -1,7 +1,7 @@
 // Sample data for previews (VS Code Slint preview, slint-viewer, scripts/ui-preview.sh).
 // Not part of the app: nothing in app.slint imports this folder. In the app, Rust fills these globals.
 
-import { AdapterStatus, FilamentPathItem, MotionTab, Navigation, Network, Page, PathPartKind, Printer, PrinterChoice, Severity, UiSettings } from "../state.slint";
+import { AdapterStatus, FilamentPathItem, RoutinesTab, Navigation, Network, Page, PathPartKind, Printer, PrinterChoice, Severity, UiSettings } from "../state.slint";
 
 export global Sample {
     // The way at a head without sensors of its own, as the core builds it (`LoadPath::parts`, `PathScope::HeadOnly`) and
@@ -111,6 +111,17 @@ export global Sample {
             { label: "Extruder Encoder", enabled: true, detected: false },
         ];
         Printer.macros = ["PRINT_START", "PRINT_END", "LOAD_FILAMENT", "UNLOAD_FILAMENT", "PARK"];
+        Printer.macro-items = [
+            { name: "PRINT_START", visible: true },
+            { name: "PRINT_END", visible: true },
+            { name: "LOAD_FILAMENT", visible: true },
+            { name: "UNLOAD_FILAMENT", visible: true },
+            { name: "PARK", visible: true },
+        ];
+        Printer.pid-heaters = [
+            { object: "extruder", label: "Extruder", value: "215.0 / 215 °C" },
+            { object: "heater_bed", label: "Bed", value: "60.0 / 60 °C" },
+        ];
         Printer.power-devices = [{ name: "printer", on: true, locked: true }, { name: "lights", on: false, locked: false }];
         Printer.updates = [
             { name: "klipper", label: "Klipper", version: "v0.13.0-100", detail: "20 commits behind", has-update: true },
@@ -120,12 +131,12 @@ export global Sample {
         UiSettings.presets = [{ name: "PLA", extruder: 215, bed: 60 }, { name: "PETG", extruder: 240, bed: 80 }];
     }
 
-    // A bed slinger like a Sidewinder X2 on the Calibrate tab: probe, both screw tools, three mesh profiles (one more
+    // A bed slinger like a Sidewinder X2 on the Routines > Bed tab: probe, both screw tools, three mesh profiles (one more
     // than fit, so the list scrolls), screws measured and a probe offset waiting for SAVE_CONFIG.
     public function calibration() {
         self.ready-printer();
-        Navigation.page = Page.motion;
-        Navigation.motion-tab = MotionTab.calibrate;
+        Navigation.page = Page.routines;
+        Navigation.routines-tab = RoutinesTab.bed;
         Printer.can-quad-gantry-level = false;
         Printer.has-probe = true;
         Printer.z-calibration = "probe";

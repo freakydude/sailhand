@@ -1,14 +1,14 @@
-// Preview: the Macros tab with a macro that is running; one answer is longer than the card. Open in the Slint preview or render with scripts/ui-preview.sh.
+// Preview: the Macros tab with a finished run. Open in the Slint preview or render with scripts/ui-preview.sh.
 
 import { AppWindow } from "../app.slint";
-import { MotionTab, Navigation, Page, Printer, MacroRunState } from "../state.slint";
+import { RoutinesTab, Navigation, Page, Printer, MacroRunState } from "../state.slint";
 import { Sample } from "sample.slint";
 
-export component MotionMacrosRunningPreview inherits AppWindow {
+export component RoutinesMacrosDonePreview inherits AppWindow {
     init => {
         Sample.ready-printer();
-        Navigation.page = Page.motion;
-        Navigation.motion-tab = MotionTab.macros;
+        Navigation.page = Page.routines;
+        Navigation.routines-tab = RoutinesTab.macros;
         Printer.macros = ["HEAT_SOAK", "LOAD_FILAMENT", "PARK", "PARK_TOOLHEAD_AT_THE_FRONT_CENTER_FOR_NOZZLE_CHECKS", "PRINT_END", "PRINT_START", "UNLOAD_FILAMENT"];
         Printer.macro-items = [
             { name: "HEAT_SOAK", visible: true },
@@ -21,7 +21,7 @@ export component MotionMacrosRunningPreview inherits AppWindow {
             { name: "UNLOAD_FILAMENT", visible: true },
         ];
         Printer.macro-selected = "HEAT_SOAK";
-        Printer.macro-run = { state: MacroRunState.running, script: "HEAT_SOAK TEMP=60 MINUTES=10", started: "14:02:11", duration: "", error: "" };
+        Printer.macro-run = { state: MacroRunState.done, script: "HEAT_SOAK TEMP=60 MINUTES=10", started: "14:02:11", duration: "1 min 29 s", error: "" };
         Printer.macro-run-lines = [
             { text: "Heat soak: 10 min at 60 °C", time: "14:02:11", show-time: true, is-command: false, is-error: false },
             { text: "Bed: 24.1 °C, target 60.0 °C", time: "14:02:11", show-time: false, is-command: false, is-error: false },

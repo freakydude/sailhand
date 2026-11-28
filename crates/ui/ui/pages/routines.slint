@@ -1,0 +1,81 @@
+// Routines: everything that starts a procedure. Macros run the user's own, Bed levels and calibrates the bed, PID tunes
+// a heater. Bed and PID move the axes or heat for minutes, so a running print greys them out and the page shows Macros
+// instead (running a macro while printing asks first).
+
+import { Theme } from "../theme.slint";
+import { Icons } from "../icons.slint";
+import { Navigation, Printer, RoutinesTab } from "../state.slint";
+import { Note, TabBar, TabButton } from "../components/controls.slint";
+import { CalibrateTab } from "calibrate.slint";
+import { MacrosTab } from "macros.slint";
+import { PidTab } from "pid.slint";
+
+export component RoutinesPage inherits Rectangle {
+    property <bool> has-macros: Printer.macro-items.length > 0;
+    property <bool> has-bed: Printer.has-bed-mesh || Printer.has-screws-tilt || Printer.has-bed-screws
+        || Printer.z-calibration != "" || Printer.can-quad-gantry-level || Printer.can-z-tilt;
+    property <bool> has-pid: Printer.pid-heaters.length > 0;
+    // The first tab that has content: where a choice without content falls back to.
+    property <RoutinesTab> first: root.has-macros ? RoutinesTab.macros : root.has-bed ? RoutinesTab.bed
+        : root.has-pid ? RoutinesTab.pid : RoutinesTab.macros;
+    // The tab the user chose, fallen back where the printer has nothing for it ...
+    property <RoutinesTab> chosen: Navigation.routines-tab == RoutinesTab.macros && !root.has-macros ? root.first
+        : Navigation.routines-tab == RoutinesTab.bed && !root.has-bed ? root.first
+        : Navigation.routines-tab == RoutinesTab.pid && !root.has-pid ? root.first : Navigation.routines-tab;
+    // ... and the tab shown: while printing Bed and PID stand still, so Macros. `Navigation.routines-tab` is not touched,
+    // the choice is back after the print.
+    property <RoutinesTab> tab: Printer.motion-locked && root.chosen != RoutinesTab.macros ? RoutinesTab.macros : root.chosen;
+    property <bool> empty: !root.has-macros && (Printer.motion-locked || (!root.has-bed && !root.has-pid));
+
+    // The PID tab tells the app that it is on the screen, so the history of the chosen heater is followed.
+    function show-pid() {
+        Navigation.pid-shown = root.tab == RoutinesTab.pid;
+    }
+    changed tab => { root.show-pid(); }
+    init => { root.show-pid(); }
+
+    VerticalLayout {
+        TabBar {
+            if root.has-macros: TabButton {
+                icon: Icons.nav-macros;
+                text: @tr("Macros");
+                checked: root.tab == RoutinesTab.macros;
+                clicked => { Navigation.routines-tab = RoutinesTab.macros; }
+            }
+            if root.has-bed: TabButton {
+                icon: Icons.nav-calibration;
+                text: @tr("Bed");
+                enabled: !Printer.motion-locked;
+                checked: root.tab == RoutinesTab.bed;
+                clicked => { Navigation.routines-tab = RoutinesTab.bed; }
+            }
+            if root.has-pid: TabButton {
+                icon: Icons.calibration-pid;
+                text: @tr("PID");
+                enabled: !Printer.motion-locked;
+                checked: root.tab == RoutinesTab.pid;
+                clicked => { Navigation.routines-tab = RoutinesTab.pid; }
+            }
+            // While paused: what would lose the print's position stays locked. Beside the tabs, so the tab keeps its
+            // full height.
+            if Printer.position-locked && root.tab == RoutinesTab.bed: Note {
+                horizontal-stretch: 1;
+                text: @tr("Locked while paused: leveling, calibration");
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
+        }
+        if !root.empty && root.tab == RoutinesTab.macros: MacrosTab { vertical-stretch: 1; }
+        if root.tab == RoutinesTab.bed: CalibrateTab { vertical-stretch: 1; }
+        if root.tab == RoutinesTab.pid: PidTab { vertical-stretch: 1; }
+        if root.empty: Text {
+            vertical-stretch: 1;
+            text: @tr("Nothing to run here.");
+            color: Theme.muted;
+            font-size: Theme.font-normal;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+}

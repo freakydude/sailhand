@@ -2,7 +2,7 @@
 //! 10 x 10 points tile by tile and a larger one as an image, which no other scene shows.
 
 use crate::session::Session;
-use sailhand::{Actions, MeshDialogs, MotionTab, Navigation, Page};
+use sailhand::{Actions, MeshDialogs, Navigation, Page, RoutinesTab};
 use sailhand_core::{Command, Snapshot};
 use slint::ComponentHandle;
 use std::time::Duration;
@@ -19,8 +19,8 @@ pub(super) fn bed_mesh_dense(session: &mut Session) -> Result<(), String> {
     if !session.presenter.snapshot().sources.klipper.calibration.bed_mesh {
         return Ok(());
     }
-    session.window.global::<Navigation>().set_motion_tab(MotionTab::Calibrate);
-    session.show_page(Page::Motion, "bed-mesh-dense")?;
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Bed);
+    session.show_page(Page::Routines, "bed-mesh-dense")?;
     let (x_count, y_count) = PROBE_COUNT;
     session.service.send(Command::RunGcode {
         script: format!(
@@ -47,7 +47,7 @@ pub(super) fn bed_mesh_dense(session: &mut Session) -> Result<(), String> {
     session.wait_until("default mesh loaded", |snapshot| mesh_columns(snapshot, "default").is_some())?;
     session.service.send(Command::SaveConfig);
     session.wait_until("saved", |snapshot| !snapshot.status.save_config_pending)?;
-    session.window.global::<Navigation>().set_motion_tab(MotionTab::Axes);
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Macros);
     Ok(())
 }
 

@@ -1,12 +1,14 @@
 // G-code console: the log and a command field that opens the on-screen keyboard. Whether temperature reports are
-// shown is switched here too. Macros live on Motion > Macros.
+// shown is switched here too. Macros live on Routines › Macros. A message of the flyout leads to the row it happened
+// at (`Printer.console-target`).
 
 import { Theme } from "../theme.slint";
 import { Icons } from "../icons.slint";
-import { Actions, Printer, UiSettings } from "../state.slint";
+import { Actions, Place, Printer, UiSettings } from "../state.slint";
 import { IconButton, ScrollList, ToggleRow } from "../components/controls.slint";
 import { ConsoleRow, ConsoleRows } from "../components/console-row.slint";
 import { TextEntryDialog } from "../components/entry-dialogs.slint";
+import { Highlight } from "../components/jump.slint";
 import { SystemTabs } from "../components/system-tabs.slint";
 
 export component ConsolePage inherits Rectangle {
@@ -14,6 +16,15 @@ export component ConsolePage inherits Rectangle {
     property <string> draft;
 
     init => { Actions.load-console(); }
+    changed console-target => { root.show-target(); }
+
+    property <int> console-target: Printer.console-target;
+
+    function show-target() {
+        if (root.console-target >= 0) {
+            log.show-row(4px + root.console-target * root.line-height, root.line-height);
+        }
+    }
 
     VerticalLayout {
         padding: Theme.padding;
@@ -37,6 +48,10 @@ export component ConsolePage inherits Rectangle {
                     height: root.line-height;
                     width: log.row-width;
                     ConsoleRow { line: line; }
+                    if Printer.console-target-exact && index == Printer.console-target: Highlight {
+                        place: Place.console;
+                        radius: Theme.radius-small;
+                    }
                     // A sent command can be put back into the field: tap it, then Enter runs it again.
                     if line.is-command: TouchArea {
                         clicked => {

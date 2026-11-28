@@ -3,7 +3,7 @@
 import { Theme } from "../theme.slint";
 import { StateIcons } from "../state-icons.slint";
 import { Icons } from "../icons.slint";
-import { Actions, Navigation, Page, Place, Printer, Severity } from "../state.slint";
+import { Actions, Navigation, Printer } from "../state.slint";
 import { FlyoutPanel, IconButton, ScrollList } from "controls.slint";
 import { DialogHeader } from "dialog.slint";
 
@@ -23,18 +23,24 @@ export component MessagesFlyout inherits Rectangle {
     // Height of one text line of a row (`LINE_HEIGHT` in crates/app/src/status_log.rs): symbol, time and arrow sit
     // in this band, level with the first line of a text that wraps.
     property <length> line-band: 22px;
-    // Below the status bar, so that its field, the light and the emergency stop stay in reach.
+    // Everything but the status bar, so that its field, the light and the emergency stop stay in reach.
     TouchArea {
-        y: 44px;
-        height: root.height - 44px;
+        width: Theme.nav-rail-width;
+        clicked => { Navigation.close-messages(); }
+    }
+    TouchArea {
+        x: Theme.nav-rail-width;
+        y: Theme.status-bar-height;
+        width: root.width - self.x;
+        height: root.height - self.y;
         clicked => { Navigation.close-messages(); }
     }
 
     FlyoutPanel {
-        x: 8px;
-        y: 50px;
-        width: min(520px, root.width - 16px);
-        height: root.height - 58px;
+        x: Theme.nav-rail-width + Theme.spacing;
+        y: Theme.status-bar-height + Theme.spacing;
+        width: min(520px, root.width - self.x - Theme.spacing);
+        height: root.height - self.y - Theme.spacing;
 
         VerticalLayout {
             padding: Theme.padding;
@@ -42,6 +48,17 @@ export component MessagesFlyout inherits Rectangle {
             DialogHeader {
                 title: @tr("Messages");
                 close => { Navigation.close-messages(); }
+                // Nothing is left to read: the flyout closes with it.
+                IconButton {
+                    width: Theme.touch;
+                    icon: Icons.ui-delete;
+                    accessible-label: @tr("Clear the messages");
+                    enabled: Printer.messages.length > 0;
+                    clicked => {
+                        Actions.messages-clear();
+                        Navigation.close-messages();
+                    }
+                }
             }
 
             messages-list := ScrollList {
@@ -66,7 +83,8 @@ export component MessagesFlyout inherits Rectangle {
                     text: @tr("EARLIER");
                 }
                 // What still asks to be looked at lies on a pale ground in its colour; the rest is history with only
-                // its symbol in colour. A message with a place leads there.
+                // its symbol in colour. Every message leads somewhere: where it is dealt with, the routine it came
+                // from, else the console where it happened.
                 for message in Printer.messages: Rectangle {
                     x: 0;
                     y: message.top;
@@ -76,8 +94,7 @@ export component MessagesFlyout inherits Rectangle {
                         : message.tinted ? StateIcons.severity-tint(message.severity) : Theme.surface-raised;
                     border-radius: Theme.radius;
                     row-touch := TouchArea {
-                        enabled: message.place != Place.none;
-                        clicked => { Navigation.go(message.place, ""); }
+                        clicked => { Navigation.go(message.place, message.place-name); }
                     }
                     HorizontalLayout {
                         padding: Theme.padding;
@@ -106,45 +123,13 @@ export component MessagesFlyout inherits Rectangle {
                             font-size: Theme.font-small;
                             vertical-alignment: center;
                         }
-                        if message.place != Place.none: Image {
+                        Image {
                             source: Icons.ui-chevron-right;
                             colorize: Theme.muted;
                             width: Theme.icon-small;
                             height: root.line-band;
                             image-fit: contain;
                         }
-                    }
-                }
-            }
-
-            // Flat and wide: the height belongs to the messages, the width keeps the buttons easy to hit.
-            HorizontalLayout {
-                spacing: Theme.spacing;
-                height: 44px;
-                alignment: end;
-                IconButton {
-                    width: 140px;
-                    text: @tr("Clear");
-                    icon: Icons.ui-delete;
-                    icon-size: Theme.icon-small;
-                    horizontal: true;
-                    min-height: 44px;
-                    // Nothing is left to read: the flyout closes with it.
-                    clicked => {
-                        Actions.messages-clear();
-                        Navigation.close-messages();
-                    }
-                }
-                IconButton {
-                    width: 140px;
-                    text: @tr("Console");
-                    icon: Icons.nav-console;
-                    icon-size: Theme.icon-small;
-                    horizontal: true;
-                    min-height: 44px;
-                    clicked => {
-                        Navigation.close-messages();
-                        Navigation.page = Page.console;
                     }
                 }
             }

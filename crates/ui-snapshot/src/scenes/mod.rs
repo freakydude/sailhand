@@ -56,9 +56,9 @@ pub enum Scene {
     Taps,
     /// Editing keys in the text entry of the console, physical and on-screen.
     Typing,
-    /// Motion › Macros: the run card of a macro while it runs and after its answer.
+    /// Routines › Macros: the run card of a macro while it runs and after its answer.
     Macros,
-    /// The Calibrate tab of the Motion page: results of the bed mesh and the screws, the dialogs of the waiting modes.
+    /// The Bed tab of the Routines page: results of the bed mesh and the screws, the dialogs of the waiting modes.
     Calibrate,
     /// A dense bed mesh (30 x 40 points, 31 x 31 on a fake with `--round-bed`), which the UI draws as an image.
     BedMeshDense,

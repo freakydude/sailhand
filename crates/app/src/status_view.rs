@@ -5,7 +5,8 @@ use crate::items::replace_rows;
 use crate::status_log::layout;
 use crate::{AppWindow, MessageItem, Place, Printer, Severity, format, view};
 use sailhand_core::domain::faults::{self, Fault, FaultLevel};
-use sailhand_core::domain::incidents::{Category, Incident, IncidentLog};
+use sailhand_core::domain::incidents::{Category, Incident, IncidentLog, Target};
+use sailhand_core::domain::routines::Routine;
 use sailhand_core::sources::moonraker_server::gcode_store::ConsoleLine;
 use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
 use std::cell::RefCell;
@@ -47,6 +48,7 @@ impl StatusView {
                 tinted: log.needs_attention(placed.incident),
                 standing: placed.incident.is_standing(),
                 place: place(placed.incident),
+                place_name: place_name(placed.incident).into(),
                 top: placed.top,
                 height: placed.height,
             })
@@ -95,12 +97,15 @@ impl StatusView {
     }
 
     /// A command Klipper or Moonraker rejected; its duplicate response is recognised by the reason. `seen`: it stood
-    /// on the screen elsewhere (the run card of a macro), so it is not unread.
-    pub fn command_failed(self: &Rc<Self>, shown: &str, reason: &str, seen: bool) {
+    /// on the screen elsewhere (the run card of a macro), so it is not unread. `routine`: the command belonged to one.
+    pub fn command_failed(self: &Rc<Self>, shown: &str, reason: &str, seen: bool, routine: Option<Routine>) {
         let mut log = self.log.borrow_mut();
         let id = log.add_command_failure(shown, reason, now_seconds());
         if seen {
             log.settle(id);
+        }
+        if let Some(routine) = routine {
+            log.set_routine(id, routine);
         }
         drop(log);
         self.show_event(id);
@@ -108,8 +113,9 @@ impl StatusView {
 
     /// A `!!` (error) or `//` (information) response of Klipper. Other responses stay in the console.
     /// While a print runs, informations only go to the list: Klipper sends many of them and the status bar would flicker.
-    /// `seen`: the line stood on the screen elsewhere (the run card of a macro), so it is not unread.
-    pub fn console_response(self: &Rc<Self>, line: &ConsoleLine, printing: bool, seen: bool) {
+    /// `seen`: the line stood on the screen elsewhere (the run card of a macro), so it is not unread. `routine`: a
+    /// routine of this display was running when it came.
+    pub fn console_response(self: &Rc<Self>, line: &ConsoleLine, printing: bool, seen: bool, routine: Option<Routine>) {
         let is_error = line.is_error();
         if !is_error && !line.is_information() {
             return;
@@ -120,15 +126,28 @@ impl StatusView {
         let added = if shown {
             log.add_response(&text, is_error, now_seconds())
         } else {
-            Some(log.add_info_quietly(&text, now_seconds()))
+            Some(log.add_response_quietly(&text, now_seconds()))
         };
-        if seen && let Some(id) = added {
-            log.settle(id);
+        if let Some(id) = added {
+            if seen {
+                log.settle(id);
+            }
+            if let Some(routine) = routine {
+                log.set_routine(id, routine);
+            }
         }
         drop(log);
         match added {
             Some(id) if shown => self.show_event(id),
             _ => self.refresh(),
+        }
+    }
+
+    /// Where in the console the incident with this id happened: its time and the text to find there.
+    pub fn console_anchor(&self, id: u64) -> Option<(f64, Option<String>)> {
+        match self.log.borrow().get(id)?.target() {
+            Target::Console { time, text } => Some((time, text.map(str::to_owned))),
+            Target::Place(_) | Target::Routine(_) => None,
         }
     }
 
@@ -201,11 +220,23 @@ fn fault_severity(level: FaultLevel) -> Severity {
     }
 }
 
-/// Where a tap on the incident leads: a standing fault to the place it is dealt with; history and messages nowhere.
+/// Where a tap on the incident leads ([`Incident::target`]).
 fn place(incident: &Incident) -> Place {
-    match incident.fault() {
-        Some(fault) if incident.is_standing() => place_of(&fault.place()),
-        _ => Place::None,
+    match incident.target() {
+        Target::Place(place) => place_of(&place),
+        Target::Routine(Routine::Macro(_)) => Place::RoutineMacro,
+        Target::Routine(Routine::Bed) => Place::RoutineBed,
+        Target::Routine(Routine::Pid(_)) => Place::RoutinePid,
+        Target::Console { .. } => Place::Console,
+    }
+}
+
+/// Which one at that place: the macro, the heater, or for the console the incident itself (its id).
+fn place_name(incident: &Incident) -> String {
+    match incident.target() {
+        Target::Routine(Routine::Macro(name) | Routine::Pid(name)) => name.clone(),
+        Target::Console { .. } => incident.id.to_string(),
+        Target::Place(_) | Target::Routine(Routine::Bed) => String::new(),
     }
 }
 

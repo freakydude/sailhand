@@ -5,6 +5,12 @@ What each page of Sailhand does. Functions only appear when the printer has them
 shown, as in Mainsail: macros, heaters, temperature sensors, fans, LEDs, LED effects and filament sensors (a hidden
 probe still counts as the probe).
 
+- **Navigation and status bar**: the navigation runs down the left edge over the full height; its first entry, Print,
+  shows the printer's state as its symbol (ready, printing, paused, error). The status bar beside it names the state,
+  what is running, the temperatures, the light and the emergency stop. A tap on it opens the messages. Every message
+  leads somewhere: a fault that stands to the place where it is dealt with, a message of a macro run or a calibration
+  started here back to that routine, anything else to the row of the console where it happened, which lights up. The
+  bin in the header clears the list.
 - **Print**: thumbnail, progress and remaining time as the main figures with elapsed time, filament (in grams where the file or the spool tells the weight) and ETA under the bar, layers with current and object height, speed and flow; a pause shows since when; after the end, when it ended, the total time with heating and pauses, and how far a cancelled or failed print got (progress, layer, height); a print lost in a Klipper shutdown or restart stays on the page as failed until the next one; start, pause, resume, cancel, pause at a layer (planned pause shown), exclude objects (on a map of the bed if the slicer defines their outlines);
   file browser with thumbnails, filament (material of each tool), nozzle and print time of each file.
   - **Prepare**: a tap on a file marks it; with one file marked, **Prepare** makes it the job of the print page and
@@ -42,8 +48,10 @@ probe still counts as the probe).
   back a planned move). The pads keep to the axis range; the Z pad
   stops at Z 0, and while a print is paused at the height of the print. The positions sit on rulers at the edges of
   the pads, so the finger does not cover them. Filament is locked while a print runs and the screen leaves it when a
-  print starts; on Motion the Axes and Calibrate tabs are greyed out then and the page shows the Tune tab.
-  - **Calibrate** tab: Klipper's own calibration commands, with their results. Bed screws
+  print starts; on Motion the Axes tab is greyed out then and the page shows the Tune tab.
+- **Routines**: everything that starts a procedure, in tabs the printer has content for: Macros, Bed and PID. While a
+  print runs, Bed and PID are greyed out and the page shows Macros.
+  - **Bed** tab: Klipper's own calibration commands, with their results. Bed screws
     (`SCREWS_TILT_CALCULATE` with the turns per screw, or the paper test `BED_SCREWS_ADJUST`), Z offset of the probe or
     the Z endstop, bed mesh (measure, a coloured map of the active mesh, load, save and remove profiles, clear) and
     what `SAVE_CONFIG` would write. While Klipper waits for the paper test or the Z height, a dialog shows its steps;
@@ -53,6 +61,14 @@ probe still counts as the probe).
     each with what the configuration file holds and what waits for Save config, buttons to put the nozzle or the sensor
     over the bed centre, and a hint when the toolhead is outside the 3–10 mm the tap steps need. The values come from
     Klipper's status, so steps started elsewhere show up as well.
+  - **PID** tab: the heaters with `control: pid` in a list (a `watermark` heater stays as it is: Klipper would tune it
+    too and switch it to PID, but bang-bang is usually chosen on purpose, a relay for example; a result already waiting
+    for Save config still shows), beside it the temperature chart of the
+    chosen one, target field (230 °C for a nozzle, 70 °C for the bed, typed for other heaters), the PID values
+    printer.cfg has now, and "PID tune" after a confirmation; it is off during a print. Whenever Klipper holds new PID
+    values for the heater, started here, in the console or in Mainsail, the tab shows them beside the old ones with
+    "Save config".
+  - **Macros** tab: see below.
 - **Thermal**: every heater with a target (nozzle, bed, `heater_generic`, `temperature_fan`), presets; − and +
   respect `min_temp`/`max_temp` from the Klipper configuration. Under each temperature with a `max_temp` a scale
   shows the distance to the limit where Klipper shuts down: the current value as a stroke, "max N °C", and for a
@@ -60,11 +76,8 @@ probe still counts as the probe).
   The number turns yellow or red when a sensor or a switched-off heater nears its limit, or when a heater that has
   reached its target leaves the tolerance; heating up or cooling down after a new target stays grey. Tapping a heater or sensor shows its temperature
   history with a grid: the last 20 minutes of Moonraker's temperature store, asked again every five seconds while it
-  is open. Moonraker keeps heaters and `temperature_sensor` objects there; the others have no history. The dialog of
-  a heater also starts a PID tuning (`PID_CALIBRATE`): target field (230 °C for a nozzle, 70 °C for the bed, typed for
-  other heaters), the PID values printer.cfg has now, and "PID tune" after a confirmation; it is off during a print.
-  Whenever Klipper holds new PID values for the heater, started here, in the console or in Mainsail, the dialog shows
-  them beside the old ones with "Save config". Further tabs when the printer has them:
+  is open. Moonraker keeps heaters and `temperature_sensor` objects there; the others have no history. PID tuning of a
+  heater is on Routines › PID. Further tabs when the printer has them:
   - **Fans**: part fan (the one of the nozzle in use first) and `fan_generic` fans (filter, exhaust) with a slider, `heater_fan` and `controller_fan` as a
     bar, speed in rpm where there is a tachometer. A fan turns red when its tachometer has reported 0 rpm for a few
     seconds at a speed where it measured before (many tachometers report nothing at a low speed although the fan
@@ -78,7 +91,7 @@ probe still counts as the probe).
   the calibration values until the next restart: flow factor, pressure advance and smooth time, velocity and
   acceleration limits, square corner velocity, minimum cruise ratio and firmware retraction; it shows where a value
   differs from the configuration and resets it.
-- **Macros** tab of Motion: the printer's macros in a list, beside it the chosen one with **Run** and the card of its
+- **Macros** tab of Routines: the printer's macros in a list, beside it the chosen one with **Run** and the card of its
   last run from this display: running since when, done after how long or failed and why, and the answers Klipper
   sent while it ran ("during the run": Klipper does not say which command wrote a line). The card keeps the last run
   of each macro until the app ends or another printer is chosen; what stood on it does not count as unread. Macros
@@ -93,22 +106,22 @@ probe still counts as the probe).
   - **Network**: Wi-Fi and Ethernet (see [Network settings](configuration.md#network-settings)).
   - **Printers**: switch between several printers, found on the network or added by address, and see which of them
     answer (see [Several printers](configuration.md#several-printers)).
-  - **Console** (also from the message flyout): G-code history and live responses, also those of macro runs, and a
+  - **Console** (also from any message of the flyout): G-code history and live responses, also those of macro runs, and a
     command field (on-screen keyboard or physical keyboard). Like Mainsail it hides the temperature reports Klipper
     sends while waiting for a heater (the thermometer button next to the command field shows them).
-  - **Settings**: the macros Motion › Macros lists, the printer in use and its login (see [Moonraker login](configuration.md#moonraker-login)), fullscreen,
+  - **Settings**: the macros Routines › Macros lists, the printer in use and its login (see [Moonraker login](configuration.md#moonraker-login)), fullscreen,
     and when the screen goes off by itself (see [Brightness and standby](configuration.md#brightness-and-standby)).
     Temperature presets are set in the [settings file](configuration.md#settings-file).
 
 | ![A prepared file on the print page](screenshots/print-prepared.png) | ![Pause at a layer](screenshots/layer-pause.png)            |
 | -------------------------------------------------------------------- | ----------------------------------------------------------- |
-| A prepared file with the filament check per tool                     | Pause at a layer, with the pause planned for layer 44       |
-| ![Exclude objects on the bed map](screenshots/objects-map.png)       | ![Calibrate tab](screenshots/calibrate.png)                 |
-| Exclude objects: the bed map with the outlines from the slicer       | The Calibrate tab: bed screws, Z height and the bed mesh    |
+| A prepared file with the filament check per tool                     | Pause at a layer, with the pause planned for layer 46       |
+| ![Exclude objects on the bed map](screenshots/objects-map.png)       | ![Routines › Bed](screenshots/calibrate.png)                 |
+| Exclude objects: the bed map with the outlines from the slicer       | Routines › Bed: bed screws, Z height and the bed mesh       |
 | ![Bed mesh map](screenshots/bed-mesh.png)                   | ![Eddy probe setup](screenshots/eddy-probe.png)                       |
 | The map of the active bed mesh, with a faulty region framed | Eddy probe setup: drive current, Z heights and tap threshold          |
 | ![PID tuning result](screenshots/pid-tune.png)              |                                                                       |
-| PID tuning of a heater: the new values beside the old ones  |                                                                       |
+| Routines › PID: the new values beside the old ones          |                                                                       |
 
 | ![Tune tab of Motion](screenshots/tune.png)               | ![Filament page](screenshots/filament.png)                |
 | --------------------------------------------------------- | --------------------------------------------------------- |

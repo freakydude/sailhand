@@ -1,4 +1,4 @@
-// Setup of an Eddy current probe, opened from the Calibrate tab. Klipper has no PROBE_CALIBRATE for it: one row per
+// Setup of an Eddy current probe, opened from the Routines › Bed tab. Klipper has no PROBE_CALIBRATE for it: one row per
 // step of its Eddy_Probe guide, in the order of the guide, each with what printer.cfg holds now and what is pending.
 
 import { Theme } from "../theme.slint";
@@ -201,7 +201,7 @@ export component EddyProbeDialog inherits Scrim {
                 }
             }
             Rectangle { vertical-stretch: 1; }
-            // Like the Calibrate tab: what SAVE_CONFIG would write, and the confirmation at the right.
+            // Like the Bed tab: what SAVE_CONFIG would write, and the confirmation at the right.
             HorizontalLayout {
                 spacing: Theme.spacing;
                 height: Theme.touch;

@@ -1,21 +1,21 @@
-//! The Calibrate tab of the Motion page and the bed mesh dialogs.
+//! The Bed tab of the Routines page and the bed mesh dialogs.
 
 use crate::session::Session;
-use sailhand::{Actions, EddyDialog, MeshDialogs, MotionTab, Navigation, Page};
+use sailhand::{Actions, EddyDialog, MeshDialogs, Navigation, Page, RoutinesTab};
 use sailhand_core::sources::klipper::{CalibrationMode, EddyTap, TestZ};
 use sailhand_core::{Command, Snapshot};
 use slint::ComponentHandle;
 use std::time::Duration;
 
-/// The Move entry of the navigation (800x480, no fitting).
-const NAV_MOVE: (f32, f32) = (38.0, 155.0);
+/// The Motion entry of the navigation over the full height, second of six (800x480, no fitting).
+const NAV_MOVE: (f32, f32) = (38.0, 121.0);
 
 /// Measures what the printer can measure, then shows each waiting mode in its dialog and leaves it; at the end the
 /// changes are saved, so the scenes after it start without pending ones.
 pub(super) fn calibrate(session: &mut Session) -> Result<(), String> {
     let offered = session.presenter.snapshot().sources.klipper.calibration;
-    session.window.global::<Navigation>().set_motion_tab(MotionTab::Calibrate);
-    session.show_page(Page::Motion, "calibrate")?;
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Bed);
+    session.show_page(Page::Routines, "calibrate")?;
     if offered.bed_mesh {
         session.service.send(Command::CalibrateBedMesh);
         session.wait_until("bed mesh", |snapshot| {
@@ -70,7 +70,7 @@ pub(super) fn calibrate(session: &mut Session) -> Result<(), String> {
     }
     session.service.send(Command::SaveConfig);
     session.wait_until("saved", |snapshot| !snapshot.status.save_config_pending)?;
-    session.window.global::<Navigation>().set_motion_tab(MotionTab::Axes);
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Macros);
     Ok(())
 }
 
@@ -102,7 +102,7 @@ fn eddy_dialog(session: &mut Session) -> Result<(), String> {
     Ok(())
 }
 
-/// The tiles of the bed mesh card on the Calibrate tab (800x480, no fitting): the map and the profile selector.
+/// The tiles of the bed mesh card on the Bed tab (800x480, no fitting): the map and the profile selector.
 const MESH_MAP_TILE: (f32, f32) = (660.0, 178.0);
 
 const MESH_PROFILE_TILE: (f32, f32) = (660.0, 240.0);

@@ -29,7 +29,7 @@ pub struct MacroView {
     details: RefCell<Arc<BTreeMap<String, MacroDetails>>>,
     loaded: RefCell<Option<MacrosLoaded>>,
     runs: RefCell<MacroRuns>,
-    /// The macro chosen on the Macros tab; its last run is shown.
+    /// The macro chosen on the Routines › Macros tab; its last run is shown.
     selected: RefCell<String>,
     run_lines: Rc<VecModel<ConsoleItem>>,
     run_clock: RefCell<ClockRows>,

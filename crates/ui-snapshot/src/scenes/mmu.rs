@@ -45,9 +45,9 @@ pub(super) fn mmu_service(session: &mut Session) -> Result<(), String> {
 }
 
 /// Where taps land in the 800x480 layout: the row of T3 on the Tools tab (without a file only its gate side), and gate 1
-/// in the choice of gate.
+/// in the choice of gate (the middle of its row, y 210..261 with four gates on `happy-hare` and `toolchanger-mmu`).
 const TOOL_3_GATE_SIDE: (f32, f32) = (600.0, 406.0);
-const GATE_DIALOG_GATE_1: (f32, f32) = (600.0, 206.0);
+const GATE_DIALOG_GATE_1: (f32, f32) = (600.0, 236.0);
 
 /// Tools and EndlessSpool groups through the app to the fake, both set on the Tools tab only: T3 moves to gate 1 and
 /// gate 1 into the group of gate 0, with EndlessSpool on. In the 800x480 layout the move of T3 goes through taps:

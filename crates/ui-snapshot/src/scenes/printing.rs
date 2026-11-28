@@ -4,7 +4,7 @@ use super::STATUS_BAR_LIGHT;
 use super::ask;
 use super::temperature::{nozzle_history, temperature_leads_to_heaters};
 use crate::session::Session;
-use sailhand::{Actions, ChangerTab, Confirm, MmuDialogs, Navigation, Page, Printer};
+use sailhand::{Actions, ChangerTab, Confirm, MmuDialogs, Navigation, Page, Printer, RoutinesTab};
 use sailhand_core::Command;
 use sailhand_core::domain::load_path;
 use sailhand_core::sources::klipper::PrintState;
@@ -118,8 +118,11 @@ pub(super) fn printing(session: &mut Session) -> Result<(), String> {
     flowguard_stress(session)?;
     session.show_page(Page::Temperature, "temperature-printing")?;
     session.show_page(Page::System, "system-printing")?;
-    // The axes stand still: Axes and Calibrate are greyed out and the page shows Tune.
+    // The axes stand still: Axes is greyed out and the page shows Tune; Routines shows Macros, Bed and PID are greyed out.
     session.show_page(Page::Motion, "motion-printing")?;
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Pid);
+    session.show_page(Page::Routines, "routines-printing")?;
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Macros);
 
     display_message(session)?;
     pause_at_next_layer(session)?;
@@ -129,6 +132,9 @@ pub(super) fn printing(session: &mut Session) -> Result<(), String> {
         return Err("position-locked off while the print is paused".into());
     }
     session.show_page(Page::Motion, "motion-paused")?;
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Bed);
+    session.show_page(Page::Routines, "routines-paused")?;
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Macros);
     // The pad stops at the height of the paused print.
     session.window.global::<Navigation>().set_axes_live(true);
     session.capture("motion-paused-live")?;

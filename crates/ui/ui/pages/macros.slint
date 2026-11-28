@@ -9,7 +9,7 @@ import { Actions, Confirm, MacroRunState, Navigation, Place, Printer, Severity }
 import { ButtonKind, IconButton, ScrollList } from "../components/controls.slint";
 import { BusyWheel } from "../components/busy-wheel.slint";
 import { ConsoleRow, ConsoleRows } from "../components/console-row.slint";
-import { JumpHint } from "../components/jump.slint";
+import { Highlight, JumpHint } from "../components/jump.slint";
 import { MacroFormDialog } from "../components/macro-form.slint";
 
 // One macro of the list; the chosen one has the accent border like the entries of the section list.
@@ -53,7 +53,8 @@ component MacroRow inherits Rectangle {
 
 // The list at the left: the offered macros; when all are hidden, a hint that leads to the settings.
 component MacroList inherits Rectangle {
-    property <length> row-step: Theme.row-height-small + Theme.spacing;
+    // The pitch of the other lists (networks, printers): rows closer than the gap between cards.
+    property <length> row-step: Theme.list-row-pitch;
 
     offered := ScrollList {
         visible: Printer.macros.length > 0;
@@ -176,6 +177,8 @@ component RunCard inherits Rectangle {
             }
         }
     }
+    // A message of the run leads here.
+    Highlight { place: Place.routine-macro; name: Printer.macro-selected; }
 }
 
 export component MacrosTab inherits Rectangle {
