@@ -23,13 +23,16 @@ pub struct PidTuning {
 
 impl PidTuning {
     /// `None` for what cannot be tuned: an unknown object or a `temperature_fan`, which Klipper's heater manager does
-    /// not know (`PID_CALIBRATE` looks the name up there).
+    /// not know (`PID_CALIBRATE` looks the name up there), and a heater with `control: watermark`. Klipper would tune
+    /// that one too and switch it to PID (`pid_calibrate.py` l.53), but bang-bang is chosen on purpose, a relay for
+    /// example (Frank 2026-11-28). A result already waiting for `SAVE_CONFIG` is still shown.
     pub fn of(status: &PrinterStatus, object: &str) -> Option<Self> {
         let heater = status.heater(object).filter(|heater| !heater.cools_only)?;
-        Some(Self {
+        let pending = pending_values(status, object);
+        (heater.pid.is_some() || pending.is_some()).then(|| Self {
             default_target: default_target(heater),
             current: heater.pid,
-            pending: pending_values(status, object),
+            pending,
         })
     }
 }
@@ -101,7 +104,10 @@ mod tests {
         let options = [("control", "pid"), ("pid_Kp", "23.104"), ("pid_Ki", "1.152"), ("pid_Kd", "115.840")];
         let current = PidValues { kp: 21.527, ki: 1.063, kd: 108.982 };
         let status = status(
-            vec![Heater { pid: Some(current), ..heater("extruder") }, heater("heater_bed")],
+            vec![
+                Heater { pid: Some(current), ..heater("extruder") },
+                Heater { pid: Some(current), ..heater("heater_bed") },
+            ],
             vec![pending("extruder", &options), pending("stepper_x", &[("position_endstop", "1")])],
         );
 
@@ -119,6 +125,18 @@ mod tests {
         assert_eq!(pending_values(&status(vec![], vec![other]), "extruder"), None);
         let removed = PendingSection { section: "extruder".into(), options: None };
         assert_eq!(pending_values(&status(vec![], vec![removed]), "extruder"), None);
+    }
+
+    #[test]
+    fn a_watermark_heater_is_offered_only_with_a_waiting_result() {
+        let bang_bang = heater("heater_generic chamber");
+        assert_eq!(PidTuning::of(&status(vec![bang_bang.clone()], vec![]), "heater_generic chamber"), None);
+
+        let options = [("control", "pid"), ("pid_Kp", "60"), ("pid_Ki", "2"), ("pid_Kd", "400")];
+        let tuned = status(vec![bang_bang], vec![pending("heater_generic chamber", &options)]);
+        let tuning = PidTuning::of(&tuned, "heater_generic chamber").expect("the result waits for Save config");
+        assert_eq!(tuning.current, None);
+        assert!(tuning.pending.is_some());
     }
 
     #[test]

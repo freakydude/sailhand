@@ -61,7 +61,9 @@ probe still counts as the probe).
     each with what the configuration file holds and what waits for Save config, buttons to put the nozzle or the sensor
     over the bed centre, and a hint when the toolhead is outside the 3–10 mm the tap steps need. The values come from
     Klipper's status, so steps started elsewhere show up as well.
-  - **PID** tab: the heaters that can be tuned (`PID_CALIBRATE`) in a list, beside it the temperature chart of the
+  - **PID** tab: the heaters with `control: pid` in a list (a `watermark` heater stays as it is: Klipper would tune it
+    too and switch it to PID, but bang-bang is usually chosen on purpose, a relay for example; a result already waiting
+    for Save config still shows), beside it the temperature chart of the
     chosen one, target field (230 °C for a nozzle, 70 °C for the bed, typed for other heaters), the PID values
     printer.cfg has now, and "PID tune" after a confirmation; it is off during a print. Whenever Klipper holds new PID
     values for the heater, started here, in the console or in Mainsail, the tab shows them beside the old ones with
@@ -113,7 +115,7 @@ probe still counts as the probe).
 
 | ![A prepared file on the print page](screenshots/print-prepared.png) | ![Pause at a layer](screenshots/layer-pause.png)            |
 | -------------------------------------------------------------------- | ----------------------------------------------------------- |
-| A prepared file with the filament check per tool                     | Pause at a layer, with the pause planned for layer 44       |
+| A prepared file with the filament check per tool                     | Pause at a layer, with the pause planned for layer 46       |
 | ![Exclude objects on the bed map](screenshots/objects-map.png)       | ![Routines › Bed](screenshots/calibrate.png)                 |
 | Exclude objects: the bed map with the outlines from the slicer       | Routines › Bed: bed screws, Z height and the bed mesh       |
 | ![Bed mesh map](screenshots/bed-mesh.png)                   | ![Eddy probe setup](screenshots/eddy-probe.png)                       |

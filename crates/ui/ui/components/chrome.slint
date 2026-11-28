@@ -141,6 +141,9 @@ export component StatusBar inherits Rectangle {
     // A long printer name is shortened; the state beside it needs the room.
     property <length> printer-name-max-width: 160px;
     property <length> counter-height: 28px;
+    // The ground of the field and the emergency stop keep the same distance to the edge as the chosen entry of the
+    // navigation beside them.
+    property <length> inset: Theme.spacing-small;
 
     height: Theme.status-bar-height;
     background: Theme.surface;
@@ -164,11 +167,16 @@ export component StatusBar inherits Rectangle {
         // tap opens the message list, or closes it.
         field := Rectangle {
             horizontal-stretch: 1;
-            border-radius: Theme.radius;
-            background: field-touch.pressed || Navigation.messages-open ? Theme.surface-active
-                : Printer.status-message-visible ? StateIcons.severity-tint(Printer.status-message-severity) : transparent;
             accessible-role: button;
             accessible-label: Printer.status-message-visible ? Printer.status-message : StateIcons.summary-label();
+            // The touch area keeps the full height.
+            Rectangle {
+                y: root.inset;
+                height: parent.height - 2 * root.inset;
+                border-radius: Theme.radius;
+                background: field-touch.pressed || Navigation.messages-open ? Theme.surface-active
+                    : Printer.status-message-visible ? StateIcons.severity-tint(Printer.status-message-severity) : transparent;
+            }
             field-touch := TouchArea {
                 clicked => { root.toggle-messages(); }
             }
@@ -275,7 +283,7 @@ export component StatusBar inherits Rectangle {
             // beside a tinted message or fault chip the orange clashed (Frank 2026-11-26).
             if root.shows-progress: Rectangle {
                 x: 6px;
-                y: parent.height - 4px;
+                y: parent.height - root.inset - 4px;
                 width: parent.width - 12px;
                 height: 3px;
                 border-radius: 1.5px;
@@ -341,8 +349,8 @@ export component StatusBar inherits Rectangle {
             }
         }
         VerticalLayout {
-            padding-top: Theme.spacing-tight;
-            padding-bottom: Theme.spacing-tight;
+            padding-top: root.inset;
+            padding-bottom: root.inset;
             Rectangle {
                 width: 64px;
                 border-radius: Theme.radius;
