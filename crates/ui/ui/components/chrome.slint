@@ -142,7 +142,7 @@ export component StatusBar inherits Rectangle {
     property <length> printer-name-max-width: 160px;
     property <length> counter-height: 28px;
 
-    height: 44px;
+    height: Theme.status-bar-height;
     background: Theme.surface;
 
     function toggle-messages() {
@@ -222,15 +222,9 @@ export component StatusBar inherits Rectangle {
                 if !Printer.status-message-visible && root.activity == "": HorizontalLayout {
                     horizontal-stretch: 1;
                     spacing: Theme.spacing;
+                    // The state's symbol is on Print in the navigation, beside this field.
                     if Printer.fault-visible: FaultChip {
                         cross-axis-self-alignment: center;
-                    }
-                    if !Printer.fault-visible || !Printer.fault-is-state: Image {
-                        cross-axis-self-alignment: center;
-                        source: StateIcons.summary();
-                        colorize: StateIcons.severity-color(root.severity);
-                        width: Theme.icon-large;
-                        height: Theme.icon-large;
                     }
                     // The progress of a print stays whole when the detail is shortened.
                     HorizontalLayout {
@@ -377,6 +371,8 @@ component NavItem inherits Rectangle {
     in property <string> label;
     in property <Page> page;
     in property <bool> enabled: true;
+    // The symbol in the colour of a state (Print shows the printer's); neutral follows the navigation's colours.
+    in property <Severity> severity: Severity.neutral;
     // Something needs a look: a small dot in the top right corner.
     in property <bool> warn;
     // System stays marked on its pages below (updates, printers, settings, network, console), so a tap leads back.
@@ -404,7 +400,7 @@ component NavItem inherits Rectangle {
         Image {
             cross-axis-self-alignment: center;
             source: root.icon;
-            colorize: root.content;
+            colorize: root.severity == Severity.neutral ? root.content : StateIcons.severity-color(root.severity);
             width: Theme.icon-nav;
             height: Theme.icon-nav;
         }
@@ -429,17 +425,24 @@ component NavItem inherits Rectangle {
 }
 
 export component NavRail inherits Rectangle {
-    width: 76px;
+    width: Theme.nav-rail-width;
     background: Theme.surface;
 
     VerticalLayout {
         padding: Theme.spacing-small;
         spacing: Theme.spacing-tight;
-        NavItem { icon: Icons.nav-printer; label: @tr("Print"); enabled: Printer.ready; }
+        // In the top left corner: the printer's state as its symbol; a tap leads to the print as before.
+        NavItem {
+            icon: StateIcons.summary();
+            severity: StateIcons.summary-severity();
+            label: @tr("Print");
+            enabled: Printer.ready;
+        }
         NavItem { icon: Icons.nav-move; label: @tr("Motion"); page: Page.motion; enabled: Printer.ready; }
         NavItem { icon: Icons.nav-thermal; label: @tr("Thermal"); page: Page.temperature; enabled: Printer.ready; }
         NavItem { icon: Icons.nav-filament; label: @tr("Filament"); page: Page.filament; enabled: Printer.ready; }
         if Printer.has-changer: NavItem { icon: Icons.nav-changer; label: @tr("Changer"); page: Page.changer; enabled: Printer.ready; warn: Printer.has-changer-sensors && Printer.filament-sensor-runout; }
+        NavItem { icon: Icons.nav-macros; label: @tr("Routines"); page: Page.routines; enabled: Printer.ready; }
         NavItem { icon: Icons.nav-system; label: @tr("System"); page: Page.system; }
     }
 }

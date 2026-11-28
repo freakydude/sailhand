@@ -1,7 +1,7 @@
 //! Heat tabs, nozzle history, PID tuning, stalled fan and taps while temperatures change.
 
 use crate::session::Session;
-use sailhand::{Backlight, HeatTab, Navigation, Page, Printer};
+use sailhand::{Actions, Backlight, HeatTab, Navigation, Page, Printer, RoutinesTab};
 use sailhand_core::sources::moonraker_server::wled::{self, StripAction};
 use sailhand_core::{Command, Snapshot};
 use slint::ComponentHandle;
@@ -71,16 +71,19 @@ pub(super) fn heat_tabs(session: &mut Session) -> Result<(), String> {
     Ok(())
 }
 
-/// The nozzle's dialog with the PID footer: the start, `PID_CALIBRATE` running (the status bar names it, the dialog
-/// shows nothing of its own), and the result Klipper keeps for `SAVE_CONFIG`. The tuning is short at 60 °C in the fake.
+/// The PID tab with the nozzle: the start, `PID_CALIBRATE` running (the status bar names it, the tab shows its own
+/// note), and the result Klipper keeps for `SAVE_CONFIG`. The tuning is short at 60 °C in the fake.
 fn pid_tuning(session: &mut Session) -> Result<(), String> {
     const TARGET: f64 = 60.0;
     const RUNNING_LABEL: &str = "PID tune";
     // A command shows as running after one second (`LONG_COMMAND`); the tuning in the fake lasts a few seconds.
     const NAMED_WITHIN: Duration = Duration::from_secs(5);
-    session.presenter.open_history("extruder");
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Pid);
+    session.window.global::<Navigation>().set_page(Page::Routines);
+    session.pump(Duration::from_millis(300));
+    session.window.global::<Actions>().invoke_follow_pid("extruder".into());
     session.pump(Duration::from_secs(1));
-    session.capture("temperature-pid-start")?;
+    session.capture("routines-pid-start")?;
     session.service.send(Command::PidCalibrate { heater: "extruder".into(), target: TARGET });
     let deadline = Instant::now() + NAMED_WITHIN;
     while session.window.global::<Printer>().get_running_command() != RUNNING_LABEL {
@@ -89,13 +92,14 @@ fn pid_tuning(session: &mut Session) -> Result<(), String> {
         }
         session.pump(Duration::from_millis(50));
     }
-    session.capture("temperature-pid-running")?;
+    session.capture("routines-pid-running")?;
     session.wait_until("Klipper to keep the found values", |snapshot| {
         snapshot.status.calibration.pending.iter().any(|section| section.section == "extruder")
     })?;
     session.pump(Duration::from_secs(1));
-    session.capture("temperature-pid-done")?;
-    session.presenter.close_history();
+    session.capture("routines-pid-done")?;
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Macros);
+    session.window.global::<Navigation>().set_page(Page::Temperature);
     session.service.send(Command::SaveConfig);
     session.wait_until("the saved values", |snapshot| snapshot.status.calibration.pending.is_empty())
 }

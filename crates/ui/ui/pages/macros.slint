@@ -9,7 +9,7 @@ import { Actions, Confirm, MacroRunState, Navigation, Place, Printer, Severity }
 import { ButtonKind, IconButton, ScrollList } from "../components/controls.slint";
 import { BusyWheel } from "../components/busy-wheel.slint";
 import { ConsoleRow, ConsoleRows } from "../components/console-row.slint";
-import { JumpHint } from "../components/jump.slint";
+import { Highlight, JumpHint } from "../components/jump.slint";
 import { MacroFormDialog } from "../components/macro-form.slint";
 
 // One macro of the list; the chosen one has the accent border like the entries of the section list.
@@ -176,6 +176,8 @@ component RunCard inherits Rectangle {
             }
         }
     }
+    // A message of the run leads here.
+    Highlight { place: Place.routine-macro; name: Printer.macro-selected; }
 }
 
 export component MacrosTab inherits Rectangle {

@@ -1,14 +1,14 @@
-// Preview: the Macros tab with a finished run. Open in the Slint preview or render with scripts/ui-preview.sh.
+// Preview: the Macros tab with a run Klipper refused. Open in the Slint preview or render with scripts/ui-preview.sh.
 
 import { AppWindow } from "../app.slint";
-import { MotionTab, Navigation, Page, Printer, MacroRunState } from "../state.slint";
+import { RoutinesTab, Navigation, Page, Printer, MacroRunState } from "../state.slint";
 import { Sample } from "sample.slint";
 
-export component MotionMacrosDonePreview inherits AppWindow {
+export component RoutinesMacrosFailedPreview inherits AppWindow {
     init => {
         Sample.ready-printer();
-        Navigation.page = Page.motion;
-        Navigation.motion-tab = MotionTab.macros;
+        Navigation.page = Page.routines;
+        Navigation.routines-tab = RoutinesTab.macros;
         Printer.macros = ["HEAT_SOAK", "LOAD_FILAMENT", "PARK", "PARK_TOOLHEAD_AT_THE_FRONT_CENTER_FOR_NOZZLE_CHECKS", "PRINT_END", "PRINT_START", "UNLOAD_FILAMENT"];
         Printer.macro-items = [
             { name: "HEAT_SOAK", visible: true },
@@ -21,14 +21,12 @@ export component MotionMacrosDonePreview inherits AppWindow {
             { name: "UNLOAD_FILAMENT", visible: true },
         ];
         Printer.macro-selected = "HEAT_SOAK";
-        Printer.macro-run = { state: MacroRunState.done, script: "HEAT_SOAK TEMP=60 MINUTES=10", started: "14:02:11", duration: "1 min 29 s", error: "" };
+        Printer.macro-run = { state: MacroRunState.failed, script: "HEAT_SOAK TEMP=60 MINUTES=10", started: "14:02:11", duration: "", error: "Must home axis first: 150.000 150.000 10.000 [0.000]" };
         Printer.macro-run-lines = [
             { text: "Heat soak: 10 min at 60 °C", time: "14:02:11", show-time: true, is-command: false, is-error: false },
             { text: "Bed: 24.1 °C, target 60.0 °C", time: "14:02:11", show-time: false, is-command: false, is-error: false },
             { text: "Bed: 41.8 °C, target 60.0 °C", time: "14:03:02", show-time: true, is-command: false, is-error: false },
-            { text: "Bed: 59.7 °C, target 60.0 °C", time: "14:04:15", show-time: true, is-command: false, is-error: false },
-            { text: "Chamber: 31.2 °C, waiting for the soak time to pass before the next step of the print start sequence", time: "14:04:15", show-time: false, is-command: false, is-error: false },
-            { text: "Soak time over, bed stays at 60 °C", time: "14:12:11", show-time: true, is-command: false, is-error: false },
+            { text: "Must home axis first: 150.000 150.000 10.000 [0.000]", time: "14:03:02", show-time: false, is-command: false, is-error: true },
         ];
     }
 }

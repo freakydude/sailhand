@@ -2,7 +2,7 @@
 //! Moonraker keeps in its temperature store (`server.temperature_store`) is shown; objects it does not keep (for
 //! example stepper drivers) have no history.
 
-use crate::{AppWindow, ChartLabel, Navigation, PidValueItem, Printer, chart, format, items};
+use crate::{AppWindow, ChartLabel, Navigation, PidHeaterItem, PidValueItem, Printer, chart, format, items};
 use sailhand_core::domain::pid_tuning::PidTuning;
 use sailhand_core::sources::PrinterStatus;
 use sailhand_core::sources::klipper::PidValues;
@@ -26,6 +26,10 @@ pub struct HistoryView {
     shown: RefCell<Option<Shown>>,
     seconds_since_refresh: Cell<u32>,
     pid_result: Rc<VecModel<PidValueItem>>,
+    /// The heaters the PID tab lists: every one that can be tuned.
+    pid_heaters: Rc<VecModel<PidHeaterItem>>,
+    /// The PID tab is on the screen and the chart follows a heater of its list without the dialog.
+    following: Cell<bool>,
     /// The target of this display's `PID_CALIBRATE` for the shown heater while Klipper has not answered it.
     pid_running: Cell<Option<f64>>,
 }
@@ -34,17 +38,63 @@ impl HistoryView {
     pub fn new(window: &AppWindow) -> Self {
         let pid_result = Rc::<VecModel<PidValueItem>>::default();
         window.global::<Printer>().set_history_pid_result(ModelRc::from(pid_result.clone()));
+        let pid_heaters = Rc::<VecModel<PidHeaterItem>>::default();
+        window.global::<Printer>().set_pid_heaters(ModelRc::from(pid_heaters.clone()));
         Self {
             window: window.as_weak(),
             shown: RefCell::default(),
             seconds_since_refresh: Cell::default(),
             pid_result,
+            pid_heaters,
+            following: Cell::default(),
             pid_running: Cell::default(),
         }
     }
 
-    /// Opens the chart; the values come with the next answer of the store.
+    /// Opens the chart in its dialog; the values come with the next answer of the store.
     pub fn open(&self, object: &str, status: &PrinterStatus) {
+        self.following.set(false);
+        self.show(object, status);
+        if let Some(window) = self.window.upgrade() {
+            window.global::<Navigation>().set_history_open(true);
+        }
+    }
+
+    /// Lets the chart follow a heater for the PID tab, without the dialog. An empty name or one that cannot be tuned
+    /// takes the heater followed before, else the first one of the list; false if there is none.
+    pub fn follow(&self, object: &str, status: &PrinterStatus) -> bool {
+        let tunable = tunable_heaters(status);
+        let shown = self.shown.borrow().as_ref().map(|shown| shown.object.clone());
+        let chosen = [Some(object.to_owned()), shown, tunable.first().cloned()]
+            .into_iter()
+            .flatten()
+            .find(|candidate| tunable.contains(candidate));
+        let Some(chosen) = chosen else { return false };
+        self.following.set(true);
+        self.show(&chosen, status);
+        true
+    }
+
+    /// The PID tab left the screen: the chart no longer follows. A dialog opened meanwhile is not touched.
+    pub fn unfollow(&self) {
+        if self.following.replace(false) {
+            self.close();
+        }
+    }
+
+    /// True while the PID tab follows but shows no heater of its list (after a printer change, or a heater that went
+    /// away): it follows again.
+    pub fn needs_follow(&self, status: &PrinterStatus) -> bool {
+        if !self.following.get() {
+            return false;
+        }
+        let tunable = tunable_heaters(status);
+        let shown = self.shown.borrow();
+        let still_listed = shown.as_ref().is_some_and(|shown| tunable.contains(&shown.object));
+        !still_listed && !tunable.is_empty()
+    }
+
+    fn show(&self, object: &str, status: &PrinterStatus) {
         self.pid_running.set(None);
         *self.shown.borrow_mut() = Some(Shown {
             object: object.to_owned(),
@@ -52,9 +102,6 @@ impl HistoryView {
             series: TemperatureSeries::default(),
         });
         self.seconds_since_refresh.set(0);
-        if let Some(window) = self.window.upgrade() {
-            window.global::<Navigation>().set_history_open(true);
-        }
         self.render(status);
         self.show_pid(status);
     }
@@ -80,6 +127,15 @@ impl HistoryView {
     /// own, also when the tuning was started elsewhere.
     pub fn show_pid(&self, status: &PrinterStatus) {
         let Some(window) = self.window.upgrade() else { return };
+        let heaters = tunable_heaters(status)
+            .into_iter()
+            .map(|object| PidHeaterItem {
+                label: label(status, &object).into(),
+                value: current_text(status, &object).into(),
+                object: object.into(),
+            })
+            .collect();
+        items::replace_rows(&self.pid_heaters, heaters);
         let shown = self.shown.borrow();
         let Some(shown) = shown.as_ref() else { return };
         let printer = window.global::<Printer>();
@@ -150,6 +206,16 @@ impl HistoryView {
         printer.set_history_temperature_labels(labels(grid.temperatures));
         printer.set_history_time_labels(labels(grid.times));
     }
+}
+
+/// The heaters `PID_CALIBRATE` can tune, in the order Klipper reports them (the nozzle first).
+fn tunable_heaters(status: &PrinterStatus) -> Vec<String> {
+    status
+        .heaters
+        .iter()
+        .filter(|heater| PidTuning::of(status, &heater.object).is_some())
+        .map(|heater| heater.object.clone())
+        .collect()
 }
 
 /// `Kp 21.527 · Ki 1.063 · Kd 108.982`: the digits Klipper writes (`PID_CALIBRATE` rounds to three decimals).

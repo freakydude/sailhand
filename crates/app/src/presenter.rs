@@ -20,7 +20,7 @@ use crate::spool_view::{SpoolView, SpoolmanLine};
 use crate::status_view::StatusView;
 use crate::{
     AppWindow, Backlight, FanItem, FilamentSensorItem, HeadItem, HeaterItem, HostInterfaceItem, LedEffectItem, LedItem,
-    MotionTab, Navigation, Network, Page, PowerItem, Printer, SensorItem, ToolMatchItem, TuningItem, UiSettings,
+    Navigation, Network, Page, PowerItem, Printer, RoutinesTab, SensorItem, ToolMatchItem, TuningItem, UiSettings,
     UpdateItem,
 };
 use crate::{axes_view, bed_map, format, thumbnail, view};
@@ -35,6 +35,7 @@ use sailhand_core::domain::machine_tree::LaneId;
 use sailhand_core::domain::manual_probe::Direction;
 use sailhand_core::domain::prepared_job::PreparedJob;
 use sailhand_core::domain::print_hints;
+use sailhand_core::domain::routines::{Routine, routine_of};
 use sailhand_core::domain::spools::{self, Lane};
 use sailhand_core::domain::temperature_limits::{BarReading, HeaterWatch};
 use sailhand_core::domain::{chamber, estimates, light, pause};
@@ -272,6 +273,9 @@ impl Presenter {
         self.cache.borrow_mut().single_lane_spool = active_spool.clone().filter(|_| lanes.len() == 1);
         self.show_temperatures(&printer, snapshot, &lanes);
         self.history.show_pid(status);
+        if self.history.needs_follow(status) {
+            self.follow_pid("");
+        }
         self.print_objects.show(&printer, &status.print_objects, status.motion.bed());
         self.show_capabilities(&printer, snapshot);
         self.show_filament(&printer, snapshot, &lanes, active_spool.as_ref());
@@ -596,6 +600,20 @@ impl Presenter {
         self.history.close();
     }
 
+    /// The PID tab chose a heater (empty: the one before, else the first): its history is shown there, not in the
+    /// dialog.
+    pub fn follow_pid(&self, object: &str) {
+        if self.history.follow(object, &self.cache.borrow().snapshot.status) {
+            self.show_pid_runs();
+            self.service.query(Query::TemperatureHistory);
+        }
+    }
+
+    /// The PID tab is gone.
+    pub fn unfollow_pid(&self) {
+        self.history.unfollow();
+    }
+
     /// The job the print page shows (Klipper's, or one Klipper lost) with its texts; also called every second by the
     /// clock timer for the times.
     pub fn refresh_job_texts(&self) {
@@ -668,6 +686,7 @@ impl Presenter {
             }
             Event::ConsoleHistory(lines) => {
                 self.console.show_history(&lines);
+                self.show_console_jump();
                 let changed = self.prompt.show_history(&lines, &self.cache.borrow().snapshot.status);
                 if changed {
                     // A covered prompt carries lines into the pause banner.
@@ -686,7 +705,7 @@ impl Presenter {
                 }
                 if line.kind == ConsoleKind::Response {
                     let seen = on_run_card && self.run_card_visible();
-                    self.status.console_response(&line, self.is_printing(), seen);
+                    self.status.console_response(&line, self.is_printing(), seen, self.running_routine());
                 }
             }
             Event::Spoolman(state) => self.store_spoolman(*state),
@@ -703,7 +722,7 @@ impl Presenter {
                 let shown = format!("{}: {message}", command_name(&command));
                 let seen = matches!(&command, Command::RunMacro { name } if self.macros.is_selected(name))
                     && self.run_card_visible();
-                self.status.command_failed(&shown, &message, seen);
+                self.status.command_failed(&shown, &message, seen, routine_of(&command));
             }
             Event::LoginFailed(message) => {
                 if let Some(window) = self.window.upgrade() {
@@ -888,7 +907,7 @@ impl Presenter {
         self.show_job_matches(&window.global::<Printer>(), &snapshot, &lanes);
     }
 
-    /// A macro was chosen on the Macros tab.
+    /// A macro was chosen on the Routines › Macros tab.
     pub fn select_macro(&self, name: &str) {
         let Some(window) = self.window.upgrade() else { return };
         self.macros.select(&window.global::<Printer>(), name);
@@ -898,8 +917,8 @@ impl Presenter {
     fn run_card_visible(&self) -> bool {
         let Some(window) = self.window.upgrade() else { return false };
         let navigation = window.global::<Navigation>();
-        navigation.get_page() == Page::Motion
-            && navigation.get_motion_tab() == MotionTab::Macros
+        navigation.get_page() == Page::Routines
+            && navigation.get_routines_tab() == RoutinesTab::Macros
             && !window.global::<Backlight>().get_off()
     }
 
@@ -956,6 +975,34 @@ impl Presenter {
 
     pub fn clear_messages(&self) {
         self.status.clear();
+    }
+
+    /// A message leads into the console: its row is marked once the console's history has arrived.
+    pub fn show_message_in_console(&self, id: &str) {
+        let Some(window) = self.window.upgrade() else { return };
+        // A new target even when it is the row of the last jump, so that the console scrolls to it again.
+        window.global::<Printer>().set_console_target(-1);
+        match id.parse().ok().and_then(|id| self.status.console_anchor(id)) {
+            Some((time, text)) => self.console.jump_to(time, text),
+            None => window.global::<Navigation>().invoke_highlight_done(),
+        }
+    }
+
+    /// Marks the row a message led to. A row only near in time does not light up: the jump ends there.
+    fn show_console_jump(&self) {
+        let Some(row) = self.console.take_jump() else { return };
+        let Some(window) = self.window.upgrade() else { return };
+        let printer = window.global::<Printer>();
+        printer.set_console_target(i32::try_from(row.index).unwrap_or(i32::MAX));
+        printer.set_console_target_exact(row.exact);
+        if !row.exact {
+            window.global::<Navigation>().invoke_highlight_done();
+        }
+    }
+
+    /// The routine of this display that waits for its answer, newest first: what Klipper says now belongs to it.
+    fn running_routine(&self) -> Option<Routine> {
+        self.running_commands.borrow().iter().rev().find_map(|(_, command, _)| routine_of(command))
     }
 
     /// Moonraker is configured for Spoolman and reported that it does not reach it.

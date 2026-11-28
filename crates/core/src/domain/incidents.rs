@@ -11,7 +11,8 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use crate::domain::faults::{Fault, FaultKind};
+use crate::domain::faults::{Fault, FaultKind, Place};
+use crate::domain::routines::Routine;
 
 const LIMIT: usize = 50;
 /// Klipper reports a rejected command twice: as RPC error and as `!!` response. A response this close to the
@@ -50,6 +51,21 @@ pub struct Incident {
     pub ended: Option<f64>,
     /// Never counts as unread: feedback on an action of this display, or an information whose state is over.
     settled: bool,
+    /// The routine of this display it came from: a tap leads back there.
+    routine: Option<Routine>,
+    /// What Klipper's console shows of it: the response itself, or the reason a rejected command repeats there.
+    console_text: Option<String>,
+}
+
+/// Where a tap on an incident leads; every incident leads somewhere (Frank 2026-11-28).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Target<'a> {
+    /// A fault that stands: the place where it is dealt with.
+    Place(Place),
+    /// The routine it came from: the macro's run card, the calibration.
+    Routine(&'a Routine),
+    /// Klipper's console where it happened: the line with `text` nearest to `time`, else the time alone.
+    Console { time: f64, text: Option<&'a str> },
 }
 
 impl Incident {
@@ -70,6 +86,15 @@ impl Incident {
     /// A fault whose state has not ended yet.
     pub fn is_standing(&self) -> bool {
         self.category == Category::Fault && self.ended.is_none()
+    }
+
+    /// Where a tap on it leads.
+    pub fn target(&self) -> Target<'_> {
+        match (self.fault(), &self.routine) {
+            (Some(fault), _) if self.is_standing() => Target::Place(fault.place()),
+            (_, Some(routine)) => Target::Routine(routine),
+            _ => Target::Console { time: self.time, text: self.console_text.as_deref() },
+        }
     }
 
     /// How long the status bar shows it as the event.
@@ -117,7 +142,16 @@ impl IncidentLog {
     fn push(&mut self, category: Category, subject: Subject, now: f64, settled: bool) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
-        self.incidents.push_back(Incident { id, category, subject, time: now, ended: None, settled });
+        self.incidents.push_back(Incident {
+            id,
+            category,
+            subject,
+            time: now,
+            ended: None,
+            settled,
+            routine: None,
+            console_text: None,
+        });
         if self.incidents.len() > LIMIT
             && let Some(oldest) = self.incidents.iter().position(|incident| !incident.is_standing())
         {
@@ -163,20 +197,49 @@ impl IncidentLog {
             self.incidents.retain(|incident| incident.id != id);
         }
         self.last_failure = Some((reason.to_owned(), now));
-        self.add_error(shown, now)
+        let id = self.add_error(shown, now);
+        self.set_console_text(id, reason);
+        id
     }
 
     /// A `!!` or `//` response of Klipper. Returns `None` for an error that repeats the failure just reported.
     pub fn add_response(&mut self, text: &str, is_error: bool, now: f64) -> Option<u64> {
         if !is_error {
-            return Some(self.add_info(text, now));
+            let id = self.add_info(text, now);
+            self.set_console_text(id, text);
+            return Some(id);
         }
         if self.repeats_last_failure(text, now) {
             return None;
         }
         let id = self.add_error(text, now);
+        self.set_console_text(id, text);
         self.last_error_response = Some((id, text.to_owned(), now));
         Some(id)
+    }
+
+    /// A `//` response for the list only, like [`IncidentLog::add_info_quietly`], found in the console by its text.
+    pub fn add_response_quietly(&mut self, text: &str, now: f64) -> u64 {
+        let id = self.add_info_quietly(text, now);
+        self.set_console_text(id, text);
+        id
+    }
+
+    fn set_console_text(&mut self, id: u64, text: &str) {
+        if let Some(incident) = self.find_mut(id) {
+            incident.console_text = Some(text.to_owned());
+        }
+    }
+
+    /// It came from a routine of this display: a tap on it leads back there.
+    pub fn set_routine(&mut self, id: u64, routine: Routine) {
+        if let Some(incident) = self.find_mut(id) {
+            incident.routine = Some(routine);
+        }
+    }
+
+    fn find_mut(&mut self, id: u64) -> Option<&mut Incident> {
+        self.incidents.iter_mut().find(|incident| incident.id == id)
     }
 
     fn repeats_last_failure(&self, text: &str, now: f64) -> bool {
@@ -291,7 +354,7 @@ impl IncidentLog {
     /// The incident stood on the screen somewhere else as well (the run card of a macro): it stays in the list but no
     /// longer counts as unread.
     pub fn settle(&mut self, id: u64) {
-        if let Some(incident) = self.incidents.iter_mut().find(|incident| incident.id == id) {
+        if let Some(incident) = self.find_mut(id) {
             incident.settled = true;
         }
     }
@@ -330,6 +393,45 @@ impl IncidentLog {
             self.event = None;
         }
         self.boundary = self.next_id;
+    }
+}
+
+/// The row of the console a jump lands on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConsoleRow {
+    pub index: usize,
+    /// The row shows the incident itself (found by its text), so it may light up; otherwise only its time is near.
+    pub exact: bool,
+}
+
+/// Finds the console row for [`Target::Console`] among `rows` (time, text), oldest first. A row containing the first
+/// line of `text` wins, the nearest in time among several; without one, the first row from `time` on, else the last
+/// row. Live lines carry this display's clock and the history Moonraker's, so the text decides and the time only
+/// tells equal lines apart.
+pub fn console_row<'a>(
+    rows: impl IntoIterator<Item = (f64, &'a str)>,
+    time: f64,
+    text: Option<&str>,
+) -> Option<ConsoleRow> {
+    let needle = text.and_then(|text| text.lines().next()).map(str::trim).filter(|line| !line.is_empty());
+    let mut by_text: Option<(usize, f64)> = None;
+    let mut by_time = None;
+    let mut last = None;
+    for (index, (row_time, row_text)) in rows.into_iter().enumerate() {
+        last = Some(index);
+        if by_time.is_none() && row_time >= time {
+            by_time = Some(index);
+        }
+        if needle.is_some_and(|needle| row_text.contains(needle)) {
+            let distance = (row_time - time).abs();
+            if by_text.is_none_or(|(_, best)| distance < best) {
+                by_text = Some((index, distance));
+            }
+        }
+    }
+    match by_text {
+        Some((index, _)) => Some(ConsoleRow { index, exact: true }),
+        None => by_time.or(last).map(|index| ConsoleRow { index, exact: false }),
     }
 }
 
@@ -584,5 +686,83 @@ mod tests {
 
         assert_eq!(event_text(&log), Some("fault"));
         assert_eq!(log.unread(), Unread { errors: 1, infos: 1 });
+    }
+
+    fn target_of(log: &IncidentLog, id: u64) -> Target<'_> {
+        log.get(id).map(Incident::target).expect("the incident is in the log")
+    }
+
+    #[test]
+    fn a_standing_fault_leads_to_its_place_and_after_its_end_to_the_console() {
+        let mut log = IncidentLog::default();
+        let id = log.sync_faults(&[paused()], 5.0).expect("the pause began");
+        assert_eq!(target_of(&log, id), Target::Place(Place::Print));
+
+        log.sync_faults(&[], 9.0);
+
+        assert_eq!(target_of(&log, id), Target::Console { time: 5.0, text: None });
+    }
+
+    #[test]
+    fn a_response_is_found_in_the_console_by_its_text() {
+        let mut log = IncidentLog::default();
+        let id = log.add_response("Must home axis first: 0 0", true, 3.0).expect("a new error");
+        let quiet = log.add_response_quietly("Layer 3", 4.0);
+
+        assert_eq!(target_of(&log, id), Target::Console { time: 3.0, text: Some("Must home axis first: 0 0") });
+        assert_eq!(target_of(&log, quiet), Target::Console { time: 4.0, text: Some("Layer 3") });
+    }
+
+    #[test]
+    fn a_rejected_command_is_found_by_the_reason_klipper_repeats() {
+        let mut log = IncidentLog::default();
+        let id = log.add_command_failure("G1 X10: Must home axis first", "Must home axis first", 10.0);
+
+        assert_eq!(target_of(&log, id), Target::Console { time: 10.0, text: Some("Must home axis first") });
+    }
+
+    #[test]
+    fn an_incident_of_a_routine_leads_back_to_it() {
+        let mut log = IncidentLog::default();
+        let id = log.add_response("Heat soak done", false, 1.0).expect("an information");
+        log.set_routine(id, Routine::Macro("HEAT_SOAK".into()));
+
+        assert_eq!(target_of(&log, id), Target::Routine(&Routine::Macro("HEAT_SOAK".into())));
+    }
+
+    #[test]
+    fn a_note_of_the_app_leads_to_the_console_at_its_time() {
+        let mut log = IncidentLog::default();
+        let id = log.add_feedback("Planned pauses cleared", 7.0);
+
+        assert_eq!(target_of(&log, id), Target::Console { time: 7.0, text: None });
+    }
+
+    #[test]
+    fn the_console_row_with_the_text_nearest_in_time_wins() {
+        let rows = [(1.0, "G28"), (2.0, "Must home axis first: 0 0"), (8.0, "ok"), (9.0, "Must home axis first: 0 0")];
+
+        let found = console_row(rows, 8.5, Some("Must home axis first"));
+
+        assert_eq!(found, Some(ConsoleRow { index: 3, exact: true }));
+    }
+
+    #[test]
+    fn without_the_text_the_console_row_follows_the_time() {
+        let rows = [(1.0, "G28"), (5.0, "ok"), (9.0, "M105")];
+
+        assert_eq!(console_row(rows, 4.0, None), Some(ConsoleRow { index: 1, exact: false }));
+        assert_eq!(console_row(rows, 4.0, Some("missing")), Some(ConsoleRow { index: 1, exact: false }));
+        assert_eq!(console_row(rows, 20.0, None), Some(ConsoleRow { index: 2, exact: false }), "else the last row");
+        assert_eq!(console_row([], 1.0, Some("x")), None);
+    }
+
+    #[test]
+    fn only_the_first_line_of_a_message_is_searched() {
+        let rows = [(1.0, "PID parameters: pid_Kp=22.2"), (1.0, "The SAVE_CONFIG command will update")];
+
+        let found = console_row(rows, 1.0, Some("PID parameters: pid_Kp=22.2\nThe SAVE_CONFIG command will update"));
+
+        assert_eq!(found, Some(ConsoleRow { index: 0, exact: true }));
     }
 }

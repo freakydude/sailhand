@@ -14,6 +14,7 @@ import { EddyProbeDialog } from "components/eddy-probe-dialog.slint";
 import { LightPanel } from "components/light.slint";
 import { PrintPage } from "pages/print.slint";
 import { MotionPage } from "pages/motion.slint";
+import { RoutinesPage } from "pages/routines.slint";
 import { TemperaturePage } from "pages/temperature.slint";
 import { FilamentPage } from "pages/filament.slint";
 import { ChangerPage } from "pages/changer.slint";
@@ -27,7 +28,7 @@ import { ConnectionPage } from "pages/connection.slint";
 export { Actions, Backlight, Confirm, EddyDialog, MeshDialogs, MmuDialogs, Navigation, Network, Page, Printer, PrinterChoice, SpoolPicker, UiSettings }
 export { PromptDialog } from "state.slint";
 export { PromptButtonItem, PromptRowItem, PromptStyle } from "structs.slint";
-export { AxesAreaItem, AxisEntryItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, FileItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, MmuGateItem, MmuGatePage, MmuPageRange, MmuSensorItem, AfcHubReturnItem, AfcToolItem, SpoolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ConsoleItem, MessageItem, MacroItem, MacroRun, MacroRunState, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, ScrewItem, EddyValue, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "state.slint";
+export { AxesAreaItem, AxisEntryItem, ChartLabel, PidValueItem, PidHeaterItem, FilamentPathItem, PathPartItem, PathPartKind, FileItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, MmuGateItem, MmuGatePage, MmuPageRange, MmuSensorItem, AfcHubReturnItem, AfcToolItem, SpoolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ConsoleItem, MessageItem, MacroItem, MacroRun, MacroRunState, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, ScrewItem, EddyValue, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "state.slint";
 
 export component AppWindow inherits Window {
     title: "Sailhand";
@@ -57,12 +58,18 @@ export component AppWindow inherits Window {
     property <bool> printer-ready: Printer.ready;
     property <bool> motion-locked: Printer.motion-locked;
 
+    // The PID tab shows the history of a heater like the dialog: while it is on the screen, Rust follows that heater.
+    property <bool> pid-visible: Navigation.page == Page.routines && Navigation.pid-shown;
+
     changed network-visible => { Network.watch(self.network-visible); }
+    changed pid-visible => {
+        if (self.pid-visible) { Actions.follow-pid(""); } else { Actions.unfollow-pid(); }
+    }
     changed printers-visible => { PrinterChoice.watch(self.printers-visible); }
     // A print that starts (here or elsewhere) must not get the moves of an open dialog or confirmation: they close. The
-    // Filament page stays with its moves locked, the Motion page shows Tune only.
+    // Filament page stays with its moves locked, the Motion page shows Tune only, the Routines page Macros.
     changed motion-locked => {
-        if (self.motion-locked && (Navigation.page == Page.filament || Navigation.page == Page.motion)) {
+        if (self.motion-locked && (Navigation.page == Page.filament || Navigation.page == Page.motion || Navigation.page == Page.routines)) {
             Dialogs.dismiss();
         }
     }
@@ -72,19 +79,21 @@ export component AppWindow inherits Window {
         if (!self.printer-ready && !self.page-works-offline) { Dialogs.dismiss(); }
     }
 
-    VerticalLayout {
+    // The navigation runs over the full height, its first entry (Print, with the state's symbol) in the top left
+    // corner; the status bar starts beside it (Frank 2026-11-28).
+    HorizontalLayout {
         // Standby draws nothing but the black cover below.
         visible: !Backlight.off;
         padding-left: root.safe-area-insets.left;
         padding-top: root.safe-area-insets.top;
         padding-right: root.safe-area-insets.right;
         padding-bottom: root.safe-area-insets.bottom;
-        StatusBar { }
-        HorizontalLayout {
-            vertical-stretch: 1;
-            NavRail { }
+        NavRail { }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            StatusBar { }
             Rectangle {
-                horizontal-stretch: 1;
+                vertical-stretch: 1;
                 // The window sizes the content area, not the page in it: an element with `x` and `y` does not pass
                 // its size constraints to its parent (since edition 1.19 an `if` page would).
                 Rectangle {
@@ -92,6 +101,7 @@ export component AppWindow inherits Window {
                     y: 0;
                     if Navigation.page == Page.print: PrintPage { }
                     if Navigation.page == Page.motion: MotionPage { }
+                    if Navigation.page == Page.routines: RoutinesPage { }
                     if Navigation.page == Page.temperature: TemperaturePage { }
                     if Navigation.page == Page.filament: FilamentPage { }
                     if Navigation.page == Page.changer: ChangerPage { }

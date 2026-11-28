@@ -1,4 +1,4 @@
-//! The Calibrate tab and the dialog of a calibration mode: what the printer offers, the bed mesh with its profiles,
+//! The Bed tab of Routines and the dialog of a calibration mode: what the printer offers, the bed mesh with its profiles,
 //! the screw results, the waiting mode and what `SAVE_CONFIG` would write.
 
 use crate::bed_mesh_view;

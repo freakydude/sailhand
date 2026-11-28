@@ -2,7 +2,8 @@
 
 use super::STATUS_BAR_LIGHT;
 use crate::session::Session;
-use sailhand::{Navigation, Page, Printer};
+use sailhand::{Navigation, Page, Place, Printer, Severity};
+use sailhand_core::Command;
 use slint::{ComponentHandle, Model};
 use std::time::Duration;
 
@@ -77,7 +78,41 @@ pub(super) fn typing(session: &mut Session) -> Result<(), String> {
     session.window.global::<Navigation>().set_light_open(false);
     session.pump(Duration::from_millis(300));
     session.key(Key::Return);
-    expect_no_console_command(session, "J", "a tap on the status bar, then Enter")
+    expect_no_console_command(session, "J", "a tap on the status bar, then Enter")?;
+    message_jump(session)
+}
+
+/// A rejected command is a message that leads into the console, where the row of Klipper's error lights up.
+fn message_jump(session: &mut Session) -> Result<(), String> {
+    session.window.global::<Navigation>().set_page(Page::Print);
+    session.service.send(Command::RunGcode { script: "SET_HEATER_TEMPERATURE HEATER=missing TARGET=50".into() });
+    session.pump(Duration::from_millis(800));
+    let message = session
+        .window
+        .global::<Printer>()
+        .get_messages()
+        .iter()
+        .find(|message| message.severity == Severity::Error && message.place == Place::Console)
+        .ok_or("the rejected command left no message that leads into the console")?;
+    let navigation = session.window.global::<Navigation>();
+    navigation.invoke_open_messages();
+    session.pump(Duration::from_millis(300));
+    session.capture("messages-jump")?;
+    session.window.global::<Navigation>().invoke_go(message.place, message.place_name);
+    session.render();
+    for _ in 0..40 {
+        if session.window.global::<Printer>().get_console_target() >= 0 {
+            break;
+        }
+        session.pump(Duration::from_millis(50));
+    }
+    // The first pulse of the highlight is on for half a phase.
+    session.pump(Duration::from_millis(150));
+    session.capture("console-jump")?;
+    if !session.window.global::<Printer>().get_console_target_exact() {
+        return Err(format!("the jump did not find the row of {:?} in the console", message.text));
+    }
+    Ok(())
 }
 
 /// A command that was typed into a closed entry must not reach the printer.

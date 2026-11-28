@@ -2,10 +2,10 @@
 
 import { Icons } from "icons.slint";
 import { Theme } from "theme.slint";
-import { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroRun, MacroRunState, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
+import { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, PidHeaterItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroRun, MacroRunState, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
 import { Actions } from "actions.slint";
 
-export { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroRun, MacroRunState, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
+export { Severity, Page, Place, AxesAreaItem, AxisEntryItem, HeaterItem, HeadItem, SensorItem, FanItem, LedItem, LedEffectItem, TuningItem, FilamentSensorItem, BarColors, MmuGateItem, MmuGatePage, MmuPageRange, ToolMatchItem, ChartLabel, PidValueItem, PidHeaterItem, FilamentPathItem, PathPartItem, PathPartKind, SpoolItem, MmuSensorItem, AfcHubReturnItem, AfcToolItem, PrintObjectItem, BedMapItem, BedMeshMap, MeshCellItem, MeshFrameItem, ScrewItem, EddyValue, FileItem, ConsoleItem, MessageItem, MacroItem, MacroRun, MacroRunState, MacroParamItem, PowerItem, UpdateItem, PresetItem, ChoiceItem, PrinterItem, WifiItem, AdapterStatus, AdapterItem, HostInterfaceItem } from "structs.slint";
 export { Actions } from "actions.slint";
 
 
@@ -170,9 +170,11 @@ export global Printer {
     in property <string> history-grid-path;
     in property <[ChartLabel]> history-temperature-labels;
     in property <[ChartLabel]> history-time-labels;
-    // PID tuning in the dialog of a heater: it can be tuned (not a sensor, not a fan), the target to start with (0:
-    // the person types it), the target range as a note for the keypad, the values in printer.cfg ("Kp 21.527 · …",
-    // empty if it has none) and the values Klipper keeps for SAVE_CONFIG, whoever ran `PID_CALIBRATE`.
+    // The heaters that can be PID tuned (not a sensor, not a fan): the list of the Routines > PID tab.
+    in property <[PidHeaterItem]> pid-heaters;
+    // PID tuning of the heater the history follows: it can be tuned, the target to start with (0: the person types
+    // it), the target range as a note for the keypad, the values in printer.cfg ("Kp 21.527 · …", empty if it has
+    // none) and the values Klipper keeps for SAVE_CONFIG, whoever ran `PID_CALIBRATE`.
     in property <bool> history-pid-available;
     in property <float> history-pid-target;
     in property <string> history-pid-range;
@@ -336,10 +338,10 @@ export global Printer {
     in property <[string]> macros;
     // Every macro of the printer with its visibility, for the settings.
     in property <[MacroItem]> macro-items;
-    // Parameter form of the macro chosen on the Macros tab.
+    // Parameter form of the macro chosen on the Routines › Macros tab.
     in property <string> macro-form-name;
     in property <[MacroParamItem]> macro-form;
-    // The macro chosen on the Macros tab (`Actions.select-macro`), empty before the first choice; its last run from
+    // The macro chosen on the Routines › Macros tab (`Actions.select-macro`), empty before the first choice; its last run from
     // this display and the answers during that run, in the order they came.
     in property <string> macro-selected;
     in property <MacroRun> macro-run;
@@ -398,6 +400,10 @@ export global Printer {
     // Names of all marked files, for the question before deleting them.
     in property <[string]> marked-file-names;
     in property <[ConsoleItem]> console;
+    // The row of `console` a jump from a message landed on, -1 for none; `exact`: the row shows the message itself, so it
+    // lights up; otherwise only its time is near.
+    in property <int> console-target: -1;
+    in property <bool> console-target-exact;
     in property <[PowerItem]> power-devices;
     in property <[UpdateItem]> updates;
     // How many of them have an update waiting.
@@ -646,7 +652,11 @@ export enum FilamentTab { gates, extruder }
 export enum ChangerTab { tools, service, sensors }
 
 // Tabs of the Motion page; a tab the printer has nothing for falls back, and while printing only Tune and Expert work.
-export enum MotionTab { axes, tune, expert, calibrate, macros }
+export enum MotionTab { axes, tune, expert }
+
+// Tabs of the Routines page (what starts a procedure); a tab the printer has nothing for falls back to the first one
+// that has content, and while printing only Macros work.
+export enum RoutinesTab { macros, bed, pid }
 
 // Tabs of the Thermal page; a tab the printer has nothing for falls back to the heaters.
 export enum HeatTab { heaters, fans, sensors }
@@ -673,6 +683,10 @@ export global Navigation {
     in-out property <SettingsSection> settings-section;
     // Motion page; the page shows Tune instead while a print locks the axes, so the choice comes back afterwards.
     in-out property <MotionTab> motion-tab;
+    // Routines page; like `motion-tab` the page shows Macros instead while a print locks the axes.
+    in-out property <RoutinesTab> routines-tab;
+    // Set by the Routines page: its PID tab is on the screen, so the temperature history follows the chosen heater.
+    in-out property <bool> pid-shown;
     // Motion > Axes shows the live pad instead of the buttons; back to the buttons whenever the page opens.
     in-out property <bool> axes-live;
     in-out property <bool> history-open;
@@ -727,6 +741,19 @@ export global Navigation {
             self.page = Page.filament;
         } else if (place == Place.console) {
             self.page = Page.console;
+            // Rust finds the row of the message once the console has loaded.
+            if (name != "") { Actions.show-message-in-console(name); }
+        } else if (place == Place.routine-macro) {
+            self.routines-tab = RoutinesTab.macros;
+            self.page = Page.routines;
+            Actions.select-macro(name);
+        } else if (place == Place.routine-bed) {
+            self.routines-tab = RoutinesTab.bed;
+            self.page = Page.routines;
+        } else if (place == Place.routine-pid) {
+            self.routines-tab = RoutinesTab.pid;
+            self.page = Page.routines;
+            Actions.follow-pid(name);
         } else if (place == Place.macro-settings) {
             self.settings-section = SettingsSection.macros;
             self.page = Page.settings;
@@ -735,7 +762,9 @@ export global Navigation {
             self.page = Page.temperature;
         }
         self.highlight-name = name;
-        self.highlight = place;
+        // Only where an element lights up for it; the Bed tab is the place itself, and the console without a message
+        // has no row to show.
+        self.highlight = place == Place.routine-bed || (place == Place.console && name == "") ? Place.none : place;
     }
 
     public function highlight-done() {
@@ -824,12 +853,12 @@ export global Confirm {
     }
 }
 
-// The setup of the Eddy probe, opened from the Calibrate tab.
+// The setup of the Eddy probe, opened from the Routines › Bed tab.
 export global EddyDialog {
     in-out property <bool> open;
 }
 
-// The map of the active bed mesh and the saved profiles, opened from the Calibrate tab.
+// The map of the active bed mesh and the saved profiles, opened from the Routines › Bed tab.
 export global MeshDialogs {
     in-out property <bool> map-open;
     in-out property <bool> profiles-open;

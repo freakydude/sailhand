@@ -24,6 +24,7 @@ pub mod pause;
 pub mod pid_tuning;
 pub mod prepared_job;
 pub mod print_hints;
+pub mod routines;
 pub mod screen_wake;
 pub mod spools;
 pub mod temperature_limits;

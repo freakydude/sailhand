@@ -4,7 +4,9 @@ use super::mmu::{mmu_bypass, mmu_gate, mmu_service, mmu_tools_and_groups};
 use super::prompt::macro_prompt;
 use super::temperature::heat_tabs;
 use crate::session::Session;
-use sailhand::{Actions, ChangerTab, Confirm, FilamentTab, MmuDialogs, MotionTab, Navigation, Page, Printer};
+use sailhand::{
+    Actions, ChangerTab, Confirm, FilamentTab, MmuDialogs, MotionTab, Navigation, Page, Printer, RoutinesTab,
+};
 use sailhand_core::Command;
 use sailhand_core::sources::klipper::tuning::TuningKey;
 use slint::{ComponentHandle, Model, SharedString};
@@ -89,6 +91,7 @@ pub(super) fn pages(session: &mut Session) -> Result<(), String> {
     // The console comes before the Thermal page, whose fan test would fill it with the fake's commands.
     for (page, name) in [
         (Page::Motion, "motion"),
+        (Page::Routines, "routines"),
         (Page::Console, "console"),
         (Page::Temperature, "temperature"),
         (Page::Filament, "filament"),
@@ -113,6 +116,13 @@ pub(super) fn pages(session: &mut Session) -> Result<(), String> {
             }
             session.window.global::<Navigation>().set_motion_tab(MotionTab::Axes);
             live_pad(session)?;
+        }
+        if page == Page::Routines {
+            for (tab, name) in [(RoutinesTab::Bed, "routines-bed"), (RoutinesTab::Pid, "routines-pid")] {
+                session.window.global::<Navigation>().set_routines_tab(tab);
+                session.show_page(Page::Routines, name)?;
+            }
+            session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Macros);
         }
         if page == Page::Filament && session.presenter.snapshot().status.mmu.is_some() {
             session.window.global::<Navigation>().set_filament_tab(FilamentTab::Gates);

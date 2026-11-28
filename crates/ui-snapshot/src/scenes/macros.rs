@@ -1,9 +1,9 @@
-//! Motion › Macros: the fake's demo macro answers and then takes a while; the run card shows it running with the
-//! answers so far (`motion-macros-running`), then done (`motion-macros-done`). What stood on the card is not unread.
+//! Routines › Macros: the fake's demo macro answers and then takes a while; the run card shows it running with the
+//! answers so far (`routines-macros-running`), then done (`routines-macros-done`). What stood on the card is not unread.
 //! Which macros the tab lists is chosen under System › Settings › Macros (`settings-macros`).
 
 use crate::session::Session;
-use sailhand::{Actions, MacroRunState, MotionTab, Navigation, Page, Place, Printer};
+use sailhand::{Actions, MacroRunState, Navigation, Page, Place, Printer, RoutinesTab};
 use slint::{ComponentHandle, Model};
 use std::time::Duration;
 
@@ -11,8 +11,8 @@ use std::time::Duration;
 const DEMO_MACRO: &str = "DEMO_HEAT_SOAK";
 
 pub(super) fn macros(session: &mut Session) -> Result<(), String> {
-    session.window.global::<Navigation>().set_motion_tab(MotionTab::Macros);
-    session.window.global::<Navigation>().set_page(Page::Motion);
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Macros);
+    session.window.global::<Navigation>().set_page(Page::Routines);
     session.window.global::<Actions>().invoke_select_macro(DEMO_MACRO.into());
     session.pump(Duration::from_millis(100));
     expect_state(session, MacroRunState::None, "before the first run")?;
@@ -25,15 +25,15 @@ pub(super) fn macros(session: &mut Session) -> Result<(), String> {
     if answers != 2 {
         return Err(format!("the run card shows {answers} answers instead of 2"));
     }
-    session.capture("motion-macros-running")?;
+    session.capture("routines-macros-running")?;
 
     session.pump(Duration::from_millis(2000));
     expect_state(session, MacroRunState::Done, "after its answer")?;
     if session.window.global::<Printer>().get_unread_count() != unread_before {
         return Err("answers that stood on the run card count as unread".into());
     }
-    session.capture("motion-macros-done")?;
-    session.window.global::<Navigation>().set_motion_tab(MotionTab::Axes);
+    session.capture("routines-macros-done")?;
+    session.window.global::<Navigation>().set_routines_tab(RoutinesTab::Macros);
 
     session.window.global::<Navigation>().invoke_go(Place::MacroSettings, "".into());
     session.pump(Duration::from_millis(300));

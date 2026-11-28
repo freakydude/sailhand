@@ -5,7 +5,7 @@
 // What a state or a message means; each meaning has one colour (`StateIcons.severity-color`).
 export enum Severity { neutral, calm, fine, running, attention, error, info }
 
-export enum Page { print, motion, temperature, filament, changer, console, system, settings, updates, network, printers }
+export enum Page { print, motion, temperature, filament, changer, routines, console, system, settings, updates, network, printers }
 
 // The scale under a temperature (`TemperatureScale`), decided in the core; `shown` is false without a `max_temp`.
 export struct ScaleItem {
@@ -31,6 +31,13 @@ export struct ScaleItem {
     level: Severity,
     // "max 300 °C".
     max-text: string,
+}
+
+// A heater the PID tab offers; `value` is its reading, e.g. "212.4 / 215 °C".
+export struct PidHeaterItem {
+    object: string,
+    label: string,
+    value: string,
 }
 
 export struct HeaterItem {
@@ -496,9 +503,9 @@ export struct ConsoleItem {
     is-error: bool,
 }
 
-// Where a person deals with an incident; a message jumps there (`Navigation.go`). `heater` names its heater in
-// `Navigation.place-name`.
-export enum Place { none, connection, print, afc-service, changer-service, spools, heater, console, macro-settings }
+// Where a person deals with an incident; a message jumps there (`Navigation.go(place, name)`). The name tells which
+// one: the heater of `heater` and `routine-pid`, the macro of `routine-macro`, the message of `console` (its id).
+export enum Place { none, connection, print, afc-service, changer-service, spools, heater, console, macro-settings, routine-macro, routine-bed, routine-pid }
 
 export struct MessageItem {
     id: int,
@@ -510,7 +517,9 @@ export struct MessageItem {
     tinted: bool,
     // A fault whose state has not ended.
     standing: bool,
+    // Where a tap leads; every message leads somewhere, the console at least.
     place: Place,
+    place-name: string,
     top: length,
     height: length,
 }
@@ -523,7 +532,7 @@ export struct MacroItem {
 // How the last run of a macro from this display went; `none` before the first run in this session.
 export enum MacroRunState { none, running, done, failed }
 
-// The last run of the chosen macro from this display (Motion › Macros). The answers Klipper sent while it ran are
+// The last run of the chosen macro from this display (Routines › Macros). The answers Klipper sent while it ran are
 // `Printer.macro-run-lines`: "during the run", not "of this macro" (Klipper does not tell which command wrote a line).
 export struct MacroRun {
     state: MacroRunState,

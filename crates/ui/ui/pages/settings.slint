@@ -1,6 +1,6 @@
 // The Settings tab of the system pages: settings of this display, picked from a list on the left (display, the host's
 // network, status bar of the printer in use, access to the printer, logs, macros, about). A section without content is
-// not listed. The macros shown on Motion › Macros are chosen here; temperature presets are in the settings file, see
+// not listed. The macros shown on Routines › Macros are chosen here; temperature presets are in the settings file, see
 // docs/configuration.md.
 
 import { Theme } from "../theme.slint";
@@ -254,14 +254,14 @@ component StatusBarCard inherits Card {
     }
 }
 
-// Which macros Motion › Macros offers: every macro of the printer with a switch.
+// Which macros Routines › Macros offers: every macro of the printer with a switch.
 component MacrosCard inherits Card {
     title: @tr("Macros · {}", PrinterChoice.active-name);
     icon: Icons.nav-macros;
 
     Text {
         overflow: elide;
-        text: @tr("Macros switched off here are left out of Motion › Macros on this printer.");
+        text: @tr("Macros switched off here are left out of Routines › Macros on this printer.");
         color: Theme.muted;
         font-size: Theme.font-small;
         wrap: word-wrap;

@@ -150,7 +150,8 @@ history, and the job Klipper lost in a shutdown or restart, which the print page
 
 ## UI (`crates/ui/ui`)
 
-- `app.slint`: window 800x480 (grows with the screen), status bar, navigation rail, page, overlays.
+- `app.slint`: window 800x480 (grows with the screen), navigation rail over the full height, status bar and page
+  beside it, overlays.
 - `state.slint`: globals `Printer` (read-only), `UiSettings`, `Navigation`, `Confirm` and the other state globals; it re-exports
   `structs.slint` (enums and row structs) and `actions.slint` (`Actions`, callbacks). `state-icons.slint`: `StateIcons`.
 - `components/`: `controls.slint` (IconButton, ToggleRow, StepSelector, TabBar, Card, ValueTile, ProgressBar,
@@ -163,7 +164,7 @@ history, and the job Klipper lost in a shutdown or restart, which the print page
   `spool-strip.slint`, `busy-wheel.slint`. Messages (errors and informations) are kept in `status_log.rs`, pure logic
   that `status_view.rs` shows. Colours of filament are one struct, `BarColors` (up to six colours and whether they
   run along the filament), which `FilamentSwatch` draws.
-- `pages/`: print (with the file list in `files.slint` and the prepared file in `print-prepared.slint`), motion (tabs Axes, Tune and Expert from `tune.slint`, Calibrate in `calibrate.slint` and Macros in `macros.slint`), temperature, filament (with Happy Hare the
+- `pages/`: print (with the file list in `files.slint` and the prepared file in `print-prepared.slint`), motion (tabs Axes, Tune and Expert from `tune.slint`), routines (tabs Macros in `macros.slint`, Bed in `calibrate.slint` and PID in `pid.slint`), temperature, filament (with Happy Hare the
   tabs Gates in `mmu.slint` with the dialogs in `mmu-dialogs.slint`, Extruder, Tools in `mmu-tools.slint` and
   Service in `mmu-service.slint`;
   otherwise the extruder alone), and the system tabs: system (machine), updates, printers, settings (sections Display, Network
@@ -172,8 +173,8 @@ history, and the job Klipper lost in a shutdown or restart, which the print page
 - `preview/`: small components with sample data (`sample.slint`) for `scripts/ui-preview.sh`, never imported by the app.
 - Pages only read globals and only call `Actions`/`Confirm`; printer-related logic belongs in the core.
 - Touch rules: controls at least 56 px (`Theme.touch`), confirmation for cancel, emergency stop and host actions;
-  Filament and the Axes and Calibrate tabs of Motion are locked while printing; the window leaves Filament when a print
-  starts, Motion shows its Tune tab instead (`app.slint`, `motion.slint`).
+  Filament, the Axes tab of Motion and the Bed and PID tabs of Routines are locked while printing; the window leaves Filament when a print
+  starts, Motion shows its Tune tab and Routines its Macros tab instead (`app.slint`, `motion.slint`, `routines.slint`).
 - No scrolling except for lists of any length (files, macros, console, networks): `ScrollList` with a slim bar that
   can be dragged or tapped. Coarse values such as the fan speed use `TouchSlider`. One list per kind of item.
 - Texts in English with `@tr(...)`, so translations can be added later without code changes.

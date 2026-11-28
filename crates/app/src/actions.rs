@@ -127,6 +127,8 @@ fn bind_temperatures(
     actions
         .on_open_history(with_presenter(presenter, |presenter, object: SharedString| presenter.open_history(&object)));
     actions.on_close_history(run_presenter(presenter, Presenter::close_history));
+    actions.on_follow_pid(with_presenter(presenter, |presenter, object: SharedString| presenter.follow_pid(&object)));
+    actions.on_unfollow_pid(run_presenter(presenter, Presenter::unfollow_pid));
     let pid_service = service.clone();
     actions.on_pid_tune(move |heater, target| {
         pid_service.send(Command::PidCalibrate { heater: heater.into(), target: f64::from(target) });
@@ -442,6 +444,9 @@ fn bind_status_messages(actions: &Actions, presenter: &Rc<Presenter>) {
     actions.on_messages_opened(run_presenter(presenter, Presenter::open_messages));
     actions.on_messages_closed(run_presenter(presenter, Presenter::close_messages));
     actions.on_messages_clear(run_presenter(presenter, Presenter::clear_messages));
+    actions.on_show_message_in_console(with_presenter(presenter, |presenter, id: SharedString| {
+        presenter.show_message_in_console(&id);
+    }));
 }
 
 /// Planning a pause at a layer. A short notice confirms what was sent; the plan itself shows on the Layer tile once

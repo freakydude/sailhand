@@ -222,12 +222,7 @@ impl Session {
     /// Renders the window into `<out>/<number>-<name>.png` and prints the path.
     pub fn capture(&mut self, name: &str) -> Result<(), String> {
         self.pump(SETTLE_TIME);
-        let (width, height) = (self.options.width as usize, self.options.height as usize);
-        let mut buffer = vec![Rgb8Pixel::default(); width * height];
-        self.platform_window.request_redraw();
-        self.platform_window.draw_if_needed(|renderer| {
-            renderer.render(&mut buffer, width);
-        });
+        let buffer = self.render();
         let bytes: Vec<u8> = buffer.iter().flat_map(|pixel| [pixel.r, pixel.g, pixel.b]).collect();
         self.count += 1;
         let path = self.options.out.join(format!("{:02}-{name}.png", self.count));
@@ -237,6 +232,18 @@ impl Session {
             .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
         println!("{}", path.display());
         Ok(())
+    }
+
+    /// Draws a frame as the event loop would. Only then does Slint create the elements a change brought (a page that
+    /// opens and loads its data on `init`).
+    pub fn render(&mut self) -> Vec<Rgb8Pixel> {
+        let (width, height) = (self.options.width as usize, self.options.height as usize);
+        let mut buffer = vec![Rgb8Pixel::default(); width * height];
+        self.platform_window.request_redraw();
+        self.platform_window.draw_if_needed(|renderer| {
+            renderer.render(&mut buffer, width);
+        });
+        buffer
     }
 
     /// Puts a finger down at the position (logical pixels of the window).
